@@ -69,3 +69,19 @@ func TestDefaultUserRevenueValues(t *testing.T) {
 		t.Errorf("MonthSec = %v, want 2592000", c.MonthSec)
 	}
 }
+
+func TestDefaultCompetitors(t *testing.T) {
+	cs := DefaultCompetitors()
+	if len(cs) != 7 {
+		t.Fatalf("competitors = %d, want 7", len(cs))
+	}
+	if cs[0].Name != "OpenAI" || cs[0].Quality[model.DimCapability] != 55 {
+		t.Errorf("first competitor wrong: %+v", cs[0])
+	}
+	// every competitor has a name and some capability
+	for _, c := range cs {
+		if c.Name == "" {
+			t.Errorf("competitor missing name: %+v", c)
+		}
+	}
+}

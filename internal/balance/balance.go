@@ -69,3 +69,23 @@ func Default() Config {
 	c.MonthSec = 2592000
 	return c
 }
+
+// qvec builds a per-dimension vector in dim order: capability, efficiency,
+// safety, speed.
+func qvec(capability, efficiency, safety, speed float64) [model.NumQualityDims]float64 {
+	return [model.NumQualityDims]float64{capability, efficiency, safety, speed}
+}
+
+// DefaultCompetitors returns the v0 named-competitor roster (spec §17.1).
+// GrowthPerSec is tunable v0; specialty dimensions grow fastest.
+func DefaultCompetitors() []model.Competitor {
+	return []model.Competitor{
+		{Name: "OpenAI", Quality: qvec(55, 35, 35, 45), GrowthPerSec: qvec(0.0001, 0.00003, 0.00003, 0.00005)},
+		{Name: "Anthropic", Quality: qvec(52, 30, 55, 40), GrowthPerSec: qvec(0.00007, 0.00003, 0.0001, 0.00004)},
+		{Name: "xAI", Quality: qvec(45, 30, 20, 50), GrowthPerSec: qvec(0.0001, 0.00003, 0.00002, 0.00008)},
+		{Name: "DeepSeek", Quality: qvec(42, 60, 25, 45), GrowthPerSec: qvec(0.00005, 0.0001, 0.00003, 0.00005)},
+		{Name: "Qwen", Quality: qvec(40, 50, 30, 45), GrowthPerSec: qvec(0.00005, 0.00007, 0.00004, 0.00005)},
+		{Name: "Zhipu", Quality: qvec(40, 45, 35, 38), GrowthPerSec: qvec(0.00004, 0.00005, 0.00004, 0.00003)},
+		{Name: "Gemini", Quality: qvec(48, 40, 42, 45), GrowthPerSec: qvec(0.00006, 0.00005, 0.00006, 0.00005)},
+	}
+}
