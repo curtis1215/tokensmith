@@ -44,4 +44,60 @@ type GameState struct {
 	Research      Research
 	WindowRnD     float64 // token-sourced R&D accrued in the current soft-cap window
 	WindowElapsed float64 // seconds elapsed in the current soft-cap window
+	Compute       Compute
+	Models        []Model
+	HasTraining   bool
+	Training      TrainingJob
 }
+
+// QualityDim indexes Model.Quality.
+type QualityDim int
+
+const (
+	DimCapability  QualityDim = iota // 0 能力
+	DimEfficiency                    // 1 成本效率
+	DimSafety                        // 2 安全
+	DimSpeed                         // 3 速度
+	NumQualityDims = 4
+)
+
+// Model is a trained AI model.
+type Model struct {
+	Gen     int
+	Quality [NumQualityDims]float64
+	Users   float64
+	Price   float64 // per user per month; player-set
+	Online  bool
+}
+
+// TrainingJob is the single in-progress training (plan-02).
+type TrainingJob struct {
+	Gen           int
+	Alloc         [NumQualityDims]float64 // budget fraction per dim; sums to ~1
+	Price         float64
+	WorkRemaining float64 // GPU-seconds of training work left
+}
+
+// Compute holds compute capacity (plan-02: training pool only).
+type Compute struct {
+	TrainingCapacity float64 // rented training GPUs
+}
+
+// Command is a validated player action applied via sim.Apply.
+type Command interface{ commandMarker() }
+
+// StartTraining begins training a new model of the given generation.
+type StartTraining struct {
+	Gen   int
+	Alloc [NumQualityDims]float64
+	Price float64
+}
+
+func (StartTraining) commandMarker() {}
+
+// RentTrainingCompute adjusts rented training capacity by Delta (may be negative).
+type RentTrainingCompute struct {
+	Delta float64
+}
+
+func (RentTrainingCompute) commandMarker() {}
