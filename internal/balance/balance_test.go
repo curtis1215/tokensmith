@@ -24,3 +24,25 @@ func TestDefaultV0Values(t *testing.T) {
 		t.Errorf("soft cap params wrong: %+v", c)
 	}
 }
+
+func TestDefaultGenAndTrainValues(t *testing.T) {
+	c := Default()
+	if MaxGen != 5 {
+		t.Fatalf("MaxGen = %d, want 5", MaxGen)
+	}
+	if c.GenRnDCost[1] != 20000 || c.GenRnDCost[5] != 40000000 {
+		t.Errorf("GenRnDCost wrong: %v", c.GenRnDCost)
+	}
+	if c.GenTrainWorkGPUSec[1] != 1800 { // 0.5 GPU·hr * 3600
+		t.Errorf("GenTrainWorkGPUSec[1] = %v, want 1800", c.GenTrainWorkGPUSec[1])
+	}
+	if c.GenTrainWorkGPUSec[4] != 108000 { // 30 GPU·hr * 3600
+		t.Errorf("GenTrainWorkGPUSec[4] = %v, want 108000", c.GenTrainWorkGPUSec[4])
+	}
+	if c.GenQualityCap[1] != 25 || c.GenQualityCap[5] != 100 {
+		t.Errorf("GenQualityCap wrong: %v", c.GenQualityCap)
+	}
+	if c.TrainRentPerGPUSec != 0.01 {
+		t.Errorf("TrainRentPerGPUSec = %v, want 0.01", c.TrainRentPerGPUSec)
+	}
+}
