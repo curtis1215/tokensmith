@@ -33,3 +33,58 @@ func TestApplyRentTrainingComputeFloorsAtZero(t *testing.T) {
 		t.Fatalf("capacity = %v, want 0", ns.Compute.TrainingCapacity)
 	}
 }
+
+func validAlloc() [model.NumQualityDims]float64 {
+	return [model.NumQualityDims]float64{0.4, 0.2, 0.2, 0.2}
+}
+
+func TestApplyStartTrainingSuccess(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Resources.RnD = 50000 // > Gen1 cost 20000
+	cmd := model.StartTraining{Gen: 1, Alloc: validAlloc(), Price: 12}
+	ns, err := Apply(s, cmd, b)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if ns.Resources.RnD != 30000 { // 50000 - 20000
+		t.Errorf("RnD = %v, want 30000", ns.Resources.RnD)
+	}
+	if !ns.HasTraining || ns.Training.Gen != 1 || ns.Training.Price != 12 {
+		t.Errorf("training not set: %+v", ns.Training)
+	}
+	if ns.Training.WorkRemaining != 1800 {
+		t.Errorf("WorkRemaining = %v, want 1800", ns.Training.WorkRemaining)
+	}
+	if s.HasTraining {
+		t.Errorf("Apply mutated input")
+	}
+}
+
+func TestApplyStartTrainingErrors(t *testing.T) {
+	b := balance.Default()
+	base := model.GameState{}
+	base.Resources.RnD = 50000
+
+	// already training
+	busy := base
+	busy.HasTraining = true
+	if _, err := Apply(busy, model.StartTraining{Gen: 1, Alloc: validAlloc()}, b); err != ErrTrainingInProgress {
+		t.Errorf("busy: err = %v, want ErrTrainingInProgress", err)
+	}
+	// invalid gen
+	if _, err := Apply(base, model.StartTraining{Gen: 9, Alloc: validAlloc()}, b); err != ErrInvalidGen {
+		t.Errorf("gen: err = %v, want ErrInvalidGen", err)
+	}
+	// bad alloc (sums to 0.8)
+	bad := [model.NumQualityDims]float64{0.4, 0.2, 0.1, 0.1}
+	if _, err := Apply(base, model.StartTraining{Gen: 1, Alloc: bad}, b); err != ErrInvalidAlloc {
+		t.Errorf("alloc: err = %v, want ErrInvalidAlloc", err)
+	}
+	// insufficient R&D
+	poor := model.GameState{}
+	poor.Resources.RnD = 100
+	if _, err := Apply(poor, model.StartTraining{Gen: 1, Alloc: validAlloc()}, b); err != ErrInsufficientRnD {
+		t.Errorf("poor: err = %v, want ErrInsufficientRnD", err)
+	}
+}
