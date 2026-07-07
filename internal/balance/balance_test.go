@@ -46,3 +46,26 @@ func TestDefaultGenAndTrainValues(t *testing.T) {
 		t.Errorf("TrainRentPerGPUSec = %v, want 0.01", c.TrainRentPerGPUSec)
 	}
 }
+
+func TestDefaultUserRevenueValues(t *testing.T) {
+	c := Default()
+	if c.QualityWeights[model.DimCapability] != 0.4 {
+		t.Errorf("QualityWeights[cap] = %v, want 0.4", c.QualityWeights[model.DimCapability])
+	}
+	var sum float64
+	for _, w := range c.QualityWeights {
+		sum += w
+	}
+	if sum < 0.999 || sum > 1.001 {
+		t.Errorf("QualityWeights sum = %v, want 1", sum)
+	}
+	if c.UserTargetPerAppeal != 1000 || c.UserGrowthRate != 0.001 {
+		t.Errorf("user growth params wrong: %+v", c)
+	}
+	if c.RefPrice != 12 || c.PriceElasticity != 1.5 {
+		t.Errorf("pricing params wrong: %+v", c)
+	}
+	if c.MonthSec != 2592000 {
+		t.Errorf("MonthSec = %v, want 2592000", c.MonthSec)
+	}
+}

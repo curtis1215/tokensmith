@@ -30,6 +30,14 @@ type Config struct {
 	// TrainRentPerGPUSec is cash cost per rented training GPU per second.
 	// v0 placeholder (spec §12 $500/GPU·day is game-day-ambiguous); tune later.
 	TrainRentPerGPUSec float64
+
+	// User attraction & subscription revenue (plan-03).
+	QualityWeights      [model.NumQualityDims]float64 // aggregate appeal weights
+	UserTargetPerAppeal float64                       // target users per unit appeal
+	UserGrowthRate      float64                       // per-second approach to target
+	RefPrice            float64                       // reference price for elasticity
+	PriceElasticity     float64                       // demand elasticity exponent
+	MonthSec            float64                       // seconds per month (price is per-user-per-month)
 }
 
 // Default returns the v0 calibration (spec §12).
@@ -52,5 +60,12 @@ func Default() Config {
 	c.GenTrainWorkGPUSec = [MaxGen + 1]float64{0, 1800, 7200, 28800, 108000, 432000}
 	c.GenQualityCap = [MaxGen + 1]float64{0, 25, 45, 65, 82, 100}
 	c.TrainRentPerGPUSec = 0.01
+
+	c.QualityWeights = [model.NumQualityDims]float64{0.4, 0.2, 0.2, 0.2}
+	c.UserTargetPerAppeal = 1000
+	c.UserGrowthRate = 0.001
+	c.RefPrice = 12
+	c.PriceElasticity = 1.5
+	c.MonthSec = 2592000
 	return c
 }
