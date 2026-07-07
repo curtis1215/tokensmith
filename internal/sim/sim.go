@@ -94,11 +94,24 @@ func advanceTraining(ns model.GameState, dt float64, b balance.Config) model.Gam
 	return ns
 }
 
+// appealOf is the weighted quality score of a model or competitor.
+func appealOf(q, w [model.NumQualityDims]float64) float64 {
+	appeal := 0.0
+	for d := range model.NumQualityDims {
+		appeal += q[d] * w[d]
+	}
+	return appeal
+}
+
 // advanceUsers grows each online model's user base toward a demand target and
-// (in a later task) accrues subscription revenue. Pure: clones Models.
+// accrues subscription revenue, scaled by competitive market share. Pure: clones Models.
 func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameState {
 	if len(ns.Models) == 0 {
 		return ns
+	}
+	rivalAppeal := 0.0
+	for _, c := range ns.Competitors {
+		rivalAppeal += appealOf(c.Quality, b.QualityWeights)
 	}
 	models := append([]model.Model(nil), ns.Models...)
 	for i := range models {
@@ -107,15 +120,16 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 			continue
 		}
 		ns.Resources.Cash += m.Users * m.Price * dt / b.MonthSec
-		appeal := 0.0
-		for d := range model.NumQualityDims {
-			appeal += m.Quality[d] * b.QualityWeights[d]
-		}
+		appeal := appealOf(m.Quality, b.QualityWeights)
 		var demandMult float64
 		if m.Price > 0 {
 			demandMult = math.Pow(b.RefPrice/m.Price, b.PriceElasticity)
 		}
-		target := appeal * b.UserTargetPerAppeal * demandMult
+		share := 1.0
+		if appeal+rivalAppeal > 0 {
+			share = appeal / (appeal + rivalAppeal)
+		}
+		target := appeal * b.UserTargetPerAppeal * demandMult * share
 		m.Users += (target - m.Users) * b.UserGrowthRate * dt
 		if m.Users < 0 {
 			m.Users = 0

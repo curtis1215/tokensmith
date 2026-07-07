@@ -310,3 +310,44 @@ func TestTickAdvancesCompetitors(t *testing.T) {
 		t.Fatalf("Tick mutated input competitor")
 	}
 }
+
+func rival(cap float64) model.Competitor {
+	c := model.Competitor{Name: "Rival"}
+	c.Quality[model.DimCapability] = cap
+	return c
+}
+
+func TestTickCompetitorHalvesUserTarget(t *testing.T) {
+	b := balance.Default()
+	// your model appeal 20 (cap 50 * 0.4). equal competitor appeal 20 → share 0.5.
+	s := model.GameState{
+		Models:      []model.Model{onlineModel(50, b.RefPrice)},
+		Competitors: []model.Competitor{rival(50)}, // GrowthPerSec 0 → stays 20
+	}
+	ns := Tick(s, 1, nil, b) // target = 20*1000*1*0.5 = 10000; users = 10000*0.001 = 10
+	if !approx(ns.Models[0].Users, 10) {
+		t.Fatalf("Users = %v, want 10 (halved by equal competitor)", ns.Models[0].Users)
+	}
+}
+
+func TestTickStrongCompetitorChurnsUsers(t *testing.T) {
+	b := balance.Default()
+	m := onlineModel(50, b.RefPrice) // appeal 20
+	m.Users = 5000
+	s := model.GameState{
+		Models:      []model.Model{m},
+		Competitors: []model.Competitor{rival(200)}, // appeal 80 → share 0.2 → target 4000 < 5000
+	}
+	ns := Tick(s, 1, nil, b)
+	if ns.Models[0].Users >= 5000 {
+		t.Fatalf("Users = %v, want < 5000 (churn vs strong competitor)", ns.Models[0].Users)
+	}
+}
+
+func TestAppealOf(t *testing.T) {
+	b := balance.Default()
+	q := [model.NumQualityDims]float64{50, 0, 0, 0}
+	if got := appealOf(q, b.QualityWeights); !approx(got, 20) { // 50 * 0.4
+		t.Fatalf("appealOf = %v, want 20", got)
+	}
+}
