@@ -271,3 +271,26 @@ func TestTickHighPriceChurns(t *testing.T) {
 		t.Fatalf("Users = %v, want < 30000 (churn)", ns.Models[0].Users)
 	}
 }
+
+func TestTickSubscriptionRevenue(t *testing.T) {
+	b := balance.Default()
+	m := onlineModel(50, 12)
+	m.Users = 1000
+	s := model.GameState{Models: []model.Model{m}}
+	ns := Tick(s, 100, nil, b)
+	// revenue uses pre-growth users: 1000 * 12 * 100 / MonthSec
+	want := 1000.0 * 12.0 * 100.0 / b.MonthSec
+	if !approx(ns.Resources.Cash, want) {
+		t.Fatalf("Cash = %v, want %v", ns.Resources.Cash, want)
+	}
+}
+
+func TestTickNoRevenueWhenOffline(t *testing.T) {
+	b := balance.Default()
+	m := model.Model{Online: false, Price: 12, Users: 1000}
+	s := model.GameState{Models: []model.Model{m}}
+	ns := Tick(s, 100, nil, b)
+	if !approx(ns.Resources.Cash, 0) {
+		t.Fatalf("Cash = %v, want 0 (offline model)", ns.Resources.Cash)
+	}
+}

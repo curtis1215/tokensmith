@@ -105,6 +105,7 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 		if !m.Online {
 			continue
 		}
+		ns.Resources.Cash += m.Users * m.Price * dt / b.MonthSec
 		appeal := 0.0
 		for d := range model.NumQualityDims {
 			appeal += m.Quality[d] * b.QualityWeights[d]
