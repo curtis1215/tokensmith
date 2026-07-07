@@ -207,3 +207,24 @@ func TestTickTrainingCompletes(t *testing.T) {
 		t.Errorf("Tick mutated input Models")
 	}
 }
+
+func TestTickDeductsTrainingRent(t *testing.T) {
+	b := balance.Default() // TrainRentPerGPUSec = 0.01
+	s := model.GameState{}
+	s.Compute.TrainingCapacity = 4
+	s.Resources.Cash = 100
+	ns := Tick(s, 10, nil, b) // 4 * 0.01 * 10 = 0.4
+	if !approx(ns.Resources.Cash, 99.6) {
+		t.Fatalf("Cash = %v, want 99.6", ns.Resources.Cash)
+	}
+}
+
+func TestTickRentZeroWhenNoCapacity(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Resources.Cash = 100
+	ns := Tick(s, 10, nil, b)
+	if !approx(ns.Resources.Cash, 100) {
+		t.Fatalf("Cash = %v, want 100 (no capacity, no rent)", ns.Resources.Cash)
+	}
+}
