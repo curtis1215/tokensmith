@@ -160,3 +160,50 @@ func TestOfflineFastForwardEquivalenceStaffOnly(t *testing.T) {
 		t.Fatalf("expected RnD 14250, got %v", oneShot.Resources.RnD)
 	}
 }
+
+func TestTickTrainingProgress(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{HasTraining: true}
+	s.Compute.TrainingCapacity = 2
+	s.Training = model.TrainingJob{Gen: 1, WorkRemaining: 1800}
+	ns := Tick(s, 100, nil, b) // 2 GPU * 100s = 200 work done
+	if !approx(ns.Training.WorkRemaining, 1600) {
+		t.Fatalf("WorkRemaining = %v, want 1600", ns.Training.WorkRemaining)
+	}
+	if !ns.HasTraining || len(ns.Models) != 0 {
+		t.Fatalf("should still be training, no model yet")
+	}
+}
+
+func TestTickTrainingCompletes(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{HasTraining: true}
+	s.Compute.TrainingCapacity = 10
+	s.Training = model.TrainingJob{
+		Gen:           2, // GenQualityCap[2] = 45
+		Alloc:         [model.NumQualityDims]float64{0.4, 0.2, 0.2, 0.2},
+		Price:         12,
+		WorkRemaining: 7200,
+	}
+	ns := Tick(s, 1000, nil, b) // 10*1000 = 10000 >= 7200 → completes
+	if ns.HasTraining {
+		t.Fatalf("training should be done")
+	}
+	if len(ns.Models) != 1 {
+		t.Fatalf("expected 1 model, got %d", len(ns.Models))
+	}
+	m := ns.Models[0]
+	if !m.Online || m.Gen != 2 || m.Price != 12 {
+		t.Fatalf("model fields wrong: %+v", m)
+	}
+	if !approx(m.Quality[model.DimCapability], 18) { // 0.4 * 45
+		t.Errorf("capability = %v, want 18", m.Quality[model.DimCapability])
+	}
+	if !approx(m.Quality[model.DimSafety], 9) { // 0.2 * 45
+		t.Errorf("safety = %v, want 9", m.Quality[model.DimSafety])
+	}
+	// purity: input Models slice untouched
+	if len(s.Models) != 0 {
+		t.Errorf("Tick mutated input Models")
+	}
+}

@@ -62,5 +62,29 @@ func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Co
 	ns.WindowRnD = newWindow
 
 	ns.Resources.RnD += staffRnD + tokenRnD
+	ns = advanceTraining(ns, dt, b)
+	return ns
+}
+
+// advanceTraining progresses the in-progress training job by dt and onlines
+// the model on completion. Pure: clones Models before appending.
+func advanceTraining(ns model.GameState, dt float64, b balance.Config) model.GameState {
+	if !ns.HasTraining {
+		return ns
+	}
+	ns.Training.WorkRemaining -= ns.Compute.TrainingCapacity * dt
+	if ns.Training.WorkRemaining > 0 {
+		return ns
+	}
+	// Completed → build the model and online it.
+	job := ns.Training
+	m := model.Model{Gen: job.Gen, Price: job.Price, Online: true}
+	for d := range model.NumQualityDims {
+		m.Quality[d] = job.Alloc[d] * b.GenQualityCap[job.Gen]
+	}
+	cloned := append([]model.Model(nil), ns.Models...)
+	ns.Models = append(cloned, m)
+	ns.HasTraining = false
+	ns.Training = model.TrainingJob{}
 	return ns
 }
