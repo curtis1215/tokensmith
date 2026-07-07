@@ -132,3 +132,31 @@ func TestTickWindowResets(t *testing.T) {
 		t.Fatalf("token R&D after reset = %v, want 2000 (full rate)", s.Resources.RnD-before)
 	}
 }
+
+func TestOfflineFastForwardEquivalenceStaffOnly(t *testing.T) {
+	b := balance.Default()
+	base := model.GameState{Research: model.Research{EfficiencyMult: 1.5}}
+	base.Research.Researchers[model.Tier1] = 3
+	base.Research.Researchers[model.Tier3] = 2
+
+	// One big tick of 100s, no token events.
+	oneShot := Tick(base, 100, nil, b)
+
+	// 100 small ticks of 1s each.
+	stepwise := base
+	for range 100 {
+		stepwise = Tick(stepwise, 1, nil, b)
+	}
+
+	if !approx(oneShot.Resources.RnD, stepwise.Resources.RnD) {
+		t.Fatalf("fast-forward mismatch: oneShot=%v stepwise=%v",
+			oneShot.Resources.RnD, stepwise.Resources.RnD)
+	}
+	if !approx(oneShot.GameTime, stepwise.GameTime) {
+		t.Fatalf("GameTime mismatch: oneShot=%v stepwise=%v",
+			oneShot.GameTime, stepwise.GameTime)
+	}
+	if !approx(oneShot.Resources.RnD, 14250) { // (3*5 + 2*40)*1.5 = 142.5/s * 100s = 14250
+		t.Fatalf("expected RnD 14250, got %v", oneShot.Resources.RnD)
+	}
+}
