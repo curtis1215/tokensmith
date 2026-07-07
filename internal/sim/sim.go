@@ -17,11 +17,23 @@ func staffRnDPerSec(r model.Research, b balance.Config) float64 {
 	return perSec * r.EfficiencyMult
 }
 
+// tokenRawRnD returns the raw R&D produced by a batch of token events,
+// before any soft-cap diminishing is applied.
+func tokenRawRnD(events []model.TokenEvent, b balance.Config) float64 {
+	var raw float64
+	for _, e := range events {
+		raw += (float64(e.InputTokens)*b.TokenInputWeight + float64(e.OutputTokens)*b.TokenOutputWeight) / b.TokenDivisor
+	}
+	return raw
+}
+
 // Tick advances the simulation by dt seconds and returns the new state.
 // Pure: it does not mutate s and depends only on its arguments.
 func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Config) model.GameState {
 	ns := s
 	ns.GameTime += dt
-	ns.Resources.RnD += staffRnDPerSec(s.Research, b) * dt
+	staffRnD := staffRnDPerSec(s.Research, b) * dt
+	tokenRnD := tokenRawRnD(events, b)
+	ns.Resources.RnD += staffRnD + tokenRnD
 	return ns
 }

@@ -46,3 +46,31 @@ func TestTickAddsStaffRnDAndAdvancesTime(t *testing.T) {
 		t.Fatalf("Tick mutated input: %+v", s)
 	}
 }
+
+func TestTokenRawRnD(t *testing.T) {
+	b := balance.Default()
+	events := []model.TokenEvent{
+		{InputTokens: 1000, OutputTokens: 500},  // (1000 + 2*500)/10 = 200
+		{InputTokens: 0, OutputTokens: 1000},    // (0 + 2000)/10   = 200
+	}
+	if got := tokenRawRnD(events, b); !approx(got, 400) {
+		t.Fatalf("tokenRawRnD = %v, want 400", got)
+	}
+}
+
+func TestTokenRawRnDEmpty(t *testing.T) {
+	if got := tokenRawRnD(nil, balance.Default()); got != 0 {
+		t.Fatalf("tokenRawRnD(nil) = %v, want 0", got)
+	}
+}
+
+func TestTickAddsTokenRnD(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{Research: model.Research{EfficiencyMult: 1.0}}
+	// no staff → only token R&D. 1000 output → (2000)/10 = 200.
+	events := []model.TokenEvent{{OutputTokens: 1000}}
+	ns := Tick(s, 1, events, b)
+	if !approx(ns.Resources.RnD, 200) {
+		t.Fatalf("RnD = %v, want 200", ns.Resources.RnD)
+	}
+}
