@@ -27,13 +27,40 @@ func tokenRawRnD(events []model.TokenEvent, b balance.Config) float64 {
 	return raw
 }
 
+// applySoftCap diminishes raw token R&D once cumulative window R&D passes full.
+// Returns the effective R&D to grant and the updated window cumulative.
+func applySoftCap(windowRnD, raw, full, mult float64) (effective, newWindow float64) {
+	newWindow = windowRnD + raw
+	if windowRnD >= full {
+		return raw * mult, newWindow
+	}
+	remainingFull := full - windowRnD
+	if raw <= remainingFull {
+		return raw, newWindow
+	}
+	over := raw - remainingFull
+	return remainingFull + over*mult, newWindow
+}
+
 // Tick advances the simulation by dt seconds and returns the new state.
 // Pure: it does not mutate s and depends only on its arguments.
 func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Config) model.GameState {
 	ns := s
 	ns.GameTime += dt
+
+	// Advance the soft-cap window; reset cumulative when the window elapses.
+	ns.WindowElapsed += dt
+	if ns.WindowElapsed >= b.SoftCapWindowSec {
+		ns.WindowElapsed -= b.SoftCapWindowSec
+		ns.WindowRnD = 0
+	}
+
 	staffRnD := staffRnDPerSec(s.Research, b) * dt
-	tokenRnD := tokenRawRnD(events, b)
+
+	raw := tokenRawRnD(events, b)
+	tokenRnD, newWindow := applySoftCap(ns.WindowRnD, raw, b.SoftCapFull, b.SoftCapMult)
+	ns.WindowRnD = newWindow
+
 	ns.Resources.RnD += staffRnD + tokenRnD
 	return ns
 }
