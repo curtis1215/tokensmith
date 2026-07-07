@@ -15,6 +15,8 @@ var (
 	ErrInsufficientRnD    = errors.New("sim: insufficient R&D")
 	ErrInvalidGen         = errors.New("sim: invalid generation")
 	ErrInvalidAlloc       = errors.New("sim: allocation must sum to 1")
+	ErrInvalidModelIndex  = errors.New("sim: invalid model index")
+	ErrInvalidPrice       = errors.New("sim: price must be positive")
 )
 
 // Apply validates and applies a single player command, returning the new
@@ -25,6 +27,8 @@ func Apply(s model.GameState, cmd model.Command, b balance.Config) (model.GameSt
 		return applyRentTrainingCompute(s, c), nil
 	case model.StartTraining:
 		return applyStartTraining(s, c, b)
+	case model.SetPrice:
+		return applySetPrice(s, c)
 	default:
 		return s, ErrUnknownCommand
 	}
@@ -69,5 +73,18 @@ func applyStartTraining(s model.GameState, c model.StartTraining, b balance.Conf
 		Price:         c.Price,
 		WorkRemaining: b.GenTrainWorkGPUSec[c.Gen],
 	}
+	return ns, nil
+}
+
+func applySetPrice(s model.GameState, c model.SetPrice) (model.GameState, error) {
+	if c.ModelIndex < 0 || c.ModelIndex >= len(s.Models) {
+		return s, ErrInvalidModelIndex
+	}
+	if c.Price <= 0 {
+		return s, ErrInvalidPrice
+	}
+	ns := s
+	ns.Models = append([]model.Model(nil), s.Models...)
+	ns.Models[c.ModelIndex].Price = c.Price
 	return ns, nil
 }

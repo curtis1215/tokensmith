@@ -88,3 +88,29 @@ func TestApplyStartTrainingErrors(t *testing.T) {
 		t.Errorf("poor: err = %v, want ErrInsufficientRnD", err)
 	}
 }
+
+func TestApplySetPriceSuccess(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{Models: []model.Model{{Online: true, Price: 12}}}
+	ns, err := Apply(s, model.SetPrice{ModelIndex: 0, Price: 20}, b)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if ns.Models[0].Price != 20 {
+		t.Errorf("price = %v, want 20", ns.Models[0].Price)
+	}
+	if s.Models[0].Price != 12 {
+		t.Errorf("Apply mutated input Models (price = %v)", s.Models[0].Price)
+	}
+}
+
+func TestApplySetPriceErrors(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{Models: []model.Model{{Online: true, Price: 12}}}
+	if _, err := Apply(s, model.SetPrice{ModelIndex: 5, Price: 20}, b); err != ErrInvalidModelIndex {
+		t.Errorf("index: err = %v, want ErrInvalidModelIndex", err)
+	}
+	if _, err := Apply(s, model.SetPrice{ModelIndex: 0, Price: 0}, b); err != ErrInvalidPrice {
+		t.Errorf("price: err = %v, want ErrInvalidPrice", err)
+	}
+}
