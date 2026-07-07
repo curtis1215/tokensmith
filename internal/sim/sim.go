@@ -3,6 +3,8 @@
 package sim
 
 import (
+	"math"
+
 	"tokensmith/internal/balance"
 	"tokensmith/internal/model"
 )
@@ -64,6 +66,7 @@ func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Co
 	ns.Resources.RnD += staffRnD + tokenRnD
 	ns.Resources.Cash -= ns.Compute.TrainingCapacity * b.TrainRentPerGPUSec * dt
 	ns = advanceTraining(ns, dt, b)
+	ns = advanceUsers(ns, dt, b)
 	return ns
 }
 
@@ -87,5 +90,35 @@ func advanceTraining(ns model.GameState, dt float64, b balance.Config) model.Gam
 	ns.Models = append(cloned, m)
 	ns.HasTraining = false
 	ns.Training = model.TrainingJob{}
+	return ns
+}
+
+// advanceUsers grows each online model's user base toward a demand target and
+// (in a later task) accrues subscription revenue. Pure: clones Models.
+func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameState {
+	if len(ns.Models) == 0 {
+		return ns
+	}
+	models := append([]model.Model(nil), ns.Models...)
+	for i := range models {
+		m := &models[i]
+		if !m.Online {
+			continue
+		}
+		appeal := 0.0
+		for d := range model.NumQualityDims {
+			appeal += m.Quality[d] * b.QualityWeights[d]
+		}
+		var demandMult float64
+		if m.Price > 0 {
+			demandMult = math.Pow(b.RefPrice/m.Price, b.PriceElasticity)
+		}
+		target := appeal * b.UserTargetPerAppeal * demandMult
+		m.Users += (target - m.Users) * b.UserGrowthRate * dt
+		if m.Users < 0 {
+			m.Users = 0
+		}
+	}
+	ns.Models = models
 	return ns
 }

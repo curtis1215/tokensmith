@@ -228,3 +228,46 @@ func TestTickRentZeroWhenNoCapacity(t *testing.T) {
 		t.Fatalf("Cash = %v, want 100 (no capacity, no rent)", ns.Resources.Cash)
 	}
 }
+
+func onlineModel(cap, price float64) model.Model {
+	m := model.Model{Online: true, Price: price}
+	m.Quality[model.DimCapability] = cap
+	return m
+}
+
+func TestTickUserGrowthTowardTarget(t *testing.T) {
+	b := balance.Default()
+	// appeal = 50 * 0.4 = 20; price = ref → demandMult 1; target = 20*1000 = 20000.
+	s := model.GameState{Models: []model.Model{onlineModel(50, b.RefPrice)}}
+	ns := Tick(s, 1, nil, b) // Users += (20000-0)*0.001*1 = 20
+	if !approx(ns.Models[0].Users, 20) {
+		t.Fatalf("Users = %v, want 20", ns.Models[0].Users)
+	}
+	// input not mutated
+	if s.Models[0].Users != 0 {
+		t.Fatalf("Tick mutated input Users")
+	}
+}
+
+func TestTickPriceElasticityReducesTarget(t *testing.T) {
+	b := balance.Default()
+	// double the reference price → demandMult = (1/2)^1.5.
+	s := model.GameState{Models: []model.Model{onlineModel(50, 2*b.RefPrice)}}
+	ns := Tick(s, 1, nil, b)
+	wantTarget := 20.0 * b.UserTargetPerAppeal * math.Pow(0.5, b.PriceElasticity) // appeal 20
+	wantUsers := wantTarget * b.UserGrowthRate * 1
+	if !approx(ns.Models[0].Users, wantUsers) {
+		t.Fatalf("Users = %v, want %v", ns.Models[0].Users, wantUsers)
+	}
+}
+
+func TestTickHighPriceChurns(t *testing.T) {
+	b := balance.Default()
+	m := onlineModel(50, 2*b.RefPrice) // target well below 30000
+	m.Users = 30000
+	s := model.GameState{Models: []model.Model{m}}
+	ns := Tick(s, 1, nil, b)
+	if ns.Models[0].Users >= 30000 {
+		t.Fatalf("Users = %v, want < 30000 (churn)", ns.Models[0].Users)
+	}
+}
