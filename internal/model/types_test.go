@@ -58,3 +58,11 @@ func TestCommandsImplementInterface(t *testing.T) {
 		t.Fatalf("commands not assignable to Command interface")
 	}
 }
+
+func TestSetPriceIsCommand(t *testing.T) {
+	var c Command = SetPrice{ModelIndex: 0, Price: 15}
+	sp, ok := c.(SetPrice)
+	if !ok || sp.Price != 15 || sp.ModelIndex != 0 {
+		t.Fatalf("SetPrice command wrong: %+v ok=%v", c, ok)
+	}
+}

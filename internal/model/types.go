@@ -101,3 +101,11 @@ type RentTrainingCompute struct {
 }
 
 func (RentTrainingCompute) commandMarker() {}
+
+// SetPrice changes the monthly price of the model at ModelIndex.
+type SetPrice struct {
+	ModelIndex int
+	Price      float64
+}
+
+func (SetPrice) commandMarker() {}
