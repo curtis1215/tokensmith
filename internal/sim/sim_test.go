@@ -294,3 +294,19 @@ func TestTickNoRevenueWhenOffline(t *testing.T) {
 		t.Fatalf("Cash = %v, want 0 (offline model)", ns.Resources.Cash)
 	}
 }
+
+func TestTickAdvancesCompetitors(t *testing.T) {
+	b := balance.Default()
+	c := model.Competitor{Name: "Rival"}
+	c.Quality[model.DimCapability] = 10
+	c.GrowthPerSec[model.DimCapability] = 0.1
+	s := model.GameState{Competitors: []model.Competitor{c}}
+	ns := Tick(s, 10, nil, b) // 10 + 0.1*10 = 11
+	if !approx(ns.Competitors[0].Quality[model.DimCapability], 11) {
+		t.Fatalf("competitor cap = %v, want 11", ns.Competitors[0].Quality[model.DimCapability])
+	}
+	// purity: input competitor untouched
+	if s.Competitors[0].Quality[model.DimCapability] != 10 {
+		t.Fatalf("Tick mutated input competitor")
+	}
+}

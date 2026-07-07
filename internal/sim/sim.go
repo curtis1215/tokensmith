@@ -66,6 +66,7 @@ func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Co
 	ns.Resources.RnD += staffRnD + tokenRnD
 	ns.Resources.Cash -= ns.Compute.TrainingCapacity * b.TrainRentPerGPUSec * dt
 	ns = advanceTraining(ns, dt, b)
+	ns = advanceCompetitors(ns, dt)
 	ns = advanceUsers(ns, dt, b)
 	return ns
 }
@@ -121,5 +122,21 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 		}
 	}
 	ns.Models = models
+	return ns
+}
+
+// advanceCompetitors grows each competitor's quality along its scripted
+// curve. Pure: clones Competitors.
+func advanceCompetitors(ns model.GameState, dt float64) model.GameState {
+	if len(ns.Competitors) == 0 {
+		return ns
+	}
+	comps := append([]model.Competitor(nil), ns.Competitors...)
+	for i := range comps {
+		for d := range model.NumQualityDims {
+			comps[i].Quality[d] += comps[i].GrowthPerSec[d] * dt
+		}
+	}
+	ns.Competitors = comps
 	return ns
 }
