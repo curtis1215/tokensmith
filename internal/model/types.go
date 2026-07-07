@@ -46,6 +46,7 @@ type GameState struct {
 	WindowElapsed float64 // seconds elapsed in the current soft-cap window
 	Compute       Compute
 	Models        []Model
+	Competitors   []Competitor
 	HasTraining   bool
 	Training      TrainingJob
 }
@@ -109,3 +110,10 @@ type SetPrice struct {
 }
 
 func (SetPrice) commandMarker() {}
+
+// Competitor is a rival AI company competing for market share.
+type Competitor struct {
+	Name         string
+	Quality      [NumQualityDims]float64
+	GrowthPerSec [NumQualityDims]float64 // per-second quality growth by dim
+}

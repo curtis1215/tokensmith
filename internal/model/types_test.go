@@ -66,3 +66,17 @@ func TestSetPriceIsCommand(t *testing.T) {
 		t.Fatalf("SetPrice command wrong: %+v ok=%v", c, ok)
 	}
 }
+
+func TestCompetitorFields(t *testing.T) {
+	c := Competitor{Name: "Rival"}
+	c.Quality[DimCapability] = 55
+	c.GrowthPerSec[DimCapability] = 0.0001
+	if c.Name != "Rival" || c.Quality[DimCapability] != 55 || c.GrowthPerSec[DimCapability] != 0.0001 {
+		t.Fatalf("competitor fields wrong: %+v", c)
+	}
+	var s GameState
+	s.Competitors = append(s.Competitors, c)
+	if len(s.Competitors) != 1 {
+		t.Fatalf("GameState.Competitors not usable")
+	}
+}
