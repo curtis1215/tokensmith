@@ -1,0 +1,76 @@
+# GoReleaser config — cross-compiles both binaries, publishes a GitHub release,
+# and updates the Homebrew tap formula. Validate with: goreleaser check
+version: 2
+
+project_name: tokensmith
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: tokensmith
+    main: .
+    binary: tokensmith
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+  - id: tokensmithd
+    main: ./cmd/tokensmithd
+    binary: tokensmithd
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: default
+    ids: [tokensmith, tokensmithd]
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+brews:
+  - name: tokensmith
+    ids: [default]
+    repository:
+      owner: curtis1215
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/curtis1215/tokensmith"
+    description: "Terminal management game where your real AI-coding tokens fuel an AI company"
+    license: "MIT"
+    install: |
+      bin.install "tokensmith"
+      bin.install "tokensmithd"
+    service: |
+      run [opt_bin/"tokensmithd"]
+      keep_alive true
+      log_path var/"log/tokensmithd.log"
+      error_log_path var/"log/tokensmithd.log"
+    caveats: |
+      Start the background token-harvest daemon with:
+        brew services start tokensmith
+      Then play the game with:
+        tokensmith
+    test: |
+      assert_match "tokensmith", shell_output("#{bin}/tokensmith --version")

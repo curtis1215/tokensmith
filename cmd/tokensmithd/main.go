@@ -4,6 +4,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -15,7 +16,14 @@ import (
 	"tokensmith/internal/ledger"
 )
 
+// version is injected at build time via -ldflags "-X main.version=...".
+var version = "dev"
+
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v" || os.Args[1] == "version") {
+		fmt.Println("tokensmithd", version)
+		return
+	}
 	home, _ := os.UserHomeDir()
 	claude := filepath.Join(home, ".claude", "projects")
 	codex := filepath.Join(home, ".codex", "sessions")

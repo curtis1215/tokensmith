@@ -1,4 +1,7 @@
-# Go build artifact
+# Go build artifacts
 /tokensmith
+/tokensmithd
+# GoReleaser output
+/dist/
 # Local save file (if run inside the repo)
 save.json
