@@ -93,6 +93,28 @@ func TestApplyStartTrainingErrors(t *testing.T) {
 	}
 }
 
+func TestStartTrainingCarriesSegment(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Resources.RnD = 50000
+	s.Compute.TrainingCapacity = 100 // finish fast
+	cmd := model.StartTraining{Gen: 1, Segment: model.SegEnterprise, Alloc: validAlloc(), Price: 180}
+	ns, err := Apply(s, cmd, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ns.Training.Segment != model.SegEnterprise {
+		t.Fatalf("job segment = %v, want Enterprise", ns.Training.Segment)
+	}
+	// tick to completion; the online model must keep the segment
+	for i := 0; i < 100 && ns.HasTraining; i++ {
+		ns = Tick(ns, 3600, nil, b)
+	}
+	if len(ns.Models) == 0 || ns.Models[len(ns.Models)-1].Segment != model.SegEnterprise {
+		t.Fatalf("completed model segment wrong: %+v", ns.Models)
+	}
+}
+
 func TestApplySetPriceSuccess(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{Models: []model.Model{{Online: true, Price: 12}}}

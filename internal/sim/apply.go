@@ -106,6 +106,7 @@ func applyStartTraining(s model.GameState, c model.StartTraining, b balance.Conf
 	ns.HasTraining = true
 	ns.Training = model.TrainingJob{
 		Gen:           c.Gen,
+		Segment:       c.Segment,
 		Alloc:         c.Alloc,
 		Price:         c.Price,
 		WorkRemaining: b.GenTrainWorkGPUSec[c.Gen] * te.TrainWorkMult,

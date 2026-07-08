@@ -96,6 +96,7 @@ type Model struct {
 // TrainingJob is the single in-progress training (plan-02).
 type TrainingJob struct {
 	Gen           int
+	Segment       Segment
 	Alloc         [NumQualityDims]float64 // budget fraction per dim; sums to ~1
 	Price         float64
 	WorkRemaining float64 // GPU-seconds of training work left
@@ -113,9 +114,10 @@ type Command interface{ commandMarker() }
 
 // StartTraining begins training a new model of the given generation.
 type StartTraining struct {
-	Gen   int
-	Alloc [NumQualityDims]float64
-	Price float64
+	Gen     int
+	Segment Segment
+	Alloc   [NumQualityDims]float64
+	Price   float64
 }
 
 func (StartTraining) commandMarker() {}

@@ -169,7 +169,7 @@ func advanceTraining(ns model.GameState, dt float64, b balance.Config) model.Gam
 	te := techEffects(ns, b)
 	se := starEffects(ns, b)
 	job := ns.Training
-	m := model.Model{Gen: job.Gen, Price: job.Price, Online: true}
+	m := model.Model{Gen: job.Gen, Segment: job.Segment, Price: job.Price, Online: true}
 	for d := range model.NumQualityDims {
 		m.Quality[d] = job.Alloc[d] * b.GenQualityCap[job.Gen] * te.QualityMult[d] * se.QualityMult[d]
 	}
