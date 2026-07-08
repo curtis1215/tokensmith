@@ -62,9 +62,20 @@ const (
 	NumQualityDims = 4
 )
 
+// Segment indexes a market segment.
+type Segment int
+
+const (
+	SegConsumer   Segment = iota // 0 消費者
+	SegEnterprise                // 1 企業
+	SegDeveloper                 // 2 開發者
+	NumSegments   = 3
+)
+
 // Model is a trained AI model.
 type Model struct {
 	Gen     int
+	Segment Segment
 	Quality [NumQualityDims]float64
 	Users   float64
 	Price   float64 // per user per month; player-set

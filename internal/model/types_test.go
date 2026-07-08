@@ -80,3 +80,17 @@ func TestCompetitorFields(t *testing.T) {
 		t.Fatalf("GameState.Competitors not usable")
 	}
 }
+
+func TestSegmentConstsAndModelField(t *testing.T) {
+	if NumSegments != 3 || SegDeveloper != 2 {
+		t.Fatalf("segment consts wrong: NumSegments=%d SegDeveloper=%d", NumSegments, SegDeveloper)
+	}
+	m := Model{Segment: SegEnterprise}
+	if m.Segment != SegEnterprise {
+		t.Fatalf("model segment field wrong: %v", m.Segment)
+	}
+	var zero Model
+	if zero.Segment != SegConsumer {
+		t.Fatalf("default segment should be SegConsumer(0), got %v", zero.Segment)
+	}
+}
