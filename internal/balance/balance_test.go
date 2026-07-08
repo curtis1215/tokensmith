@@ -117,3 +117,16 @@ func TestDefaultSegments(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultInferenceValues(t *testing.T) {
+	c := Default()
+	if c.InferenceRentPerGPUSec != 0.006 {
+		t.Errorf("InferenceRentPerGPUSec = %v, want 0.006", c.InferenceRentPerGPUSec)
+	}
+	if c.InferenceLoadPerUser != 0.0001 {
+		t.Errorf("InferenceLoadPerUser = %v, want 0.0001", c.InferenceLoadPerUser)
+	}
+	if c.ServiceChurnRate != 0.01 {
+		t.Errorf("ServiceChurnRate = %v, want 0.01", c.ServiceChurnRate)
+	}
+}

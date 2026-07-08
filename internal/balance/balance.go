@@ -42,6 +42,10 @@ type Config struct {
 	SegmentWeights     [model.NumSegments][model.NumQualityDims]float64
 	SegmentTargetScale [model.NumSegments]float64
 	SegmentRefPrice    [model.NumSegments]float64
+	// Inference serving (plan-06).
+	InferenceRentPerGPUSec float64 // cash per rented inference GPU per second
+	InferenceLoadPerUser   float64 // inference GPU load per active user
+	ServiceChurnRate       float64 // extra churn per second at full deficit
 }
 
 // Default returns the v0 calibration (spec §12).
@@ -76,6 +80,9 @@ func Default() Config {
 	c.SegmentWeights[model.SegDeveloper] = qvec(0.15, 0.4, 0.1, 0.35) // values efficiency+speed
 	c.SegmentTargetScale = [model.NumSegments]float64{1000, 500, 800}
 	c.SegmentRefPrice = [model.NumSegments]float64{12, 180, 6}
+	c.InferenceRentPerGPUSec = 0.006
+	c.InferenceLoadPerUser = 0.0001
+	c.ServiceChurnRate = 0.01
 	return c
 }
 
