@@ -103,15 +103,12 @@ func appealOf(q, w [model.NumQualityDims]float64) float64 {
 	return appeal
 }
 
-// advanceUsers grows each online model's user base toward a demand target and
-// accrues subscription revenue, scaled by competitive market share. Pure: clones Models.
+// advanceUsers grows each online model's user base toward a segment-specific
+// demand target and accrues subscription revenue, scaled by competitive market
+// share. Pure: clones Models.
 func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameState {
 	if len(ns.Models) == 0 {
 		return ns
-	}
-	rivalAppeal := 0.0
-	for _, c := range ns.Competitors {
-		rivalAppeal += appealOf(c.Quality, b.QualityWeights)
 	}
 	models := append([]model.Model(nil), ns.Models...)
 	for i := range models {
@@ -120,16 +117,23 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 			continue
 		}
 		ns.Resources.Cash += m.Users * m.Price * dt / b.MonthSec
-		appeal := appealOf(m.Quality, b.QualityWeights)
+
+		w := b.SegmentWeights[m.Segment]
+		appeal := appealOf(m.Quality, w)
+		rivalAppeal := 0.0
+		for _, c := range ns.Competitors {
+			rivalAppeal += appealOf(c.Quality, w)
+		}
+		refPrice := b.SegmentRefPrice[m.Segment]
 		var demandMult float64
 		if m.Price > 0 {
-			demandMult = math.Pow(b.RefPrice/m.Price, b.PriceElasticity)
+			demandMult = math.Pow(refPrice/m.Price, b.PriceElasticity)
 		}
 		share := 1.0
 		if appeal+rivalAppeal > 0 {
 			share = appeal / (appeal + rivalAppeal)
 		}
-		target := appeal * b.UserTargetPerAppeal * demandMult * share
+		target := appeal * b.SegmentTargetScale[m.Segment] * demandMult * share
 		m.Users += (target - m.Users) * b.UserGrowthRate * dt
 		if m.Users < 0 {
 			m.Users = 0

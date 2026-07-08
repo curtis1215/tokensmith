@@ -351,3 +351,35 @@ func TestAppealOf(t *testing.T) {
 		t.Fatalf("appealOf = %v, want 20", got)
 	}
 }
+
+func segModel(seg model.Segment, dim model.QualityDim, q, price float64) model.Model {
+	m := model.Model{Online: true, Segment: seg, Price: price}
+	m.Quality[dim] = q
+	return m
+}
+
+func TestSegmentWeightsChangeAppeal(t *testing.T) {
+	b := balance.Default()
+	// A safety-only model earns more users in Enterprise (safety-weighted)
+	// than in Consumer (capability-weighted), priced at each segment's ref price.
+	consumer := segModel(model.SegConsumer, model.DimSafety, 50, b.SegmentRefPrice[model.SegConsumer])
+	enterprise := segModel(model.SegEnterprise, model.DimSafety, 50, b.SegmentRefPrice[model.SegEnterprise])
+	nc := Tick(model.GameState{Models: []model.Model{consumer}}, 1, nil, b)
+	ne := Tick(model.GameState{Models: []model.Model{enterprise}}, 1, nil, b)
+	if ne.Models[0].Users <= nc.Models[0].Users {
+		t.Fatalf("enterprise safety users (%v) should exceed consumer (%v)",
+			ne.Models[0].Users, nc.Models[0].Users)
+	}
+}
+
+func TestSegmentRefPriceNeutralAtReference(t *testing.T) {
+	b := balance.Default()
+	// Priced exactly at the developer ref price → demandMult 1.
+	// appeal = 40 (efficiency 100 * developer weight 0.4); target = 40*800*1*1 = 32000.
+	dev := segModel(model.SegDeveloper, model.DimEfficiency, 100, b.SegmentRefPrice[model.SegDeveloper])
+	ns := Tick(model.GameState{Models: []model.Model{dev}}, 1, nil, b)
+	want := 40.0 * b.SegmentTargetScale[model.SegDeveloper] * b.UserGrowthRate // *1 tick
+	if !approx(ns.Models[0].Users, want) {
+		t.Fatalf("developer users = %v, want %v", ns.Models[0].Users, want)
+	}
+}
