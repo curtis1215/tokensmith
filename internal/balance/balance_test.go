@@ -186,3 +186,22 @@ func TestDefaultTechNodes(t *testing.T) {
 		t.Errorf("algo-cap-1 InfraMult should be neutral 1")
 	}
 }
+
+func TestDefaultValuationValues(t *testing.T) {
+	c := Default()
+	if len(c.ValuationMilestones) != 7 {
+		t.Fatalf("milestones = %d, want 7", len(c.ValuationMilestones))
+	}
+	if c.ValuationMilestones[0] != 1e6 || c.ValuationMilestones[3] != 1e9 {
+		t.Errorf("milestone thresholds wrong: %v", c.ValuationMilestones)
+	}
+	if c.RevenueMultiple != 120 || c.UserValue != 10 || c.ServerAssetValue != 5000 {
+		t.Errorf("valuation params wrong: %+v", c)
+	}
+	// milestones strictly increasing
+	for i := 1; i < len(c.ValuationMilestones); i++ {
+		if c.ValuationMilestones[i] <= c.ValuationMilestones[i-1] {
+			t.Errorf("milestones must be increasing at %d", i)
+		}
+	}
+}

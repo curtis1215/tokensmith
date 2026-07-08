@@ -66,6 +66,11 @@ type Config struct {
 	OpsChurnReduction      float64          // per ops: service-churn mitigation
 	MarketingBonus         float64          // per marketing: user-target boost
 	TechNodes              []model.TechNode // tech-tree catalog (plan-09)
+	// Valuation & milestones (plan-10).
+	ValuationMilestones []float64
+	RevenueMultiple     float64 // monthly revenue → valuation multiple
+	UserValue           float64 // valuation per active user
+	ServerAssetValue    float64 // valuation per unit of self-built compute
 }
 
 // Default returns the v0 calibration (spec §12).
@@ -124,6 +129,10 @@ func Default() Config {
 	c.OpsChurnReduction = 0.1
 	c.MarketingBonus = 0.03
 	c.TechNodes = DefaultTechNodes()
+	c.ValuationMilestones = []float64{1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12}
+	c.RevenueMultiple = 120
+	c.UserValue = 10
+	c.ServerAssetValue = 5000
 	return c
 }
 
