@@ -159,7 +159,7 @@ func Default() Config {
 	c.EngineerInfraBonus = 0.02
 	c.OpsChurnReduction = 0.1
 	c.MarketingBonus = 0.03
-	c.CompetitorBaseQuality = 20
+	c.CompetitorBaseQuality = 8
 	c.CompetitorCatchupRate = 0.0000005 // slow idle-paced catch-up (~0.18% of gap/tick)
 	c.TechNodes = DefaultTechNodes()
 	c.ValuationMilestones = []float64{1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12}
@@ -190,14 +190,17 @@ func qvec(capability, efficiency, safety, speed float64) [model.NumQualityDims]f
 // that dim, <1 below); initial Quality is set near Skill×CompetitorBaseQuality
 // so rivals start beatable and then track the player's progress.
 func DefaultCompetitors() []model.Competitor {
+	// Initial Quality ≈ Skill × CompetitorBaseQuality (~8/dim, appeal ~8) so a
+	// starting Gen1 (max appeal ~10 when focused) is immediately competitive;
+	// rivals then rubber-band up as the player trains higher generations.
 	return []model.Competitor{
-		{Name: "OpenAI", Quality: qvec(24, 20, 19, 21), Skill: qvec(1.20, 1.00, 0.95, 1.05)},
-		{Name: "Anthropic", Quality: qvec(22, 19, 25, 19), Skill: qvec(1.10, 0.95, 1.25, 0.95)},
-		{Name: "xAI", Quality: qvec(21, 19, 16, 23), Skill: qvec(1.05, 0.95, 0.80, 1.15)},
-		{Name: "DeepSeek", Quality: qvec(19, 25, 17, 20), Skill: qvec(0.95, 1.25, 0.85, 1.00)},
-		{Name: "Qwen", Quality: qvec(18, 22, 19, 20), Skill: qvec(0.90, 1.10, 0.95, 1.00)},
-		{Name: "Zhipu", Quality: qvec(17, 20, 19, 17), Skill: qvec(0.85, 1.00, 0.95, 0.85)},
-		{Name: "Gemini", Quality: qvec(21, 20, 21, 20), Skill: qvec(1.05, 1.00, 1.05, 1.00)},
+		{Name: "OpenAI", Quality: qvec(10, 8, 8, 8), Skill: qvec(1.20, 1.00, 0.95, 1.05)},
+		{Name: "Anthropic", Quality: qvec(9, 8, 10, 8), Skill: qvec(1.10, 0.95, 1.25, 0.95)},
+		{Name: "xAI", Quality: qvec(8, 8, 6, 9), Skill: qvec(1.05, 0.95, 0.80, 1.15)},
+		{Name: "DeepSeek", Quality: qvec(8, 10, 7, 8), Skill: qvec(0.95, 1.25, 0.85, 1.00)},
+		{Name: "Qwen", Quality: qvec(7, 9, 8, 8), Skill: qvec(0.90, 1.10, 0.95, 1.00)},
+		{Name: "Zhipu", Quality: qvec(7, 8, 8, 7), Skill: qvec(0.85, 1.00, 0.95, 0.85)},
+		{Name: "Gemini", Quality: qvec(8, 8, 8, 8), Skill: qvec(1.05, 1.00, 1.05, 1.00)},
 	}
 }
 

@@ -75,7 +75,7 @@ func TestDefaultCompetitors(t *testing.T) {
 	if len(cs) != 7 {
 		t.Fatalf("competitors = %d, want 7", len(cs))
 	}
-	if cs[0].Name != "OpenAI" || cs[0].Quality[model.DimCapability] != 24 {
+	if cs[0].Name != "OpenAI" || cs[0].Quality[model.DimCapability] != 10 {
 		t.Errorf("first competitor wrong: %+v", cs[0])
 	}
 	// every competitor has a name and a positive top skill
