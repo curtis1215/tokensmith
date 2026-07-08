@@ -65,6 +65,7 @@ func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Co
 
 	ns.Resources.RnD += staffRnD + tokenRnD
 	ns.Resources.Cash -= ns.Compute.TrainingCapacity * b.TrainRentPerGPUSec * dt
+	ns.Resources.Cash -= ns.Compute.InferenceCapacity * b.InferenceRentPerGPUSec * dt
 	ns = advanceTraining(ns, dt, b)
 	ns = advanceCompetitors(ns, dt)
 	ns = advanceUsers(ns, dt, b)

@@ -383,3 +383,15 @@ func TestSegmentRefPriceNeutralAtReference(t *testing.T) {
 		t.Fatalf("developer users = %v, want %v", ns.Models[0].Users, want)
 	}
 }
+
+func TestTickDeductsInferenceRent(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Compute.InferenceCapacity = 5
+	s.Resources.Cash = 100
+	ns := Tick(s, 10, nil, b) // 5 * 0.006 * 10 = 0.3
+	want := 100 - 5*b.InferenceRentPerGPUSec*10
+	if !approx(ns.Resources.Cash, want) {
+		t.Fatalf("Cash = %v, want %v", ns.Resources.Cash, want)
+	}
+}
