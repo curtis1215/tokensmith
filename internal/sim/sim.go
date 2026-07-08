@@ -56,6 +56,22 @@ func totalSalaryPerSec(ns model.GameState, b balance.Config) float64 {
 	return s
 }
 
+// Valuation is the company's estimated worth (spec §7.0).
+func Valuation(ns model.GameState, b balance.Config) float64 {
+	var monthlyRev, users float64
+	for _, m := range ns.Models {
+		if m.Online {
+			monthlyRev += m.Users * m.Price
+			users += m.Users
+		}
+	}
+	assets := ns.Resources.Cash
+	for _, sv := range ns.Servers {
+		assets += sv.Compute * b.ServerAssetValue
+	}
+	return monthlyRev*b.RevenueMultiple + users*b.UserValue + assets
+}
+
 // Tick advances the simulation by dt seconds and returns the new state.
 // Pure: it does not mutate s and depends only on its arguments.
 func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Config) model.GameState {
@@ -88,6 +104,14 @@ func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Co
 	ns = advanceCompetitors(ns, dt)
 	ns = advanceUsers(ns, dt, b)
 	ns = advanceServing(ns, dt, b)
+	val := Valuation(ns, b)
+	if val > ns.PeakValuation {
+		ns.PeakValuation = val
+	}
+	for ns.MilestonesReached < len(b.ValuationMilestones) &&
+		ns.PeakValuation >= b.ValuationMilestones[ns.MilestonesReached] {
+		ns.MilestonesReached++
+	}
 	return ns
 }
 

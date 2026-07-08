@@ -582,3 +582,47 @@ func TestTechGrowthBoostsUsers(t *testing.T) {
 		t.Fatalf("growth tech should boost users: %v vs %v", nt.Models[0].Users, nb.Models[0].Users)
 	}
 }
+
+func TestValuation(t *testing.T) {
+	b := balance.Default()
+	m := onlineModel(50, 12)
+	m.Users = 1000
+	s := model.GameState{Models: []model.Model{m}}
+	s.Resources.Cash = 50000
+	// monthlyRev 1000*12=12000; *120 = 1.44M; users 1000*10=10000; cash 50000 → 1.5M
+	if !approx(Valuation(s, b), 1_500_000) {
+		t.Fatalf("valuation = %v, want 1500000", Valuation(s, b))
+	}
+}
+
+func TestTickTracksMilestones(t *testing.T) {
+	b := balance.Default()
+	m := onlineModel(50, 12)
+	m.Users = 1000
+	s := model.GameState{Models: []model.Model{m}}
+	s.Resources.Cash = 50000
+	ns := Tick(s, 1, nil, b)
+	if ns.PeakValuation < 1_000_000 {
+		t.Errorf("peak valuation not tracked: %v", ns.PeakValuation)
+	}
+	if ns.MilestonesReached < 1 {
+		t.Errorf("should reach $1M milestone, reached=%d peak=%v", ns.MilestonesReached, ns.PeakValuation)
+	}
+}
+
+func TestPeakValuationIsMonotonic(t *testing.T) {
+	b := balance.Default()
+	// a model whose users will decay (price way above ref → target ~0)
+	m := onlineModel(50, 100*b.RefPrice)
+	m.Users = 100000
+	s := model.GameState{Models: []model.Model{m}}
+	s.Resources.Cash = 1e7
+	ns := Tick(s, 1, nil, b)
+	peak1 := ns.PeakValuation
+	// drop cash to force lower valuation; peak must not decrease
+	ns.Resources.Cash = 0
+	ns2 := Tick(ns, 1, nil, b)
+	if ns2.PeakValuation < peak1 {
+		t.Fatalf("peak valuation decreased: %v -> %v", peak1, ns2.PeakValuation)
+	}
+}
