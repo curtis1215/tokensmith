@@ -82,7 +82,10 @@ type Config struct {
 	StartingResearchersT1     int
 	StartingTrainingCapacity  float64
 	StartingInferenceCapacity float64
-	Stars                     []model.Star // star-employee roster (plan-12)
+	// BankruptcyDebtRatio: the run auto-restarts once cash falls below
+	// -(BankruptcyDebtRatio * StartingCash).
+	BankruptcyDebtRatio float64
+	Stars               []model.Star // star-employee roster (plan-12)
 }
 
 // Default returns the v0 calibration (spec §12).
@@ -150,8 +153,9 @@ func Default() Config {
 	c.StartingCash = 100000
 	c.StartingRnD = 50000
 	c.StartingResearchersT1 = 2
-	c.StartingTrainingCapacity = 4
-	c.StartingInferenceCapacity = 2
+	c.StartingTrainingCapacity = 0 // rent on demand — no rent burn before a product
+	c.StartingInferenceCapacity = 0
+	c.BankruptcyDebtRatio = 1.0 // game over at cash < -100000 (1× starting cash)
 	c.PrestigeNodes = DefaultPrestigeNodes()
 	c.Stars = DefaultStars()
 	return c

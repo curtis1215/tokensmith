@@ -64,6 +64,8 @@ type Model struct {
 	lastRealUnix   int64
 	metaMissing    bool
 	offlineSummary *Summary // shown as a banner until dismissed by any key
+	notice         string   // transient one-line banner, dismissed by any key
+	pendingRestart bool      // armed manual restart; a second X confirms it
 }
 
 // New returns the game model wired to the real save/ledger/meta locations,
@@ -179,6 +181,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lastTokens += e.InputTokens + e.OutputTokens
 		}
 		m.state = sim.Tick(m.state, tickDT, events, m.cfg)
+		// Mechanism B: auto game-over + restart once debt passes the threshold.
+		if m.state.Resources.Cash < -m.cfg.BankruptcyDebtRatio*m.cfg.StartingCash {
+			m.state = sim.Restart(m.state, m.cfg)
+			m.notice = "💥 破產！公司已重整重來"
+		}
 		m.ticksSinceSave++
 		if m.ticksSinceSave >= 40 {
 			m.ticksSinceSave = 0
@@ -190,8 +197,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.dialog != nil {
 			return m.updateDialog(msg)
 		}
-		m.offlineSummary = nil // any key dismisses the offline banner
+		// Mechanism A: a second X confirms a voluntary restart; any other key cancels.
+		if m.pendingRestart {
+			m.pendingRestart = false
+			m.notice = ""
+			if msg.String() == "X" {
+				m.state = sim.Restart(m.state, m.cfg)
+				m.notice = "🔄 已重來——祝這次順利"
+			}
+			return m, nil
+		}
+		m.offlineSummary = nil // any key dismisses the transient banners
+		m.notice = ""
 		switch msg.String() {
+		case "X":
+			m.pendingRestart = true
+			m.notice = "確認重來？再按一次 X（其他鍵取消）"
+			return m, nil
 		case "tab", "right":
 			m.page = (m.page + 1) % numPages
 			return m, nil
@@ -387,6 +409,9 @@ func pressures(m Model) []string {
 	if !hasOnline && !s.HasTraining {
 		out = append(out, "⚠ 尚無營運中模型——到模型頁按 t 開訓")
 	}
+	if sim.EffectiveTraining(s, m.cfg) == 0 {
+		out = append(out, "⚠ 無訓練算力——到算力頁按 r 租用才能訓練")
+	}
 	return out
 }
 
@@ -428,6 +453,9 @@ func (m Model) View() string {
 	rows := []string{titleStyle.Render("Tokensmith")}
 	if m.offlineSummary != nil {
 		rows = append(rows, offlineBanner(*m.offlineSummary))
+	}
+	if m.notice != "" {
+		rows = append(rows, tabActiveStyle.Render(m.notice))
 	}
 	rows = append(rows, lipgloss.JoinVertical(lipgloss.Left,
 		renderResourceBar(m),

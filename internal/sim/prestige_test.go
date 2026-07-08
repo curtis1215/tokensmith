@@ -31,6 +31,25 @@ func TestPatentsFor(t *testing.T) {
 	}
 }
 
+func TestRestartUngatedBanksPatentsAndResets(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Models = []model.Model{{Online: true, Users: 100}}
+	s.Resources.Cash = -50000 // deep in debt, well below any prestige gate
+	s.PeakValuation = 1e10     // banks floor(sqrt(1e10/1e8)) = 10 patents
+	s.Prestige.Patents = 3
+	ns := Restart(s, b)
+	if len(ns.Models) != 0 {
+		t.Fatalf("restart should clear models, got %d", len(ns.Models))
+	}
+	if ns.Resources.Cash != b.StartingCash {
+		t.Fatalf("restart should reset cash to start, got %v", ns.Resources.Cash)
+	}
+	if ns.Prestige.Patents != 13 {
+		t.Fatalf("restart should bank patents from peak: got %v want 13", ns.Prestige.Patents)
+	}
+}
+
 func TestFreshRun(t *testing.T) {
 	b := balance.Default()
 	p := model.Prestige{Patents: 5, UnlockedPrestige: []string{"start-cash-1"}} // +100k cash

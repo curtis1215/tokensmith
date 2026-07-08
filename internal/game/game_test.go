@@ -20,7 +20,9 @@ func TestNewGameSeed(t *testing.T) {
 	if s.Research.Researchers[model.Tier1] == 0 || s.Research.EfficiencyMult == 0 {
 		t.Errorf("research not seeded: %+v", s.Research)
 	}
-	if s.Compute.TrainingCapacity <= 0 || s.Compute.InferenceCapacity <= 0 {
-		t.Errorf("compute not seeded: %+v", s.Compute)
+	// New runs start with NO rented compute — the player rents on demand so
+	// there is no rent burn before a product exists.
+	if s.Compute.TrainingCapacity != 0 || s.Compute.InferenceCapacity != 0 {
+		t.Errorf("compute should start at zero (rent on demand), got %+v", s.Compute)
 	}
 }

@@ -45,9 +45,9 @@ func renderOverview(m Model) string {
 	if warns := pressures(m); len(warns) > 0 {
 		sections = append(sections, boxStyle.Render("注意\n"+joinLines(warns)))
 	}
-	hint := "[Tab]切頁 [t]訓練 [q]離開"
+	hint := "[Tab]切頁 [t]訓練 [X]重來 [q]離開"
 	if s.PeakValuation >= m.cfg.PrestigeUnlockValuation {
-		hint = "[Tab]切頁 [t]訓練 [P]傳承重開 [q]離開"
+		hint = "[Tab]切頁 [t]訓練 [P]傳承重開 [X]重來 [q]離開"
 	}
 	sections = append(sections, helpStyle.Render(hint))
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)

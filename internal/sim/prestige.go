@@ -48,6 +48,16 @@ func patentsFor(peak float64, b balance.Config) float64 {
 	return math.Floor(math.Sqrt(peak / b.PatentK))
 }
 
+// Restart abandons the current run, banking patents earned from its peak
+// valuation, and returns a fresh run preserving prestige. Unlike the
+// PrestigeReset command it is NOT gated by a minimum valuation — it backs both
+// voluntary restarts and bankruptcy game-overs.
+func Restart(s model.GameState, b balance.Config) model.GameState {
+	p := s.Prestige
+	p.Patents += patentsFor(s.PeakValuation, b)
+	return freshRun(p, b)
+}
+
 // freshRun produces a new run's starting state, preserving prestige.
 func freshRun(p model.Prestige, b balance.Config) model.GameState {
 	pe := prestigeEffects(p.UnlockedPrestige, b)
