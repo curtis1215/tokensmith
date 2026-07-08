@@ -43,3 +43,22 @@ func TestPollerIgnoresPartialLine(t *testing.T) {
 		t.Fatalf("poll = %d, want 1 (partial line held back)", len(got))
 	}
 }
+
+func TestPollerPrimeSkipsHistory(t *testing.T) {
+	claude := t.TempDir()
+	f := filepath.Join(claude, "session.jsonl")
+	line := `{"type":"assistant","timestamp":"2026-07-07T10:59:19Z","message":{"usage":{"input_tokens":100,"output_tokens":50}}}` + "\n"
+	os.WriteFile(f, []byte(line+line), 0o644)
+	p := NewPoller(claude, t.TempDir())
+	p.Prime() // move cursors to end; skip existing history
+	if got := p.Poll(); len(got) != 0 {
+		t.Fatalf("after prime, poll = %d events, want 0 (history skipped)", len(got))
+	}
+	// usage appended after priming is harvested
+	af, _ := os.OpenFile(f, os.O_APPEND|os.O_WRONLY, 0o644)
+	af.WriteString(line)
+	af.Close()
+	if got := p.Poll(); len(got) != 1 {
+		t.Fatalf("after append, poll = %d events, want 1", len(got))
+	}
+}

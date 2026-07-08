@@ -42,7 +42,10 @@ func New() Model {
 	}
 }
 
-func (m Model) Init() tea.Cmd { return tick() }
+func (m Model) Init() tea.Cmd {
+	m.poller.Prime() // start at end of logs: harvest new coding, not history
+	return tick()
+}
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
