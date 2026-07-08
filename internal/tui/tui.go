@@ -27,6 +27,21 @@ func tick() tea.Cmd {
 	return tea.Tick(250*time.Millisecond, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
+// Page identifies the active TUI tab.
+type Page int
+
+const (
+	PageOverview Page = iota
+	PageModels
+	PageMarket
+	PageCompute
+	PageTeam
+	PageTech
+	numPages
+)
+
+var pageNames = [numPages]string{"總覽", "模型", "市場", "算力", "團隊", "科技"}
+
 // Model is the Bubble Tea root model.
 type Model struct {
 	state          model.GameState
@@ -35,6 +50,7 @@ type Model struct {
 	lastTokens     int
 	savePath       string
 	ticksSinceSave int
+	page           Page
 }
 
 // New returns a fresh prototype model.
@@ -80,6 +96,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tick()
 	case tea.KeyMsg:
 		switch msg.String() {
+		case "tab", "right":
+			m.page = (m.page + 1) % numPages
+			return m, nil
+		case "shift+tab", "left":
+			m.page = (m.page + numPages - 1) % numPages
+			return m, nil
+		case "1", "2", "3", "4", "5", "6":
+			m.page = Page(msg.String()[0] - '1')
+			return m, nil
 		case "q", "ctrl+c":
 			_ = store.Save(m.savePath, m.state)
 			return m, tea.Quit
@@ -106,40 +131,94 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 var (
-	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
-	boxStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
-	helpStyle  = lipgloss.NewStyle().Faint(true)
+	titleStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
+	boxStyle       = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
+	helpStyle      = lipgloss.NewStyle().Faint(true)
+	tabActiveStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).Underline(true)
 )
 
-func (m Model) View() string {
+// human formats large numbers compactly (e.g. 1.84M, 340k).
+func human(v float64) string {
+	switch {
+	case v >= 1e9:
+		return fmt.Sprintf("%.2fB", v/1e9)
+	case v >= 1e6:
+		return fmt.Sprintf("%.2fM", v/1e6)
+	case v >= 1e3:
+		return fmt.Sprintf("%.0fk", v/1e3)
+	default:
+		return fmt.Sprintf("%.0f", v)
+	}
+}
+
+// progressBar renders a fixed-width ▓/░ bar for frac∈[0,1].
+func progressBar(frac float64, width int) string {
+	if frac < 0 {
+		frac = 0
+	}
+	if frac > 1 {
+		frac = 1
+	}
+	n := int(frac * float64(width))
+	return strings.Repeat("▓", n) + strings.Repeat("░", width-n)
+}
+
+func renderResourceBar(m Model) string {
 	s := m.state
-	res := fmt.Sprintf("💰 $%.0f    ⚡ R&D %.0f    🖥 訓練 %.0f · 推理 %.1f/%.0f",
-		s.Resources.Cash, s.Resources.RnD,
-		s.Compute.TrainingCapacity, s.Compute.InferenceLoad, s.Compute.InferenceCapacity)
-	if m.lastTokens > 0 {
-		res += fmt.Sprintf("    ⚡token +%d", m.lastTokens)
-	}
-
-	var mb strings.Builder
-	mb.WriteString("模型:\n")
+	trainUtil := 0.0
 	if s.HasTraining {
-		mb.WriteString(fmt.Sprintf("  訓練中 Gen%d  剩 %.0f GPU·s\n", s.Training.Gen, s.Training.WorkRemaining))
+		trainUtil = 1 // a job fully occupies the training pool in v0
 	}
-	for _, md := range s.Models {
-		mb.WriteString(fmt.Sprintf("  Gen%d  用戶 %.0f  價 $%.0f  能力 %.0f\n",
-			md.Gen, md.Users, md.Price, md.Quality[model.DimCapability]))
+	infUtil := 0.0
+	if cap := sim.EffectiveInference(s, m.cfg); cap > 0 {
+		infUtil = s.Compute.InferenceLoad / cap
 	}
-	if len(s.Models) == 0 && !s.HasTraining {
-		mb.WriteString("  (無 — 按 t 訓練第一個模型)\n")
+	bar := fmt.Sprintf("💰 $%s   ⚡R&D %.0f/s   🖥訓練%.0f%% 推理%.0f%%   📈估值 $%s",
+		human(s.Resources.Cash), s.Resources.RnD, trainUtil*100, infUtil*100,
+		human(sim.Valuation(s, m.cfg)))
+	if m.lastTokens > 0 {
+		bar += fmt.Sprintf("   ⚡token +%d", m.lastTokens)
 	}
+	return bar
+}
 
-	var cb strings.Builder
-	cb.WriteString("對手 (能力):\n")
-	for _, c := range s.Competitors {
-		cb.WriteString(fmt.Sprintf("  %-10s %.1f\n", c.Name, c.Quality[model.DimCapability]))
+func renderTabBar(p Page) string {
+	var parts []string
+	for i, name := range pageNames {
+		label := fmt.Sprintf("[%d]%s", i+1, name)
+		if Page(i) == p {
+			label = tabActiveStyle.Render(label)
+		}
+		parts = append(parts, label)
 	}
+	return strings.Join(parts, "  ")
+}
 
-	help := helpStyle.Render("[t]訓練  [r]+訓練算力  [i]+推理算力  [q]離開")
-	body := lipgloss.JoinVertical(lipgloss.Left, res, "", mb.String(), cb.String(), help)
+func (m Model) renderPage() string {
+	switch m.page {
+	case PageModels:
+		return renderModels(m)
+	case PageMarket:
+		return renderMarket(m)
+	case PageCompute:
+		return renderCompute(m)
+	case PageTeam:
+		return renderTeam(m)
+	case PageTech:
+		return renderTech(m)
+	default:
+		return renderOverview(m)
+	}
+}
+
+func (m Model) View() string {
+	sep := strings.Repeat("─", 66)
+	body := lipgloss.JoinVertical(lipgloss.Left,
+		renderResourceBar(m),
+		sep,
+		renderTabBar(m.page),
+		sep,
+		m.renderPage(),
+	)
 	return boxStyle.Render(lipgloss.JoinVertical(lipgloss.Left, titleStyle.Render("Tokensmith"), body))
 }
