@@ -5,10 +5,13 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"tokensmith/internal/ingest"
 )
 
 func TestUpdateTickAdvancesState(t *testing.T) {
 	m := New()
+	m.poller = ingest.NewPoller(t.TempDir(), t.TempDir())
 	before := m.state.GameTime
 	nm, _ := m.Update(tickMsg(time.Unix(0, 0)))
 	if nm.(Model).state.GameTime <= before {
@@ -46,3 +49,20 @@ func TestQuitKey(t *testing.T) {
 		t.Fatalf("quit key should return a command")
 	}
 }
+
+func TestNewHasPoller(t *testing.T) {
+	if New().poller == nil {
+		t.Fatalf("New() should create an ingest poller")
+	}
+}
+
+func TestTickPollsTokens(t *testing.T) {
+	m := New()
+	m.poller = ingest.NewPoller(t.TempDir(), t.TempDir()) // hermetic: empty log dirs
+	before := m.state.GameTime
+	nm, _ := m.Update(tickMsg(time.Unix(0, 0)))
+	if nm.(Model).state.GameTime <= before {
+		t.Fatalf("tick did not advance after polling")
+	}
+}
+

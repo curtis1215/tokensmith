@@ -11,6 +11,7 @@ import (
 
 	"tokensmith/internal/balance"
 	"tokensmith/internal/game"
+	"tokensmith/internal/ingest"
 	"tokensmith/internal/model"
 	"tokensmith/internal/sim"
 )
@@ -26,13 +27,19 @@ func tick() tea.Cmd {
 
 // Model is the Bubble Tea root model.
 type Model struct {
-	state model.GameState
-	cfg   balance.Config
+	state      model.GameState
+	cfg        balance.Config
+	poller     *ingest.Poller
+	lastTokens int
 }
 
 // New returns a fresh prototype model.
 func New() Model {
-	return Model{state: game.NewGame(), cfg: balance.Default()}
+	return Model{
+		state:  game.NewGame(),
+		cfg:    balance.Default(),
+		poller: ingest.NewDefaultPoller(),
+	}
 }
 
 func (m Model) Init() tea.Cmd { return tick() }
@@ -40,7 +47,12 @@ func (m Model) Init() tea.Cmd { return tick() }
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tickMsg:
-		m.state = sim.Tick(m.state, tickDT, nil, m.cfg)
+		events := m.poller.Poll()
+		m.lastTokens = 0
+		for _, e := range events {
+			m.lastTokens += e.InputTokens + e.OutputTokens
+		}
+		m.state = sim.Tick(m.state, tickDT, events, m.cfg)
 		return m, tick()
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -79,6 +91,9 @@ func (m Model) View() string {
 	res := fmt.Sprintf("💰 $%.0f    ⚡ R&D %.0f    🖥 訓練 %.0f · 推理 %.1f/%.0f",
 		s.Resources.Cash, s.Resources.RnD,
 		s.Compute.TrainingCapacity, s.Compute.InferenceLoad, s.Compute.InferenceCapacity)
+	if m.lastTokens > 0 {
+		res += fmt.Sprintf("    ⚡token +%d", m.lastTokens)
+	}
 
 	var mb strings.Builder
 	mb.WriteString("模型:\n")
