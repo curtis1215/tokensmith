@@ -56,6 +56,17 @@ func totalSalaryPerSec(ns model.GameState, b balance.Config) float64 {
 	return s
 }
 
+// starSalaryPerSec is the aggregate salary of all hired stars.
+func starSalaryPerSec(ns model.GameState, b balance.Config) float64 {
+	var s float64
+	for _, st := range b.Stars {
+		if isStarHired(ns, st.ID) {
+			s += st.SalaryPerSec
+		}
+	}
+	return s
+}
+
 // Valuation is the company's estimated worth (spec §7.0).
 func Valuation(ns model.GameState, b balance.Config) float64 {
 	var monthlyRev, users float64
@@ -92,7 +103,8 @@ func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Co
 	ns.WindowRnD = newWindow
 
 	pe := prestigeEffects(ns.Prestige.UnlockedPrestige, b)
-	ns.Resources.RnD += (staffRnD + tokenRnD) * pe.RnDMult
+	starRnD := starEffects(ns, b).RnDPerSec * dt
+	ns.Resources.RnD += (staffRnD + tokenRnD + starRnD) * pe.RnDMult
 	ns.Resources.Cash -= ns.Compute.TrainingCapacity * b.TrainRentPerGPUSec * dt
 	ns.Resources.Cash -= ns.Compute.InferenceCapacity * b.InferenceRentPerGPUSec * dt
 	serverPower := 0.0
@@ -100,7 +112,7 @@ func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Co
 		serverPower += sv.PowerKW
 	}
 	ns.Resources.Cash -= serverPower * b.ElectricityPerKWSec * dt
-	ns.Resources.Cash -= totalSalaryPerSec(ns, b) * dt
+	ns.Resources.Cash -= (totalSalaryPerSec(ns, b) + starSalaryPerSec(ns, b)) * dt
 	ns = advanceTraining(ns, dt, b)
 	ns = advanceCompetitors(ns, dt)
 	ns = advanceUsers(ns, dt, b)

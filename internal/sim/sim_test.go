@@ -653,3 +653,25 @@ func TestPrestigeCashMult(t *testing.T) {
 		t.Fatalf("prestige cash mult should boost revenue: %v vs %v", np.Resources.Cash, nb.Resources.Cash)
 	}
 }
+
+func TestTickStarSalary(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{HiredStars: []string{"aria-chen"}} // salary 0.02/s
+	s.Resources.Cash = 100
+	ns := Tick(s, 10, nil, b)
+	// aria salary 0.02*10 = 0.2 (aria also adds R&D but not cash)
+	if !approx(ns.Resources.Cash, 100-0.02*10) {
+		t.Fatalf("Cash = %v, want %v", ns.Resources.Cash, 100-0.02*10)
+	}
+}
+
+func TestTickStarRnDBonus(t *testing.T) {
+	b := balance.Default()
+	base := model.GameState{}
+	withStar := model.GameState{HiredStars: []string{"aria-chen"}} // +300 R&D/s
+	nb := Tick(base, 1, nil, b)
+	nw := Tick(withStar, 1, nil, b)
+	if nw.Resources.RnD <= nb.Resources.RnD {
+		t.Fatalf("star should add R&D: %v vs %v", nw.Resources.RnD, nb.Resources.RnD)
+	}
+}
