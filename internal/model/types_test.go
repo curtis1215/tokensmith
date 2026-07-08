@@ -107,3 +107,25 @@ func TestInferenceComputeAndCommand(t *testing.T) {
 		t.Fatalf("RentInferenceCompute not a Command")
 	}
 }
+
+func TestComputeInfraTypes(t *testing.T) {
+	if PoolTraining != 0 || PoolInference != 1 {
+		t.Fatalf("pool consts wrong")
+	}
+	ch := Chip{Name: "T", Pool: PoolTraining, Compute: 3, PowerKW: 5, Price: 18000}
+	sv := Server{Pool: ch.Pool, Compute: 24, PowerKW: 40, Slots: 1}
+	var s GameState
+	s.Servers = append(s.Servers, sv)
+	s.Datacenter = Datacenter{PowerCapacity: 800, SlotCapacity: 20}
+	if len(s.Servers) != 1 || s.Datacenter.PowerCapacity != 800 {
+		t.Fatalf("infra fields wrong: %+v", s)
+	}
+	var c1 Command = BuildServer{ChipName: "T"}
+	var c2 Command = ExpandDatacenter{PowerDelta: 100, SlotDelta: 5}
+	if _, ok := c1.(BuildServer); !ok {
+		t.Fatalf("BuildServer not a Command")
+	}
+	if _, ok := c2.(ExpandDatacenter); !ok {
+		t.Fatalf("ExpandDatacenter not a Command")
+	}
+}

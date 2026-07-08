@@ -47,6 +47,8 @@ type GameState struct {
 	Compute       Compute
 	Models        []Model
 	Competitors   []Competitor
+	Servers       []Server
+	Datacenter    Datacenter
 	HasTraining   bool
 	Training      TrainingJob
 }
@@ -137,3 +139,49 @@ type RentInferenceCompute struct {
 }
 
 func (RentInferenceCompute) commandMarker() {}
+
+// ComputePool identifies which compute pool a chip/server feeds.
+type ComputePool int
+
+const (
+	PoolTraining  ComputePool = iota // 0
+	PoolInference                    // 1
+)
+
+// Chip is a catalog entry; owned compute is held as Servers.
+type Chip struct {
+	Name    string
+	Pool    ComputePool
+	Compute float64 // compute per chip
+	PowerKW float64 // power draw per chip
+	Price   float64 // price per chip
+}
+
+// Server is self-built compute: a bundle of chips feeding one pool.
+type Server struct {
+	Pool    ComputePool
+	Compute float64 // total compute contributed
+	PowerKW float64 // total power draw
+	Slots   float64 // rack slots occupied
+}
+
+// Datacenter provides power and rack-space capacity limits (single-DC v0).
+type Datacenter struct {
+	PowerCapacity float64
+	SlotCapacity  float64
+}
+
+// BuildServer builds one server from the named chip in the datacenter.
+type BuildServer struct {
+	ChipName string
+}
+
+func (BuildServer) commandMarker() {}
+
+// ExpandDatacenter adds power / rack-space capacity for capex.
+type ExpandDatacenter struct {
+	PowerDelta float64
+	SlotDelta  float64
+}
+
+func (ExpandDatacenter) commandMarker() {}
