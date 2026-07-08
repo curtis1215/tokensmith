@@ -24,9 +24,9 @@ func TestRnDRatePerSec(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{}
 	s.Research.EfficiencyMult = 1
-	s.Research.Researchers[model.Tier1] = 2 // 2 × 5/s = 10/s
-	if RnDRatePerSec(s, b) != 10 {
-		t.Errorf("RnDRatePerSec = %v, want 10", RnDRatePerSec(s, b))
+	s.Research.Researchers[model.Tier1] = 2 // 2 × 0.005/s = 0.01/s
+	if RnDRatePerSec(s, b) != 0.01 {
+		t.Errorf("RnDRatePerSec = %v, want 0.01", RnDRatePerSec(s, b))
 	}
 }
 

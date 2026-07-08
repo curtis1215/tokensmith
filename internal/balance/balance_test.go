@@ -8,14 +8,14 @@ import (
 
 func TestDefaultV0Values(t *testing.T) {
 	c := Default()
-	if c.ResearcherRnDPerSec[model.Tier1] != 5 {
-		t.Errorf("Tier1 R&D/s = %v, want 5", c.ResearcherRnDPerSec[model.Tier1])
+	if c.ResearcherRnDPerSec[model.Tier1] != 0.005 {
+		t.Errorf("Tier1 R&D/s = %v, want 0.005", c.ResearcherRnDPerSec[model.Tier1])
 	}
-	if c.ResearcherRnDPerSec[model.Tier2] != 15 {
-		t.Errorf("Tier2 R&D/s = %v, want 15", c.ResearcherRnDPerSec[model.Tier2])
+	if c.ResearcherRnDPerSec[model.Tier2] != 0.015 {
+		t.Errorf("Tier2 R&D/s = %v, want 0.015", c.ResearcherRnDPerSec[model.Tier2])
 	}
-	if c.ResearcherRnDPerSec[model.Tier3] != 40 {
-		t.Errorf("Tier3 R&D/s = %v, want 40", c.ResearcherRnDPerSec[model.Tier3])
+	if c.ResearcherRnDPerSec[model.Tier3] != 0.04 {
+		t.Errorf("Tier3 R&D/s = %v, want 0.04", c.ResearcherRnDPerSec[model.Tier3])
 	}
 	if c.TokenInputWeight != 1 || c.TokenOutputWeight != 2 || c.TokenDivisor != 10 {
 		t.Errorf("token formula params wrong: %+v", c)

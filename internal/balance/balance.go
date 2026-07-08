@@ -103,9 +103,11 @@ type Config struct {
 // Default returns the v0 calibration (spec §12).
 func Default() Config {
 	var c Config
-	c.ResearcherRnDPerSec[model.Tier1] = 5
-	c.ResearcherRnDPerSec[model.Tier2] = 15
-	c.ResearcherRnDPerSec[model.Tier3] = 40
+	// R&D per researcher-second. Kept low so the tech tree is a real time-gate
+	// (not trivially affordable) and real coding (token R&D) stays impactful.
+	c.ResearcherRnDPerSec[model.Tier1] = 0.005
+	c.ResearcherRnDPerSec[model.Tier2] = 0.015
+	c.ResearcherRnDPerSec[model.Tier3] = 0.04
 
 	c.TokenInputWeight = 1
 	c.TokenOutputWeight = 2
@@ -158,7 +160,7 @@ func Default() Config {
 	c.OpsChurnReduction = 0.1
 	c.MarketingBonus = 0.03
 	c.CompetitorBaseQuality = 20
-	c.CompetitorCatchupRate = 0.000005 // ~2% of the gap per tick (dt=3600)
+	c.CompetitorCatchupRate = 0.0000005 // slow idle-paced catch-up (~0.18% of gap/tick)
 	c.TechNodes = DefaultTechNodes()
 	c.ValuationMilestones = []float64{1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12}
 	c.RevenueMultiple = 120
