@@ -626,3 +626,30 @@ func TestPeakValuationIsMonotonic(t *testing.T) {
 		t.Fatalf("peak valuation decreased: %v -> %v", peak1, ns2.PeakValuation)
 	}
 }
+
+func TestPrestigeRnDMult(t *testing.T) {
+	b := balance.Default()
+	base := model.GameState{Research: model.Research{EfficiencyMult: 1}}
+	base.Research.Researchers[model.Tier2] = 10 // 150 R&D/s
+	withP := base
+	withP.Prestige.UnlockedPrestige = []string{"rnd-mult-1"} // R&D ×1.1
+	nb := Tick(base, 1, nil, b)
+	np := Tick(withP, 1, nil, b)
+	if np.Resources.RnD <= nb.Resources.RnD {
+		t.Fatalf("prestige RnD mult should boost R&D: %v vs %v", np.Resources.RnD, nb.Resources.RnD)
+	}
+}
+
+func TestPrestigeCashMult(t *testing.T) {
+	b := balance.Default()
+	m := onlineModel(50, 12)
+	m.Users = 1000
+	base := model.GameState{Models: []model.Model{m}}
+	withP := model.GameState{Models: []model.Model{m}}
+	withP.Prestige.UnlockedPrestige = []string{"cash-mult-1"} // cash ×1.1
+	nb := Tick(base, 1, nil, b)
+	np := Tick(withP, 1, nil, b)
+	if np.Resources.Cash <= nb.Resources.Cash {
+		t.Fatalf("prestige cash mult should boost revenue: %v vs %v", np.Resources.Cash, nb.Resources.Cash)
+	}
+}

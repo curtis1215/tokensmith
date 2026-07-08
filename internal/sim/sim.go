@@ -91,7 +91,8 @@ func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Co
 	tokenRnD, newWindow := applySoftCap(ns.WindowRnD, raw, b.SoftCapFull, b.SoftCapMult)
 	ns.WindowRnD = newWindow
 
-	ns.Resources.RnD += staffRnD + tokenRnD
+	pe := prestigeEffects(ns.Prestige.UnlockedPrestige, b)
+	ns.Resources.RnD += (staffRnD + tokenRnD) * pe.RnDMult
 	ns.Resources.Cash -= ns.Compute.TrainingCapacity * b.TrainRentPerGPUSec * dt
 	ns.Resources.Cash -= ns.Compute.InferenceCapacity * b.InferenceRentPerGPUSec * dt
 	serverPower := 0.0
@@ -182,13 +183,14 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 	if len(ns.Models) == 0 {
 		return ns
 	}
+	pe := prestigeEffects(ns.Prestige.UnlockedPrestige, b)
 	models := append([]model.Model(nil), ns.Models...)
 	for i := range models {
 		m := &models[i]
 		if !m.Online {
 			continue
 		}
-		ns.Resources.Cash += m.Users * m.Price * dt / b.MonthSec
+		ns.Resources.Cash += m.Users * m.Price * dt / b.MonthSec * pe.CashMult
 
 		w := b.SegmentWeights[m.Segment]
 		appeal := appealOf(m.Quality, w)
