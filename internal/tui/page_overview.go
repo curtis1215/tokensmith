@@ -38,10 +38,30 @@ func renderOverview(m Model) string {
 		milestone = boxStyle.Render("下個里程碑\n全部達成")
 	}
 
-	help := helpStyle.Render("[Tab]切頁 [t]訓練 [q]離開")
-	return lipgloss.JoinVertical(lipgloss.Left,
+	sections := []string{
 		lipgloss.JoinHorizontal(lipgloss.Top, company, "  ", training),
-		milestone, help)
+		milestone,
+	}
+	if warns := pressures(m); len(warns) > 0 {
+		sections = append(sections, boxStyle.Render("注意\n"+joinLines(warns)))
+	}
+	hint := "[Tab]切頁 [t]訓練 [q]離開"
+	if s.PeakValuation >= m.cfg.PrestigeUnlockValuation {
+		hint = "[Tab]切頁 [t]訓練 [P]傳承重開 [q]離開"
+	}
+	sections = append(sections, helpStyle.Render(hint))
+	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+}
+
+func joinLines(ss []string) string {
+	out := ""
+	for i, s := range ss {
+		if i > 0 {
+			out += "\n"
+		}
+		out += s
+	}
+	return out
 }
 
 func segmentName(seg model.Segment) string {

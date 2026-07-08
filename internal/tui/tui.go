@@ -134,6 +134,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.dialog = &d
 			}
 			return m, nil
+		case "P":
+			if m.page == PageOverview || m.page == PageTech {
+				m.state = applyOK(m.state, model.PrestigeReset{}, m.cfg)
+			}
+			return m, nil
 		case "r":
 			if m.page == PageCompute {
 				m.state = applyOK(m.state, model.RentTrainingCompute{Delta: 1}, m.cfg)
@@ -262,13 +267,34 @@ func renderResourceBar(m Model) string {
 	if cap := sim.EffectiveInference(s, m.cfg); cap > 0 {
 		infUtil = s.Compute.InferenceLoad / cap
 	}
-	bar := fmt.Sprintf("💰 $%s   ⚡R&D %.0f/s   🖥訓練%.0f%% 推理%.0f%%   📈估值 $%s",
-		human(s.Resources.Cash), s.Resources.RnD, trainUtil*100, infUtil*100,
+	bar := fmt.Sprintf("Day %d   💰 $%s   ⚡R&D %.0f/s   🖥訓練%.0f%% 推理%.0f%%   📈估值 $%s",
+		int(s.GameTime/86400), human(s.Resources.Cash), s.Resources.RnD, trainUtil*100, infUtil*100,
 		human(sim.Valuation(s, m.cfg)))
 	if m.lastTokens > 0 {
 		bar += fmt.Sprintf("   ⚡token +%d", m.lastTokens)
 	}
 	return bar
+}
+
+// pressures returns ⚠ attention items surfaced on the overview page. (A real
+// coding-streak counter is deferred to a later plan.)
+func pressures(m Model) []string {
+	s := m.state
+	var out []string
+	if cap := sim.EffectiveInference(s, m.cfg); cap > 0 && s.Compute.InferenceLoad/cap >= 0.9 {
+		out = append(out, "⚠ 推理接近上限——加租或自建推理算力")
+	}
+	hasOnline := false
+	for _, md := range s.Models {
+		if md.Online {
+			hasOnline = true
+			break
+		}
+	}
+	if !hasOnline && !s.HasTraining {
+		out = append(out, "⚠ 尚無營運中模型——到模型頁按 t 開訓")
+	}
+	return out
 }
 
 func renderTabBar(p Page) string {
