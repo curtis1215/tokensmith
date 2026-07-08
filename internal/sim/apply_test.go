@@ -383,3 +383,41 @@ func TestApplyPrestigeLocked(t *testing.T) {
 		t.Fatalf("err = %v, want ErrPrestigeLocked", err)
 	}
 }
+
+func TestApplySignStar(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Resources.Cash = 1_000_000
+	ns, err := Apply(s, model.SignStar{StarID: "aria-chen"}, b) // signing 600000
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !approx(ns.Resources.Cash, 400000) {
+		t.Errorf("cash = %v, want 400000", ns.Resources.Cash)
+	}
+	if len(ns.HiredStars) != 1 || ns.HiredStars[0] != "aria-chen" {
+		t.Errorf("not hired: %+v", ns.HiredStars)
+	}
+	if len(s.HiredStars) != 0 {
+		t.Errorf("Apply mutated input")
+	}
+}
+
+func TestApplySignStarErrors(t *testing.T) {
+	b := balance.Default()
+	rich := model.GameState{}
+	rich.Resources.Cash = 1e9
+	if _, err := Apply(rich, model.SignStar{StarID: "nope"}, b); err != ErrInvalidStar {
+		t.Errorf("invalid: err = %v, want ErrInvalidStar", err)
+	}
+	already := model.GameState{HiredStars: []string{"aria-chen"}}
+	already.Resources.Cash = 1e9
+	if _, err := Apply(already, model.SignStar{StarID: "aria-chen"}, b); err != ErrAlreadyHired {
+		t.Errorf("already: err = %v, want ErrAlreadyHired", err)
+	}
+	poor := model.GameState{}
+	poor.Resources.Cash = 100
+	if _, err := Apply(poor, model.SignStar{StarID: "aria-chen"}, b); err != ErrInsufficientCash {
+		t.Errorf("cash: err = %v, want ErrInsufficientCash", err)
+	}
+}

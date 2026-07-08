@@ -30,6 +30,8 @@ var (
 	ErrInvalidPrestigeNode = errors.New("sim: unknown prestige node")
 	ErrInsufficientPatents = errors.New("sim: insufficient patents")
 	ErrPrestigeLocked      = errors.New("sim: prestige not unlocked")
+	ErrInvalidStar         = errors.New("sim: unknown star")
+	ErrAlreadyHired        = errors.New("sim: star already hired")
 )
 
 // Apply validates and applies a single player command, returning the new
@@ -58,6 +60,8 @@ func Apply(s model.GameState, cmd model.Command, b balance.Config) (model.GameSt
 		return applyBuyPrestigeNode(s, c, b)
 	case model.PrestigeReset:
 		return applyPrestigeReset(s, b)
+	case model.SignStar:
+		return applySignStar(s, c, b)
 	default:
 		return s, ErrUnknownCommand
 	}
@@ -325,4 +329,30 @@ func applyPrestigeReset(s model.GameState, b balance.Config) (model.GameState, e
 	p := s.Prestige
 	p.Patents += patentsFor(s.PeakValuation, b)
 	return freshRun(p, b), nil
+}
+
+func findStar(stars []model.Star, id string) (model.Star, bool) {
+	for _, st := range stars {
+		if st.ID == id {
+			return st, true
+		}
+	}
+	return model.Star{}, false
+}
+
+func applySignStar(s model.GameState, c model.SignStar, b balance.Config) (model.GameState, error) {
+	st, ok := findStar(b.Stars, c.StarID)
+	if !ok {
+		return s, ErrInvalidStar
+	}
+	if isStarHired(s, st.ID) {
+		return s, ErrAlreadyHired
+	}
+	if s.Resources.Cash < st.SigningCost {
+		return s, ErrInsufficientCash
+	}
+	ns := s
+	ns.Resources.Cash -= st.SigningCost
+	ns.HiredStars = append(append([]string(nil), s.HiredStars...), st.ID)
+	return ns, nil
 }
