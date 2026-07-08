@@ -44,6 +44,18 @@ func applySoftCap(windowRnD, raw, full, mult float64) (effective, newWindow floa
 	return remainingFull + over*mult, newWindow
 }
 
+// totalSalaryPerSec is the aggregate staff salary per second.
+func totalSalaryPerSec(ns model.GameState, b balance.Config) float64 {
+	var s float64
+	for tier := model.Tier1; tier <= model.Tier3; tier++ {
+		s += float64(ns.Research.Researchers[tier]) * b.ResearcherSalaryPerSec[tier]
+	}
+	s += float64(ns.Engineers) * b.EngineerSalaryPerSec
+	s += float64(ns.Ops) * b.OpsSalaryPerSec
+	s += float64(ns.Marketing) * b.MarketingSalaryPerSec
+	return s
+}
+
 // Tick advances the simulation by dt seconds and returns the new state.
 // Pure: it does not mutate s and depends only on its arguments.
 func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Config) model.GameState {
@@ -71,6 +83,7 @@ func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Co
 		serverPower += sv.PowerKW
 	}
 	ns.Resources.Cash -= serverPower * b.ElectricityPerKWSec * dt
+	ns.Resources.Cash -= totalSalaryPerSec(ns, b) * dt
 	ns = advanceTraining(ns, dt, b)
 	ns = advanceCompetitors(ns, dt)
 	ns = advanceUsers(ns, dt, b)

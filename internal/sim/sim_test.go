@@ -477,3 +477,16 @@ func TestTickDeductsElectricity(t *testing.T) {
 		t.Fatalf("Cash = %v, want %v", ns.Resources.Cash, want)
 	}
 }
+
+func TestTickDeductsSalary(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Research.Researchers[model.Tier2] = 3
+	s.Engineers = 2
+	s.Resources.Cash = 100
+	ns := Tick(s, 10, nil, b)
+	want := 100 - (3*b.ResearcherSalaryPerSec[model.Tier2]+2*b.EngineerSalaryPerSec)*10
+	if !approx(ns.Resources.Cash, want) {
+		t.Fatalf("Cash = %v, want %v", ns.Resources.Cash, want)
+	}
+}
