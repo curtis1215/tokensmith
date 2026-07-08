@@ -141,7 +141,7 @@ func effectiveTraining(ns model.GameState, b balance.Config) float64 {
 			c += sv.Compute
 		}
 	}
-	return c * infraEfficiency(ns, b) * techEffects(ns, b).InfraMult
+	return c * infraEfficiency(ns, b) * techEffects(ns, b).InfraMult * starEffects(ns, b).InfraMult
 }
 
 // effectiveInference is rented plus self-built inference compute, scaled by engineer efficiency.
@@ -152,7 +152,7 @@ func effectiveInference(ns model.GameState, b balance.Config) float64 {
 			c += sv.Compute
 		}
 	}
-	return c * infraEfficiency(ns, b) * techEffects(ns, b).InfraMult
+	return c * infraEfficiency(ns, b) * techEffects(ns, b).InfraMult * starEffects(ns, b).InfraMult
 }
 
 // advanceTraining progresses the in-progress training job by dt and onlines
@@ -167,10 +167,11 @@ func advanceTraining(ns model.GameState, dt float64, b balance.Config) model.Gam
 	}
 	// Completed → build the model and online it.
 	te := techEffects(ns, b)
+	se := starEffects(ns, b)
 	job := ns.Training
 	m := model.Model{Gen: job.Gen, Price: job.Price, Online: true}
 	for d := range model.NumQualityDims {
-		m.Quality[d] = job.Alloc[d] * b.GenQualityCap[job.Gen] * te.QualityMult[d]
+		m.Quality[d] = job.Alloc[d] * b.GenQualityCap[job.Gen] * te.QualityMult[d] * se.QualityMult[d]
 	}
 	cloned := append([]model.Model(nil), ns.Models...)
 	ns.Models = append(cloned, m)
@@ -196,6 +197,7 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 		return ns
 	}
 	pe := prestigeEffects(ns.Prestige.UnlockedPrestige, b)
+	se := starEffects(ns, b)
 	models := append([]model.Model(nil), ns.Models...)
 	for i := range models {
 		m := &models[i]
@@ -221,7 +223,7 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 			share = appeal / (appeal + rivalAppeal)
 		}
 		marketingMult := 1 + float64(ns.Marketing)*b.MarketingBonus
-		target := appeal * b.SegmentTargetScale[m.Segment] * demandMult * share * marketingMult * te.UserGrowthMult
+		target := appeal * b.SegmentTargetScale[m.Segment] * demandMult * share * marketingMult * te.UserGrowthMult * se.UserGrowthMult
 		m.Users += (target - m.Users) * b.UserGrowthRate * dt
 		if m.Users < 0 {
 			m.Users = 0

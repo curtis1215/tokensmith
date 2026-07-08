@@ -675,3 +675,39 @@ func TestTickStarRnDBonus(t *testing.T) {
 		t.Fatalf("star should add R&D: %v vs %v", nw.Resources.RnD, nb.Resources.RnD)
 	}
 }
+
+func TestStarQualityMult(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{HasTraining: true, HiredStars: []string{"aria-chen"}} // cap ×1.22
+	s.Compute.TrainingCapacity = 1000
+	s.Training = model.TrainingJob{Gen: 2, Alloc: [model.NumQualityDims]float64{0.4, 0.2, 0.2, 0.2}, WorkRemaining: 1}
+	ns := Tick(s, 1, nil, b)
+	if !approx(ns.Models[0].Quality[model.DimCapability], 0.4*45*1.22) { // 21.96
+		t.Fatalf("capability = %v, want %v", ns.Models[0].Quality[model.DimCapability], 0.4*45*1.22)
+	}
+}
+
+func TestStarInfraSpeedsTraining(t *testing.T) {
+	b := balance.Default()
+	base := model.GameState{HasTraining: true}
+	base.Compute.TrainingCapacity = 10
+	base.Training = model.TrainingJob{Gen: 1, WorkRemaining: 1e9}
+	withStar := base
+	withStar.HiredStars = []string{"kenji-tanaka"} // InfraMult 1.12
+	nb := Tick(base, 1, nil, b)
+	nw := Tick(withStar, 1, nil, b)
+	if nw.Training.WorkRemaining >= nb.Training.WorkRemaining {
+		t.Fatalf("star infra should speed training: %v vs %v", nw.Training.WorkRemaining, nb.Training.WorkRemaining)
+	}
+}
+
+func TestStarGrowthBoostsUsers(t *testing.T) {
+	b := balance.Default()
+	base := model.GameState{Models: []model.Model{onlineModel(50, b.RefPrice)}}
+	withStar := model.GameState{Models: []model.Model{onlineModel(50, b.RefPrice)}, HiredStars: []string{"marcus-cole"}} // 1.30
+	nb := Tick(base, 1, nil, b)
+	nw := Tick(withStar, 1, nil, b)
+	if nw.Models[0].Users <= nb.Models[0].Users {
+		t.Fatalf("star growth should boost users: %v vs %v", nw.Models[0].Users, nb.Models[0].Users)
+	}
+}
