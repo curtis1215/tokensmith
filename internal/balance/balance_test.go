@@ -205,3 +205,20 @@ func TestDefaultValuationValues(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultPrestige(t *testing.T) {
+	c := Default()
+	if c.PrestigeUnlockValuation != 1e9 || c.PatentK != 1e8 || c.StartingCash != 100000 {
+		t.Errorf("prestige scalars wrong: %+v", c)
+	}
+	byID := map[string]model.PrestigeNode{}
+	for _, n := range c.PrestigeNodes {
+		byID[n.ID] = n
+	}
+	if n, ok := byID["start-cash-1"]; !ok || n.Cost != 1 || n.Effects.StartCash != 100000 {
+		t.Errorf("start-cash-1 wrong: %+v ok=%v", n, ok)
+	}
+	if n, ok := byID["rnd-mult-1"]; !ok || n.Effects.RnDMult != 1.1 {
+		t.Errorf("rnd-mult-1 wrong: %+v", n)
+	}
+}

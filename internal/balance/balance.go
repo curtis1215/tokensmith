@@ -71,6 +71,11 @@ type Config struct {
 	RevenueMultiple     float64 // monthly revenue → valuation multiple
 	UserValue           float64 // valuation per active user
 	ServerAssetValue    float64 // valuation per unit of self-built compute
+	// Prestige (plan-11).
+	PrestigeNodes           []model.PrestigeNode
+	PrestigeUnlockValuation float64
+	PatentK                 float64
+	StartingCash            float64
 }
 
 // Default returns the v0 calibration (spec §12).
@@ -133,6 +138,10 @@ func Default() Config {
 	c.RevenueMultiple = 120
 	c.UserValue = 10
 	c.ServerAssetValue = 5000
+	c.PrestigeUnlockValuation = 1e9
+	c.PatentK = 1e8
+	c.StartingCash = 100000
+	c.PrestigeNodes = DefaultPrestigeNodes()
 	return c
 }
 
@@ -191,5 +200,24 @@ func DefaultTechNodes() []model.TechNode {
 		techNode("align-incident-1", model.BranchAlignment, 300000, []string{"align-safety-1"}, func(e *model.TechEffects) {
 			e.IncidentMult = 0.5
 		}),
+	}
+}
+
+// DefaultPrestigeNodes returns the v0 permanent-upgrade catalog (spec §17.4).
+func DefaultPrestigeNodes() []model.PrestigeNode {
+	e := model.NeutralPrestigeEffects
+	startCash := e()
+	startCash.StartCash = 100000
+	startRnD := e()
+	startRnD.StartRnD = 50000
+	rndMult := e()
+	rndMult.RnDMult = 1.1
+	cashMult := e()
+	cashMult.CashMult = 1.1
+	return []model.PrestigeNode{
+		{ID: "start-cash-1", Cost: 1, Effects: startCash},
+		{ID: "start-rnd-1", Cost: 1, Effects: startRnD},
+		{ID: "rnd-mult-1", Cost: 2, Effects: rndMult},
+		{ID: "cash-mult-1", Cost: 2, Effects: cashMult},
 	}
 }
