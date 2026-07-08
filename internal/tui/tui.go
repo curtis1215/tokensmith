@@ -14,6 +14,7 @@ import (
 	"tokensmith/internal/ingest"
 	"tokensmith/internal/model"
 	"tokensmith/internal/sim"
+	"tokensmith/internal/store"
 )
 
 // tickDT is how many simulated seconds each real tick advances.
@@ -27,18 +28,27 @@ func tick() tea.Cmd {
 
 // Model is the Bubble Tea root model.
 type Model struct {
-	state      model.GameState
-	cfg        balance.Config
-	poller     *ingest.Poller
-	lastTokens int
+	state          model.GameState
+	cfg            balance.Config
+	poller         *ingest.Poller
+	lastTokens     int
+	savePath       string
+	ticksSinceSave int
 }
 
 // New returns a fresh prototype model.
-func New() Model {
+func New() Model { return newAt(store.DefaultPath()) }
+
+func newAt(savePath string) Model {
+	state, ok, _ := store.Load(savePath)
+	if !ok {
+		state = game.NewGame()
+	}
 	return Model{
-		state:  game.NewGame(),
-		cfg:    balance.Default(),
-		poller: ingest.NewDefaultPoller(),
+		state:    state,
+		cfg:      balance.Default(),
+		poller:   ingest.NewDefaultPoller(),
+		savePath: savePath,
 	}
 }
 
@@ -56,10 +66,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lastTokens += e.InputTokens + e.OutputTokens
 		}
 		m.state = sim.Tick(m.state, tickDT, events, m.cfg)
+		m.ticksSinceSave++
+		if m.ticksSinceSave >= 40 {
+			m.ticksSinceSave = 0
+			_ = store.Save(m.savePath, m.state)
+		}
 		return m, tick()
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
+			_ = store.Save(m.savePath, m.state)
 			return m, tea.Quit
 		case "t":
 			cmd := model.StartTraining{
