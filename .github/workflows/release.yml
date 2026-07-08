@@ -12,10 +12,10 @@ jobs:
   goreleaser:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: stable
       - name: Write tap deploy key
@@ -24,9 +24,9 @@ jobs:
           printf '%s\n' "${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}" > ~/.ssh/tap_deploy_key
           chmod 600 ~/.ssh/tap_deploy_key
           echo "TAP_DEPLOY_KEY_FILE=$HOME/.ssh/tap_deploy_key" >> "$GITHUB_ENV"
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@v7
         with:
-          version: latest
+          version: "~> v2"
           args: release --clean
         env:
           # GITHUB_TOKEN creates the release on this repo; the formula is pushed
