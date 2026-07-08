@@ -24,6 +24,9 @@ var (
 	ErrInvalidCount = errors.New("sim: count must be positive")
 	ErrInvalidTier  = errors.New("sim: invalid researcher tier")
 	ErrInvalidRole  = errors.New("sim: invalid role")
+	ErrInvalidTech     = errors.New("sim: unknown tech node")
+	ErrPrereqNotMet    = errors.New("sim: tech prerequisites not met")
+	ErrAlreadyUnlocked = errors.New("sim: tech already unlocked")
 )
 
 // Apply validates and applies a single player command, returning the new
@@ -46,6 +49,8 @@ func Apply(s model.GameState, cmd model.Command, b balance.Config) (model.GameSt
 		return applyHireStaff(s, c, b)
 	case model.FireStaff:
 		return applyFireStaff(s, c)
+	case model.UnlockTech:
+		return applyUnlockTech(s, c, b)
 	default:
 		return s, ErrUnknownCommand
 	}
@@ -246,4 +251,35 @@ func max0(n int) int {
 		return 0
 	}
 	return n
+}
+
+func findTechNode(nodes []model.TechNode, id string) (model.TechNode, bool) {
+	for _, n := range nodes {
+		if n.ID == id {
+			return n, true
+		}
+	}
+	return model.TechNode{}, false
+}
+
+func applyUnlockTech(s model.GameState, c model.UnlockTech, b balance.Config) (model.GameState, error) {
+	node, ok := findTechNode(b.TechNodes, c.NodeID)
+	if !ok {
+		return s, ErrInvalidTech
+	}
+	if isUnlocked(s, node.ID) {
+		return s, ErrAlreadyUnlocked
+	}
+	for _, p := range node.Prereqs {
+		if !isUnlocked(s, p) {
+			return s, ErrPrereqNotMet
+		}
+	}
+	if s.Resources.RnD < node.Cost {
+		return s, ErrInsufficientRnD
+	}
+	ns := s
+	ns.Resources.RnD -= node.Cost
+	ns.UnlockedTech = append(append([]string(nil), s.UnlockedTech...), node.ID)
+	return ns, nil
 }

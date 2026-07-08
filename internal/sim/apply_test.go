@@ -265,3 +265,44 @@ func TestApplyFireStaffFloorsAtZero(t *testing.T) {
 		t.Fatalf("engineers = %d, want 0", ns.Engineers)
 	}
 }
+
+func TestApplyUnlockTech(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Resources.RnD = 100000
+	ns, err := Apply(s, model.UnlockTech{NodeID: "algo-cap-1"}, b) // cost 15000
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if !approx(ns.Resources.RnD, 85000) {
+		t.Errorf("RnD = %v, want 85000", ns.Resources.RnD)
+	}
+	if len(ns.UnlockedTech) != 1 || ns.UnlockedTech[0] != "algo-cap-1" {
+		t.Errorf("not unlocked: %+v", ns.UnlockedTech)
+	}
+	if len(s.UnlockedTech) != 0 {
+		t.Errorf("Apply mutated input")
+	}
+}
+
+func TestApplyUnlockTechErrors(t *testing.T) {
+	b := balance.Default()
+	rich := model.GameState{}
+	rich.Resources.RnD = 1e9
+	if _, err := Apply(rich, model.UnlockTech{NodeID: "nope"}, b); err != ErrInvalidTech {
+		t.Errorf("invalid: err = %v, want ErrInvalidTech", err)
+	}
+	if _, err := Apply(rich, model.UnlockTech{NodeID: "infra-density-1"}, b); err != ErrPrereqNotMet {
+		t.Errorf("prereq: err = %v, want ErrPrereqNotMet", err)
+	}
+	already := model.GameState{UnlockedTech: []string{"algo-cap-1"}}
+	already.Resources.RnD = 1e9
+	if _, err := Apply(already, model.UnlockTech{NodeID: "algo-cap-1"}, b); err != ErrAlreadyUnlocked {
+		t.Errorf("already: err = %v, want ErrAlreadyUnlocked", err)
+	}
+	poor := model.GameState{}
+	poor.Resources.RnD = 100
+	if _, err := Apply(poor, model.UnlockTech{NodeID: "algo-cap-1"}, b); err != ErrInsufficientRnD {
+		t.Errorf("rnd: err = %v, want ErrInsufficientRnD", err)
+	}
+}
