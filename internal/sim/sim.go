@@ -66,11 +66,38 @@ func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Co
 	ns.Resources.RnD += staffRnD + tokenRnD
 	ns.Resources.Cash -= ns.Compute.TrainingCapacity * b.TrainRentPerGPUSec * dt
 	ns.Resources.Cash -= ns.Compute.InferenceCapacity * b.InferenceRentPerGPUSec * dt
+	serverPower := 0.0
+	for _, sv := range ns.Servers {
+		serverPower += sv.PowerKW
+	}
+	ns.Resources.Cash -= serverPower * b.ElectricityPerKWSec * dt
 	ns = advanceTraining(ns, dt, b)
 	ns = advanceCompetitors(ns, dt)
 	ns = advanceUsers(ns, dt, b)
 	ns = advanceServing(ns, dt, b)
 	return ns
+}
+
+// effectiveTraining is rented plus self-built training compute.
+func effectiveTraining(ns model.GameState) float64 {
+	c := ns.Compute.TrainingCapacity
+	for _, sv := range ns.Servers {
+		if sv.Pool == model.PoolTraining {
+			c += sv.Compute
+		}
+	}
+	return c
+}
+
+// effectiveInference is rented plus self-built inference compute.
+func effectiveInference(ns model.GameState) float64 {
+	c := ns.Compute.InferenceCapacity
+	for _, sv := range ns.Servers {
+		if sv.Pool == model.PoolInference {
+			c += sv.Compute
+		}
+	}
+	return c
 }
 
 // advanceTraining progresses the in-progress training job by dt and onlines
@@ -79,7 +106,7 @@ func advanceTraining(ns model.GameState, dt float64, b balance.Config) model.Gam
 	if !ns.HasTraining {
 		return ns
 	}
-	ns.Training.WorkRemaining -= ns.Compute.TrainingCapacity * dt
+	ns.Training.WorkRemaining -= effectiveTraining(ns) * dt
 	if ns.Training.WorkRemaining > 0 {
 		return ns
 	}
@@ -173,10 +200,11 @@ func advanceServing(ns model.GameState, dt float64, b balance.Config) model.Game
 		}
 	}
 	ns.Compute.InferenceLoad = load
-	if ns.Compute.InferenceCapacity <= 0 || load <= ns.Compute.InferenceCapacity {
+	capacity := effectiveInference(ns)
+	if capacity <= 0 || load <= capacity {
 		return ns
 	}
-	deficit := (load - ns.Compute.InferenceCapacity) / load
+	deficit := (load - capacity) / load
 	models := append([]model.Model(nil), ns.Models...)
 	for i := range models {
 		m := &models[i]

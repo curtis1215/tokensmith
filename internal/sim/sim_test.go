@@ -440,3 +440,40 @@ func TestTickZeroCapacityGrace(t *testing.T) {
 			ns.Models[0].Users, nserved.Models[0].Users)
 	}
 }
+
+func TestEffectiveTrainingIncludesServers(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{HasTraining: true}
+	s.Compute.TrainingCapacity = 0 // no rented
+	s.Servers = []model.Server{{Pool: model.PoolTraining, Compute: 10}} // PowerKW 0 → no electricity
+	s.Training = model.TrainingJob{Gen: 1, WorkRemaining: 100}
+	ns := Tick(s, 1, nil, b) // effective training 10 → work -= 10 → 90
+	if !approx(ns.Training.WorkRemaining, 90) {
+		t.Fatalf("WorkRemaining = %v, want 90 (self-built training compute)", ns.Training.WorkRemaining)
+	}
+}
+
+func TestSelfBuiltInferenceCapacityServes(t *testing.T) {
+	b := balance.Default()
+	m := onlineModel(50, b.RefPrice)
+	m.Users = 100000 // load = 10
+	low := model.GameState{Models: []model.Model{m}, Servers: []model.Server{{Pool: model.PoolInference, Compute: 1}}}
+	high := model.GameState{Models: []model.Model{m}, Servers: []model.Server{{Pool: model.PoolInference, Compute: 1e9}}}
+	nl := Tick(low, 1, nil, b)
+	nh := Tick(high, 1, nil, b)
+	if nl.Models[0].Users >= nh.Models[0].Users {
+		t.Fatalf("overloaded self-built (%v) should be < served (%v)", nl.Models[0].Users, nh.Models[0].Users)
+	}
+}
+
+func TestTickDeductsElectricity(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Servers = []model.Server{{Pool: model.PoolTraining, Compute: 24, PowerKW: 40}}
+	s.Resources.Cash = 1000
+	ns := Tick(s, 10, nil, b) // 40 * 0.001 * 10 = 0.4
+	want := 1000 - 40*b.ElectricityPerKWSec*10
+	if !approx(ns.Resources.Cash, want) {
+		t.Fatalf("Cash = %v, want %v", ns.Resources.Cash, want)
+	}
+}
