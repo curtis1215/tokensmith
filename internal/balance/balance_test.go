@@ -165,3 +165,24 @@ func TestDefaultStaffValues(t *testing.T) {
 		t.Errorf("staff bonuses wrong: %+v", c)
 	}
 }
+
+func TestDefaultTechNodes(t *testing.T) {
+	c := Default()
+	if len(c.TechNodes) < 8 {
+		t.Fatalf("tech nodes = %d, want >= 8", len(c.TechNodes))
+	}
+	byID := map[string]model.TechNode{}
+	for _, n := range c.TechNodes {
+		byID[n.ID] = n
+	}
+	if n, ok := byID["algo-cap-1"]; !ok || n.Effects.QualityMult[model.DimCapability] != 1.15 {
+		t.Errorf("algo-cap-1 wrong: %+v ok=%v", n, ok)
+	}
+	if n, ok := byID["infra-density-1"]; !ok || len(n.Prereqs) != 1 || n.Prereqs[0] != "infra-eff-1" {
+		t.Errorf("infra-density-1 prereq wrong: %+v", n)
+	}
+	// unrelated fields stay neutral
+	if byID["algo-cap-1"].Effects.InfraMult != 1 {
+		t.Errorf("algo-cap-1 InfraMult should be neutral 1")
+	}
+}

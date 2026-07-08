@@ -62,9 +62,10 @@ type Config struct {
 	EngineerSalaryPerSec   float64
 	OpsSalaryPerSec        float64
 	MarketingSalaryPerSec  float64
-	EngineerInfraBonus     float64 // per engineer: compute efficiency
-	OpsChurnReduction      float64 // per ops: service-churn mitigation
-	MarketingBonus         float64 // per marketing: user-target boost
+	EngineerInfraBonus     float64          // per engineer: compute efficiency
+	OpsChurnReduction      float64          // per ops: service-churn mitigation
+	MarketingBonus         float64          // per marketing: user-target boost
+	TechNodes              []model.TechNode // tech-tree catalog (plan-09)
 }
 
 // Default returns the v0 calibration (spec §12).
@@ -122,6 +123,7 @@ func Default() Config {
 	c.EngineerInfraBonus = 0.02
 	c.OpsChurnReduction = 0.1
 	c.MarketingBonus = 0.03
+	c.TechNodes = DefaultTechNodes()
 	return c
 }
 
@@ -142,5 +144,43 @@ func DefaultCompetitors() []model.Competitor {
 		{Name: "Qwen", Quality: qvec(40, 50, 30, 45), GrowthPerSec: qvec(0.00005, 0.00007, 0.00004, 0.00005)},
 		{Name: "Zhipu", Quality: qvec(40, 45, 35, 38), GrowthPerSec: qvec(0.00004, 0.00005, 0.00004, 0.00003)},
 		{Name: "Gemini", Quality: qvec(48, 40, 42, 45), GrowthPerSec: qvec(0.00006, 0.00005, 0.00006, 0.00005)},
+	}
+}
+
+// techNode builds a node starting from neutral effects, applying set().
+func techNode(id string, br model.TechBranch, cost float64, prereqs []string, set func(e *model.TechEffects)) model.TechNode {
+	e := model.NeutralTechEffects()
+	set(&e)
+	return model.TechNode{ID: id, Branch: br, Cost: cost, Prereqs: prereqs, Effects: e}
+}
+
+// DefaultTechNodes returns the v0 tech-tree catalog (representative; spec §17.3).
+func DefaultTechNodes() []model.TechNode {
+	return []model.TechNode{
+		techNode("algo-cap-1", model.BranchAlgo, 15000, nil, func(e *model.TechEffects) {
+			e.QualityMult[model.DimCapability] = 1.15
+		}),
+		techNode("algo-train-1", model.BranchAlgo, 80000, nil, func(e *model.TechEffects) {
+			e.TrainRnDMult = 0.85
+			e.TrainWorkMult = 0.9
+		}),
+		techNode("infra-eff-1", model.BranchInfra, 8000, nil, func(e *model.TechEffects) {
+			e.InfraMult = 1.1
+		}),
+		techNode("infra-density-1", model.BranchInfra, 120000, []string{"infra-eff-1"}, func(e *model.TechEffects) {
+			e.InfraMult = 1.15
+		}),
+		techNode("biz-growth-1", model.BranchBusiness, 6000, nil, func(e *model.TechEffects) {
+			e.UserGrowthMult = 1.15
+		}),
+		techNode("biz-price-1", model.BranchBusiness, 15000, nil, func(e *model.TechEffects) {
+			e.RefPriceMult = 1.1
+		}),
+		techNode("align-safety-1", model.BranchAlignment, 8000, nil, func(e *model.TechEffects) {
+			e.QualityMult[model.DimSafety] = 1.15
+		}),
+		techNode("align-incident-1", model.BranchAlignment, 300000, []string{"align-safety-1"}, func(e *model.TechEffects) {
+			e.IncidentMult = 0.5
+		}),
 	}
 }
