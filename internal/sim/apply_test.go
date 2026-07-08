@@ -160,3 +160,53 @@ func TestApplyExpandDatacenterInsufficientCash(t *testing.T) {
 		t.Fatalf("err = %v, want ErrInsufficientCash", err)
 	}
 }
+
+func dcState(cash, power, slots float64) model.GameState {
+	s := model.GameState{}
+	s.Resources.Cash = cash
+	s.Datacenter = model.Datacenter{PowerCapacity: power, SlotCapacity: slots}
+	return s
+}
+
+func TestApplyBuildServerSuccess(t *testing.T) {
+	b := balance.Default()
+	s := dcState(1_000_000, 800, 20)
+	ns, err := Apply(s, model.BuildServer{ChipName: "T-class G4"}, b)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(ns.Servers) != 1 {
+		t.Fatalf("servers = %d, want 1", len(ns.Servers))
+	}
+	sv := ns.Servers[0]
+	if sv.Pool != model.PoolTraining || sv.Compute != 24 || sv.PowerKW != 40 || sv.Slots != 1 {
+		t.Errorf("server wrong: %+v", sv) // 3*8, 5*8
+	}
+	wantCapex := 18000*8 + b.ChassisCost
+	if !approx(ns.Resources.Cash, 1_000_000-wantCapex) {
+		t.Errorf("cash = %v, want %v", ns.Resources.Cash, 1_000_000-wantCapex)
+	}
+	if len(s.Servers) != 0 {
+		t.Errorf("Apply mutated input Servers")
+	}
+}
+
+func TestApplyBuildServerErrors(t *testing.T) {
+	b := balance.Default()
+	// unknown chip
+	if _, err := Apply(dcState(1e9, 1e9, 1e9), model.BuildServer{ChipName: "nope"}, b); err != ErrInvalidChip {
+		t.Errorf("chip: err = %v, want ErrInvalidChip", err)
+	}
+	// insufficient cash
+	if _, err := Apply(dcState(100, 1e9, 1e9), model.BuildServer{ChipName: "T-class G4"}, b); err != ErrInsufficientCash {
+		t.Errorf("cash: err = %v, want ErrInsufficientCash", err)
+	}
+	// insufficient power (T server draws 40kW; capacity 10)
+	if _, err := Apply(dcState(1e9, 10, 1e9), model.BuildServer{ChipName: "T-class G4"}, b); err != ErrInsufficientPower {
+		t.Errorf("power: err = %v, want ErrInsufficientPower", err)
+	}
+	// insufficient space (slots 0)
+	if _, err := Apply(dcState(1e9, 1e9, 0), model.BuildServer{ChipName: "T-class G4"}, b); err != ErrInsufficientSpace {
+		t.Errorf("space: err = %v, want ErrInsufficientSpace", err)
+	}
+}

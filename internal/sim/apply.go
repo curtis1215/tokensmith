@@ -18,6 +18,9 @@ var (
 	ErrInvalidModelIndex  = errors.New("sim: invalid model index")
 	ErrInvalidPrice       = errors.New("sim: price must be positive")
 	ErrInsufficientCash  = errors.New("sim: insufficient cash")
+	ErrInvalidChip       = errors.New("sim: unknown chip")
+	ErrInsufficientPower = errors.New("sim: datacenter power capacity exceeded")
+	ErrInsufficientSpace = errors.New("sim: datacenter rack space exceeded")
 )
 
 // Apply validates and applies a single player command, returning the new
@@ -34,6 +37,8 @@ func Apply(s model.GameState, cmd model.Command, b balance.Config) (model.GameSt
 		return applyRentInferenceCompute(s, c), nil
 	case model.ExpandDatacenter:
 		return applyExpandDatacenter(s, c, b)
+	case model.BuildServer:
+		return applyBuildServer(s, c, b)
 	default:
 		return s, ErrUnknownCommand
 	}
@@ -120,5 +125,47 @@ func applyExpandDatacenter(s model.GameState, c model.ExpandDatacenter, b balanc
 	ns.Resources.Cash -= cost
 	ns.Datacenter.PowerCapacity += power
 	ns.Datacenter.SlotCapacity += slots
+	return ns, nil
+}
+
+func findChip(chips []model.Chip, name string) (model.Chip, bool) {
+	for _, ch := range chips {
+		if ch.Name == name {
+			return ch, true
+		}
+	}
+	return model.Chip{}, false
+}
+
+func applyBuildServer(s model.GameState, c model.BuildServer, b balance.Config) (model.GameState, error) {
+	chip, ok := findChip(b.Chips, c.ChipName)
+	if !ok {
+		return s, ErrInvalidChip
+	}
+	n := float64(b.ChipsPerServer)
+	server := model.Server{
+		Pool:    chip.Pool,
+		Compute: chip.Compute * n,
+		PowerKW: chip.PowerKW * n,
+		Slots:   1,
+	}
+	capex := chip.Price*n + b.ChassisCost
+	if s.Resources.Cash < capex {
+		return s, ErrInsufficientCash
+	}
+	usedPower, usedSlots := 0.0, 0.0
+	for _, sv := range s.Servers {
+		usedPower += sv.PowerKW
+		usedSlots += sv.Slots
+	}
+	if usedPower+server.PowerKW > s.Datacenter.PowerCapacity {
+		return s, ErrInsufficientPower
+	}
+	if usedSlots+server.Slots > s.Datacenter.SlotCapacity {
+		return s, ErrInsufficientSpace
+	}
+	ns := s
+	ns.Resources.Cash -= capex
+	ns.Servers = append(append([]model.Server(nil), s.Servers...), server)
 	return ns, nil
 }
