@@ -129,3 +129,24 @@ func TestComputeInfraTypes(t *testing.T) {
 		t.Fatalf("ExpandDatacenter not a Command")
 	}
 }
+
+func TestRolesAndStaffCommands(t *testing.T) {
+	if NumRoles != 4 || RoleMarketing != 3 {
+		t.Fatalf("role consts wrong")
+	}
+	var s GameState
+	s.Engineers = 3
+	s.Ops = 2
+	s.Marketing = 1
+	if s.Engineers != 3 || s.Ops != 2 || s.Marketing != 1 {
+		t.Fatalf("staff fields wrong: %+v", s)
+	}
+	var c1 Command = HireStaff{Role: RoleResearcher, Tier: Tier2, Count: 3}
+	var c2 Command = FireStaff{Role: RoleEngineer, Count: 1}
+	if _, ok := c1.(HireStaff); !ok {
+		t.Fatalf("HireStaff not a Command")
+	}
+	if _, ok := c2.(FireStaff); !ok {
+		t.Fatalf("FireStaff not a Command")
+	}
+}

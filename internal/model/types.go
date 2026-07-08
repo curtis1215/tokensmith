@@ -42,6 +42,9 @@ type GameState struct {
 	GameTime      float64
 	Resources     Resources
 	Research      Research
+	Engineers     int
+	Ops           int
+	Marketing     int
 	WindowRnD     float64 // token-sourced R&D accrued in the current soft-cap window
 	WindowElapsed float64 // seconds elapsed in the current soft-cap window
 	Compute       Compute
@@ -185,3 +188,32 @@ type ExpandDatacenter struct {
 }
 
 func (ExpandDatacenter) commandMarker() {}
+
+// Role identifies an aggregate staff function.
+type Role int
+
+const (
+	RoleResearcher Role = iota // 0
+	RoleEngineer               // 1
+	RoleOps                    // 2
+	RoleMarketing              // 3
+	NumRoles       = 4
+)
+
+// HireStaff hires Count staff of Role (Tier used only for RoleResearcher).
+type HireStaff struct {
+	Role  Role
+	Tier  StaffTier
+	Count int
+}
+
+func (HireStaff) commandMarker() {}
+
+// FireStaff removes Count staff of Role (Tier used only for RoleResearcher).
+type FireStaff struct {
+	Role  Role
+	Tier  StaffTier
+	Count int
+}
+
+func (FireStaff) commandMarker() {}
