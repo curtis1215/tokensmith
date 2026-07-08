@@ -69,6 +69,7 @@ func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Co
 	ns = advanceTraining(ns, dt, b)
 	ns = advanceCompetitors(ns, dt)
 	ns = advanceUsers(ns, dt, b)
+	ns = advanceServing(ns, dt, b)
 	return ns
 }
 
@@ -157,5 +158,36 @@ func advanceCompetitors(ns model.GameState, dt float64) model.GameState {
 		}
 	}
 	ns.Competitors = comps
+	return ns
+}
+
+// advanceServing computes inference load and, when provisioned inference
+// capacity cannot meet it, churns users by the service deficit. Pure: clones
+// Models. v0: zero capacity is graced (no churn) so pre-inference behavior is
+// unchanged.
+func advanceServing(ns model.GameState, dt float64, b balance.Config) model.GameState {
+	load := 0.0
+	for _, m := range ns.Models {
+		if m.Online {
+			load += m.Users * b.InferenceLoadPerUser
+		}
+	}
+	ns.Compute.InferenceLoad = load
+	if ns.Compute.InferenceCapacity <= 0 || load <= ns.Compute.InferenceCapacity {
+		return ns
+	}
+	deficit := (load - ns.Compute.InferenceCapacity) / load
+	models := append([]model.Model(nil), ns.Models...)
+	for i := range models {
+		m := &models[i]
+		if !m.Online {
+			continue
+		}
+		m.Users -= m.Users * b.ServiceChurnRate * deficit * dt
+		if m.Users < 0 {
+			m.Users = 0
+		}
+	}
+	ns.Models = models
 	return ns
 }

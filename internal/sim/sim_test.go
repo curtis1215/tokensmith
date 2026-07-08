@@ -395,3 +395,48 @@ func TestTickDeductsInferenceRent(t *testing.T) {
 		t.Fatalf("Cash = %v, want %v", ns.Resources.Cash, want)
 	}
 }
+
+func TestTickRecordsInferenceLoad(t *testing.T) {
+	b := balance.Default()
+	m := onlineModel(50, b.RefPrice)
+	m.Users = 5000
+	s := model.GameState{Models: []model.Model{m}}
+	s.Compute.InferenceCapacity = 1e9 // plenty → no churn
+	ns := Tick(s, 1, nil, b)
+	want := ns.Models[0].Users * b.InferenceLoadPerUser
+	if !approx(ns.Compute.InferenceLoad, want) {
+		t.Fatalf("InferenceLoad = %v, want %v", ns.Compute.InferenceLoad, want)
+	}
+}
+
+func TestTickInferenceOverloadChurns(t *testing.T) {
+	b := balance.Default()
+	m := onlineModel(50, b.RefPrice)
+	m.Users = 100000 // load = 100000*0.0001 = 10
+	low := model.GameState{Models: []model.Model{m}}
+	low.Compute.InferenceCapacity = 1 // overloaded (10 > 1)
+	high := model.GameState{Models: []model.Model{m}}
+	high.Compute.InferenceCapacity = 1e9 // served
+	nl := Tick(low, 1, nil, b)
+	nh := Tick(high, 1, nil, b)
+	if nl.Models[0].Users >= nh.Models[0].Users {
+		t.Fatalf("overloaded users (%v) should be < served users (%v)",
+			nl.Models[0].Users, nh.Models[0].Users)
+	}
+}
+
+func TestTickZeroCapacityGrace(t *testing.T) {
+	b := balance.Default()
+	m := onlineModel(50, b.RefPrice)
+	m.Users = 100000
+	s := model.GameState{Models: []model.Model{m}} // InferenceCapacity 0
+	served := model.GameState{Models: []model.Model{m}}
+	served.Compute.InferenceCapacity = 1e9
+	ns := Tick(s, 1, nil, b)
+	nserved := Tick(served, 1, nil, b)
+	// v0 grace: zero capacity behaves like fully served (no service churn)
+	if !approx(ns.Models[0].Users, nserved.Models[0].Users) {
+		t.Fatalf("zero-capacity grace: %v should equal served %v",
+			ns.Models[0].Users, nserved.Models[0].Users)
+	}
+}
