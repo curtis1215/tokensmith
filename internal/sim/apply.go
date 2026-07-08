@@ -27,6 +27,8 @@ var (
 	ErrInvalidTech     = errors.New("sim: unknown tech node")
 	ErrPrereqNotMet    = errors.New("sim: tech prerequisites not met")
 	ErrAlreadyUnlocked = errors.New("sim: tech already unlocked")
+	ErrInvalidPrestigeNode = errors.New("sim: unknown prestige node")
+	ErrInsufficientPatents = errors.New("sim: insufficient patents")
 )
 
 // Apply validates and applies a single player command, returning the new
@@ -51,6 +53,8 @@ func Apply(s model.GameState, cmd model.Command, b balance.Config) (model.GameSt
 		return applyFireStaff(s, c)
 	case model.UnlockTech:
 		return applyUnlockTech(s, c, b)
+	case model.BuyPrestigeNode:
+		return applyBuyPrestigeNode(s, c, b)
 	default:
 		return s, ErrUnknownCommand
 	}
@@ -282,5 +286,31 @@ func applyUnlockTech(s model.GameState, c model.UnlockTech, b balance.Config) (m
 	ns := s
 	ns.Resources.RnD -= node.Cost
 	ns.UnlockedTech = append(append([]string(nil), s.UnlockedTech...), node.ID)
+	return ns, nil
+}
+
+func findPrestigeNode(nodes []model.PrestigeNode, id string) (model.PrestigeNode, bool) {
+	for _, n := range nodes {
+		if n.ID == id {
+			return n, true
+		}
+	}
+	return model.PrestigeNode{}, false
+}
+
+func applyBuyPrestigeNode(s model.GameState, c model.BuyPrestigeNode, b balance.Config) (model.GameState, error) {
+	node, ok := findPrestigeNode(b.PrestigeNodes, c.NodeID)
+	if !ok {
+		return s, ErrInvalidPrestigeNode
+	}
+	if isPrestigeUnlocked(s, node.ID) {
+		return s, ErrAlreadyUnlocked
+	}
+	if s.Prestige.Patents < node.Cost {
+		return s, ErrInsufficientPatents
+	}
+	ns := s
+	ns.Prestige.Patents -= node.Cost
+	ns.Prestige.UnlockedPrestige = append(append([]string(nil), s.Prestige.UnlockedPrestige...), node.ID)
 	return ns, nil
 }

@@ -306,3 +306,45 @@ func TestApplyUnlockTechErrors(t *testing.T) {
 		t.Errorf("rnd: err = %v, want ErrInsufficientRnD", err)
 	}
 }
+
+func TestApplyBuyPrestigeNode(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Prestige.Patents = 5
+	ns, err := Apply(s, model.BuyPrestigeNode{NodeID: "start-cash-1"}, b) // cost 1
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if ns.Prestige.Patents != 4 {
+		t.Errorf("patents = %v, want 4", ns.Prestige.Patents)
+	}
+	if len(ns.Prestige.UnlockedPrestige) != 1 || ns.Prestige.UnlockedPrestige[0] != "start-cash-1" {
+		t.Errorf("not unlocked: %+v", ns.Prestige.UnlockedPrestige)
+	}
+	if len(s.Prestige.UnlockedPrestige) != 0 {
+		t.Errorf("Apply mutated input")
+	}
+}
+
+func TestApplyBuyPrestigeErrors(t *testing.T) {
+	b := balance.Default()
+	rich := model.GameState{}
+	rich.Prestige.Patents = 100
+	if _, err := Apply(rich, model.BuyPrestigeNode{NodeID: "nope"}, b); err != ErrInvalidPrestigeNode {
+		t.Errorf("invalid: err = %v, want ErrInvalidPrestigeNode", err)
+	}
+	if _, err := Apply(rich, model.BuyPrestigeNode{NodeID: "start-cash-1"}, b); err != nil {
+		t.Errorf("rich buy should succeed: %v", err)
+	}
+	already := model.GameState{}
+	already.Prestige.Patents = 100
+	already.Prestige.UnlockedPrestige = []string{"start-cash-1"}
+	if _, err := Apply(already, model.BuyPrestigeNode{NodeID: "start-cash-1"}, b); err != ErrAlreadyUnlocked {
+		t.Errorf("already: err = %v, want ErrAlreadyUnlocked", err)
+	}
+	poor := model.GameState{}
+	poor.Prestige.Patents = 0
+	if _, err := Apply(poor, model.BuyPrestigeNode{NodeID: "start-cash-1"}, b); err != ErrInsufficientPatents {
+		t.Errorf("patents: err = %v, want ErrInsufficientPatents", err)
+	}
+}
