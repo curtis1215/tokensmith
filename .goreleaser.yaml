@@ -54,7 +54,14 @@ brews:
     repository:
       owner: curtis1215
       name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+      branch: main
+      # Push the formula via an SSH deploy key scoped to homebrew-tap only, so no
+      # broad cross-repo PAT is needed. The GitHub release itself still uses the
+      # workflow's default GITHUB_TOKEN (same-repo, sufficient).
+      git:
+        url: "git@github.com:curtis1215/homebrew-tap.git"
+        private_key: "{{ .Env.TAP_DEPLOY_KEY_FILE }}"
+        ssh_command: "ssh -i {{ .Env.TAP_DEPLOY_KEY_FILE }} -o StrictHostKeyChecking=accept-new"
     directory: Formula
     homepage: "https://github.com/curtis1215/tokensmith"
     description: "Terminal management game where your real AI-coding tokens fuel an AI company"
