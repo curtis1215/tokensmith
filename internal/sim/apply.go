@@ -29,6 +29,7 @@ var (
 	ErrAlreadyUnlocked = errors.New("sim: tech already unlocked")
 	ErrInvalidPrestigeNode = errors.New("sim: unknown prestige node")
 	ErrInsufficientPatents = errors.New("sim: insufficient patents")
+	ErrPrestigeLocked      = errors.New("sim: prestige not unlocked")
 )
 
 // Apply validates and applies a single player command, returning the new
@@ -55,6 +56,8 @@ func Apply(s model.GameState, cmd model.Command, b balance.Config) (model.GameSt
 		return applyUnlockTech(s, c, b)
 	case model.BuyPrestigeNode:
 		return applyBuyPrestigeNode(s, c, b)
+	case model.PrestigeReset:
+		return applyPrestigeReset(s, b)
 	default:
 		return s, ErrUnknownCommand
 	}
@@ -313,4 +316,13 @@ func applyBuyPrestigeNode(s model.GameState, c model.BuyPrestigeNode, b balance.
 	ns.Prestige.Patents -= node.Cost
 	ns.Prestige.UnlockedPrestige = append(append([]string(nil), s.Prestige.UnlockedPrestige...), node.ID)
 	return ns, nil
+}
+
+func applyPrestigeReset(s model.GameState, b balance.Config) (model.GameState, error) {
+	if s.PeakValuation < b.PrestigeUnlockValuation {
+		return s, ErrPrestigeLocked
+	}
+	p := s.Prestige
+	p.Patents += patentsFor(s.PeakValuation, b)
+	return freshRun(p, b), nil
 }

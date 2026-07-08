@@ -348,3 +348,38 @@ func TestApplyBuyPrestigeErrors(t *testing.T) {
 		t.Errorf("patents: err = %v, want ErrInsufficientPatents", err)
 	}
 }
+
+func TestApplyPrestigeReset(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.PeakValuation = 1e9 // patents = floor(sqrt(1e9/1e8)) = 3
+	s.Resources.Cash = 5e6
+	s.Resources.RnD = 1e6
+	s.Models = []model.Model{{Online: true}}
+	s.Engineers = 5
+	s.Prestige.Patents = 1
+	ns, err := Apply(s, model.PrestigeReset{}, b)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if ns.Prestige.Patents != 4 { // 1 existing + 3 gained
+		t.Errorf("patents = %v, want 4", ns.Prestige.Patents)
+	}
+	if len(ns.Models) != 0 || ns.Engineers != 0 || ns.PeakValuation != 0 {
+		t.Errorf("run state not reset: %+v", ns)
+	}
+	if !approx(ns.Resources.Cash, b.StartingCash) {
+		t.Errorf("cash not reset to starting: %v", ns.Resources.Cash)
+	}
+	if len(ns.Competitors) != 7 {
+		t.Errorf("competitors not re-seeded")
+	}
+}
+
+func TestApplyPrestigeLocked(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{} // peak 0 < 1e9
+	if _, err := Apply(s, model.PrestigeReset{}, b); err != ErrPrestigeLocked {
+		t.Fatalf("err = %v, want ErrPrestigeLocked", err)
+	}
+}
