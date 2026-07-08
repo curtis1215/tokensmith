@@ -26,6 +26,15 @@ func TestNoModelPressureShown(t *testing.T) {
 	}
 }
 
+func TestResourceBarShowsPerRealSecondRnDRate(t *testing.T) {
+	m := testModel(t) // fresh game seeds 2 T1 researchers
+	bar := renderResourceBar(m)
+	// 2 × 0.005/game-sec × 14400 game-sec/real-sec = 144/real-sec (not +0/s)
+	if strings.Contains(bar, "+0/s") || !strings.Contains(bar, "144") {
+		t.Fatalf("expected a non-zero per-real-second R&D rate:\n%s", bar)
+	}
+}
+
 func TestResourceBarShowsDay(t *testing.T) {
 	m := testModel(t)
 	m.state.GameTime = 3 * 86400

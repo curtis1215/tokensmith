@@ -23,10 +23,18 @@ import (
 // tickDT is how many simulated seconds each real tick advances.
 const tickDT = 3600.0
 
+// tickInterval is the real time between ticks.
+const tickInterval = 250 * time.Millisecond
+
+// gameSecPerRealSec converts a per-game-second rate to the per-real-second rate
+// the player actually perceives (each real second advances several ticks of
+// tickDT game-seconds).
+const gameSecPerRealSec = tickDT * float64(time.Second) / float64(tickInterval)
+
 type tickMsg time.Time
 
 func tick() tea.Cmd {
-	return tea.Tick(250*time.Millisecond, func(t time.Time) tea.Msg { return tickMsg(t) })
+	return tea.Tick(tickInterval, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
 // Page identifies the active TUI tab.
@@ -381,9 +389,12 @@ func renderResourceBar(m Model) string {
 	if cap := sim.EffectiveInference(s, m.cfg); cap > 0 {
 		infUtil = s.Compute.InferenceLoad / cap
 	}
+	// Show the R&D rate per real second (what the player perceives), not per
+	// game-second — the latter is tiny and rounds to 0 in the display.
+	rndPerRealSec := sim.RnDRatePerSec(s, m.cfg) * gameSecPerRealSec
 	bar := fmt.Sprintf("Day %d   💰 $%s   ⚡R&D %s (+%s/s)   🖥訓練%.0f%% 推理%.0f%%   📈估值 $%s",
 		int(s.GameTime/86400), human(s.Resources.Cash), human(s.Resources.RnD),
-		human(sim.RnDRatePerSec(s, m.cfg)), trainUtil*100, infUtil*100,
+		human(rndPerRealSec), trainUtil*100, infUtil*100,
 		human(sim.Valuation(s, m.cfg)))
 	if m.lastTokens > 0 {
 		bar += fmt.Sprintf("   ⚡token +%d", m.lastTokens)
