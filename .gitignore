@@ -1,0 +1,4 @@
+# Go build artifact
+/tokensmith
+# Local save file (if run inside the repo)
+save.json
