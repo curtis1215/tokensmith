@@ -23,6 +23,7 @@ type dirSource struct {
 type Poller struct {
 	sources []dirSource
 	offsets map[string]int64
+	seen    map[string]bool // dedup keys already emitted (e.g. Claude message ids)
 }
 
 // NewPoller builds a poller over explicit directories (injectable for tests).
@@ -33,6 +34,7 @@ func NewPoller(claudeDir, codexDir string) *Poller {
 			{codexDir, ParseCodexLine},
 		},
 		offsets: map[string]int64{},
+		seen:    map[string]bool{},
 	}
 }
 
@@ -111,6 +113,14 @@ func (p *Poller) tailFile(path string, parse parser) []model.TokenEvent {
 			continue
 		}
 		if ev, ok := parse(line); ok {
+			// Claude writes one API response across several rows with identical
+			// usage; count each response once by its dedup key.
+			if ev.ID != "" {
+				if p.seen[ev.ID] {
+					continue
+				}
+				p.seen[ev.ID] = true
+			}
 			events = append(events, ev)
 		}
 	}

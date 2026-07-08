@@ -62,3 +62,16 @@ func TestPollerPrimeSkipsHistory(t *testing.T) {
 		t.Fatalf("after append, poll = %d events, want 1", len(got))
 	}
 }
+
+func TestPollerDedupsByMessageID(t *testing.T) {
+	claude := t.TempDir()
+	f := filepath.Join(claude, "session.jsonl")
+	// Claude writes one response across several rows with the same message id.
+	dup := `{"type":"assistant","timestamp":"2026-07-07T10:59:19Z","message":{"id":"msg_A","usage":{"input_tokens":100,"output_tokens":50}}}` + "\n"
+	other := `{"type":"assistant","timestamp":"2026-07-07T10:59:20Z","message":{"id":"msg_B","usage":{"input_tokens":10,"output_tokens":5}}}` + "\n"
+	os.WriteFile(f, []byte(dup+dup+other), 0o644)
+	p := NewPoller(claude, t.TempDir())
+	if got := p.Poll(); len(got) != 2 { // msg_A once + msg_B once, not 3
+		t.Fatalf("poll = %d events, want 2 (deduped by message id)", len(got))
+	}
+}

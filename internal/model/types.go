@@ -34,6 +34,7 @@ type TokenEvent struct {
 	Timestamp    time.Time
 	InputTokens  int
 	OutputTokens int
+	ID           string // stable dedup key (e.g. Claude message id); "" if none
 }
 
 // GameState is the full simulation state (plan-01 subset).

@@ -15,6 +15,7 @@ func ParseClaudeCodeLine(line []byte) (model.TokenEvent, bool) {
 		Type      string `json:"type"`
 		Timestamp string `json:"timestamp"`
 		Message   struct {
+			ID    string `json:"id"`
 			Usage *struct {
 				InputTokens  int `json:"input_tokens"`
 				OutputTokens int `json:"output_tokens"`
@@ -33,5 +34,6 @@ func ParseClaudeCodeLine(line []byte) (model.TokenEvent, bool) {
 		Timestamp:    ts,
 		InputTokens:  rec.Message.Usage.InputTokens,
 		OutputTokens: rec.Message.Usage.OutputTokens,
+		ID:           rec.Message.ID, // Claude writes one response across several rows; dedup by id
 	}, true
 }
