@@ -4,6 +4,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"tokensmith/internal/balance"
 	"tokensmith/internal/game"
 	"tokensmith/internal/ingest"
+	"tokensmith/internal/ledger"
 	"tokensmith/internal/model"
 	"tokensmith/internal/sim"
 	"tokensmith/internal/store"
@@ -53,12 +55,32 @@ type Model struct {
 	page           Page
 	dialog         *trainDialog // non-nil while the training modal is open
 	techCursor     int          // selected tech node on the tech page
+	// Harvest-daemon integration (§10.2).
+	ledgerPath     string
+	metaPath       string
+	daemonMode     bool // consume the daemon ledger instead of the built-in poller
+	consumedIn     int  // ledger tokens already applied
+	consumedOut    int
+	lastRealUnix   int64
+	metaMissing    bool
+	offlineSummary *Summary // shown as a banner until dismissed by any key
 }
 
-// New returns a fresh prototype model.
-func New() Model { return newAt(store.DefaultPath()) }
+// New returns the game model wired to the real save/ledger/meta locations,
+// with offline progress settled if a daemon ledger is present.
+func New() Model {
+	m := newAtPaths(store.DefaultPath(), ledger.DefaultPath(), store.DefaultMetaPath())
+	return m.startup(time.Now().Unix())
+}
 
+// newAt is a test helper: derive sibling ledger/meta files from the save dir.
+// It does NOT run startup(), so unit tests stay hermetic (no real-log/ledger read).
 func newAt(savePath string) Model {
+	dir := filepath.Dir(savePath)
+	return newAtPaths(savePath, filepath.Join(dir, "ledger.json"), filepath.Join(dir, "meta.json"))
+}
+
+func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 	state, ok, err := store.Load(savePath)
 	if err != nil {
 		// Corrupt/unreadable save: preserve it beside the original so a later
@@ -68,23 +90,90 @@ func newAt(savePath string) Model {
 	} else if !ok {
 		state = game.NewGame()
 	}
+	meta, metaOK, _ := store.LoadMeta(metaPath)
 	return Model{
-		state:    state,
-		cfg:      balance.Default(),
-		poller:   ingest.NewDefaultPoller(),
-		savePath: savePath,
+		state:        state,
+		cfg:          balance.Default(),
+		poller:       ingest.NewDefaultPoller(),
+		savePath:     savePath,
+		ledgerPath:   ledgerPath,
+		metaPath:     metaPath,
+		consumedIn:   meta.ConsumedIn,
+		consumedOut:  meta.ConsumedOut,
+		lastRealUnix: meta.LastRealUnix,
+		metaMissing:  !metaOK,
 	}
 }
 
+// ledgerFresh reports whether the daemon updated the ledger recently enough to
+// treat it as the live token source.
+func ledgerFresh(l ledger.Ledger, now int64) bool { return now-l.UpdatedAt <= 30 }
+
+// startup detects daemon mode and settles offline progress. Called by New()
+// only, so unit-test constructors stay hermetic.
+func (m Model) startup(now int64) Model {
+	l, ok, _ := ledger.Load(m.ledgerPath)
+	if !ok || !ledgerFresh(l, now) {
+		return m // standalone: Init primes the built-in poller
+	}
+	m.daemonMode = true
+	if m.metaMissing {
+		// First-ever open: adopt the current total so we don't settle a phantom
+		// window of everything harvested before the player ever played.
+		m.consumedIn, m.consumedOut = l.CumIn, l.CumOut
+		return m
+	}
+	offIn := l.CumIn - m.consumedIn
+	offOut := l.CumOut - m.consumedOut
+	elapsed := float64(now - m.lastRealUnix)
+	ns, sum := Settle(m.state, m.cfg, elapsed, offIn, offOut)
+	m.state = ns
+	m.consumedIn, m.consumedOut = l.CumIn, l.CumOut
+	if sum.RnDGained > 0 || sum.TrainingCompleted {
+		m.offlineSummary = &sum
+	}
+	return m
+}
+
+// saveMeta persists the consumed watermark and the current wall-clock time.
+func (m Model) saveMeta() {
+	_ = store.SaveMeta(m.metaPath, store.Meta{
+		ConsumedIn:   m.consumedIn,
+		ConsumedOut:  m.consumedOut,
+		LastRealUnix: time.Now().Unix(),
+	})
+}
+
 func (m Model) Init() tea.Cmd {
-	m.poller.Prime() // start at end of logs: harvest new coding, not history
+	if !m.daemonMode {
+		m.poller.Prime() // standalone: start at end of logs, harvest new coding
+	}
 	return tick()
+}
+
+// pollTokens returns the token events for this tick, either from the daemon
+// ledger (advancing the consumed watermark) or the built-in poller.
+func (m *Model) pollTokens() []model.TokenEvent {
+	if !m.daemonMode {
+		return m.poller.Poll()
+	}
+	l, ok, _ := ledger.Load(m.ledgerPath)
+	if !ok {
+		return nil
+	}
+	di := l.CumIn - m.consumedIn
+	do := l.CumOut - m.consumedOut
+	if di <= 0 && do <= 0 {
+		return nil
+	}
+	m.consumedIn, m.consumedOut = l.CumIn, l.CumOut
+	return []model.TokenEvent{{InputTokens: di, OutputTokens: do}}
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tickMsg:
-		events := m.poller.Poll()
+		events := m.pollTokens()
 		m.lastTokens = 0
 		for _, e := range events {
 			m.lastTokens += e.InputTokens + e.OutputTokens
@@ -94,12 +183,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.ticksSinceSave >= 40 {
 			m.ticksSinceSave = 0
 			_ = store.Save(m.savePath, m.state)
+			m.saveMeta()
 		}
 		return m, tick()
 	case tea.KeyMsg:
 		if m.dialog != nil {
 			return m.updateDialog(msg)
 		}
+		m.offlineSummary = nil // any key dismisses the offline banner
 		switch msg.String() {
 		case "tab", "right":
 			m.page = (m.page + 1) % numPages
@@ -127,6 +218,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "q", "ctrl+c":
 			_ = store.Save(m.savePath, m.state)
+			m.saveMeta()
 			return m, tea.Quit
 		case "t":
 			if m.page == PageModels || m.page == PageOverview {
@@ -333,12 +425,26 @@ func (m Model) View() string {
 	if m.dialog != nil {
 		page = renderTrainDialog(*m.dialog, m)
 	}
-	body := lipgloss.JoinVertical(lipgloss.Left,
+	rows := []string{titleStyle.Render("Tokensmith")}
+	if m.offlineSummary != nil {
+		rows = append(rows, offlineBanner(*m.offlineSummary))
+	}
+	rows = append(rows, lipgloss.JoinVertical(lipgloss.Left,
 		renderResourceBar(m),
 		sep,
 		renderTabBar(m.page),
 		sep,
 		page,
-	)
-	return boxStyle.Render(lipgloss.JoinVertical(lipgloss.Left, titleStyle.Render("Tokensmith"), body))
+	))
+	return boxStyle.Render(lipgloss.JoinVertical(lipgloss.Left, rows...))
+}
+
+// offlineBanner summarises what happened while the game was closed.
+func offlineBanner(s Summary) string {
+	msg := fmt.Sprintf("💤 離開 %.1fh，寫了 %d tokens → +%s R&D",
+		s.SecondsSettled/3600, s.TokensIn+s.TokensOut, human(s.RnDGained))
+	if s.TrainingCompleted {
+		msg += " · 訓練完成 ✓"
+	}
+	return tabActiveStyle.Render(msg) + helpStyle.Render("  （按任意鍵關閉）")
 }
