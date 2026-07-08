@@ -224,7 +224,13 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 		}
 		marketingMult := 1 + float64(ns.Marketing)*b.MarketingBonus
 		target := appeal * b.SegmentTargetScale[m.Segment] * demandMult * share * marketingMult * te.UserGrowthMult * se.UserGrowthMult
-		m.Users += (target - m.Users) * b.UserGrowthRate * dt
+		// Bounded approach to target: clamp the Euler factor to [0,1] so large
+		// ticks (e.g. TUI dt=3600) converge instead of overshooting/oscillating.
+		growthFactor := b.UserGrowthRate * dt
+		if growthFactor > 1 {
+			growthFactor = 1
+		}
+		m.Users += (target - m.Users) * growthFactor
 		if m.Users < 0 {
 			m.Users = 0
 		}

@@ -711,3 +711,18 @@ func TestStarGrowthBoostsUsers(t *testing.T) {
 		t.Fatalf("star growth should boost users: %v vs %v", nw.Models[0].Users, nb.Models[0].Users)
 	}
 }
+
+func TestUserGrowthClampedAtLargeDt(t *testing.T) {
+	b := balance.Default()
+	// appeal 20, no rivals/tech/marketing → target = 20*1000 = 20000.
+	// growthFactor = UserGrowthRate(0.001) * dt(3600) = 3.6, must clamp to 1.
+	s := model.GameState{Models: []model.Model{onlineModel(50, b.RefPrice)}}
+	ns := Tick(s, 3600, nil, b)
+	u := ns.Models[0].Users
+	if u < 0 {
+		t.Fatalf("users went negative: %v", u)
+	}
+	if u > 20000.0001 {
+		t.Fatalf("users overshot target (unstable Euler step): %v > 20000", u)
+	}
+}
