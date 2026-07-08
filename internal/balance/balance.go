@@ -76,6 +76,7 @@ type Config struct {
 	PrestigeUnlockValuation float64
 	PatentK                 float64
 	StartingCash            float64
+	Stars                   []model.Star // star-employee roster (plan-12)
 }
 
 // Default returns the v0 calibration (spec §12).
@@ -142,6 +143,7 @@ func Default() Config {
 	c.PatentK = 1e8
 	c.StartingCash = 100000
 	c.PrestigeNodes = DefaultPrestigeNodes()
+	c.Stars = DefaultStars()
 	return c
 }
 
@@ -219,5 +221,46 @@ func DefaultPrestigeNodes() []model.PrestigeNode {
 		{ID: "start-rnd-1", Cost: 1, Effects: startRnD},
 		{ID: "rnd-mult-1", Cost: 2, Effects: rndMult},
 		{ID: "cash-mult-1", Cost: 2, Effects: cashMult},
+	}
+}
+
+// star builds a Star starting from neutral effects, applying set().
+func star(id, name string, signing, salaryPerSec float64, set func(e *model.StarEffects)) model.Star {
+	e := model.NeutralStarEffects()
+	set(&e)
+	return model.Star{ID: id, Name: name, SigningCost: signing, SalaryPerSec: salaryPerSec, Effects: e}
+}
+
+// DefaultStars returns the v0 star roster (spec §17.5, numeric bonuses).
+func DefaultStars() []model.Star {
+	return []model.Star{
+		star("aria-chen", "Dr. Aria Chen", 600000, 0.02, func(e *model.StarEffects) {
+			e.QualityMult[model.DimCapability] = 1.22
+			e.RnDPerSec = 300
+		}),
+		star("nova", "Nova", 1000000, 0.03, func(e *model.StarEffects) {
+			for d := range e.QualityMult {
+				e.QualityMult[d] = 1.10
+			}
+			e.RnDPerSec = 400
+		}),
+		star("sofia-reyes", "Dr. Sofia Reyes", 450000, 0.018, func(e *model.StarEffects) {
+			e.QualityMult[model.DimSafety] = 1.25
+		}),
+		star("wei-zhang", "Dr. Wei Zhang", 380000, 0.016, func(e *model.StarEffects) {
+			e.QualityMult[model.DimEfficiency] = 1.25
+		}),
+		star("kenji-tanaka", "Kenji Tanaka", 420000, 0.017, func(e *model.StarEffects) {
+			e.InfraMult = 1.12
+		}),
+		star("elena-volkov", "Elena Volkov", 420000, 0.017, func(e *model.StarEffects) {
+			e.InfraMult = 1.10
+		}),
+		star("marcus-cole", "Marcus Cole", 350000, 0.015, func(e *model.StarEffects) {
+			e.UserGrowthMult = 1.30
+		}),
+		star("james-okafor", "James Okafor", 400000, 0.017, func(e *model.StarEffects) {
+			e.UserGrowthMult = 1.25
+		}),
 	}
 }
