@@ -45,6 +45,7 @@ type GameState struct {
 	Engineers     int
 	Ops           int
 	Marketing     int
+	UnlockedTech  []string
 	WindowRnD     float64 // token-sourced R&D accrued in the current soft-cap window
 	WindowElapsed float64 // seconds elapsed in the current soft-cap window
 	Compute       Compute
@@ -217,3 +218,53 @@ type FireStaff struct {
 }
 
 func (FireStaff) commandMarker() {}
+
+// TechBranch identifies a tech-tree branch.
+type TechBranch int
+
+const (
+	BranchAlgo      TechBranch = iota // 0 演算法
+	BranchInfra                       // 1 硬體基建
+	BranchBusiness                    // 2 商業營運
+	BranchAlignment                   // 3 對齊安全
+	NumBranches     = 4
+)
+
+// TechEffects are multiplicative modifiers; neutral value is 1.0.
+type TechEffects struct {
+	QualityMult    [NumQualityDims]float64 // per-dim quality output
+	TrainRnDMult   float64                 // training R&D cost
+	TrainWorkMult  float64                 // training work (GPU-seconds)
+	InfraMult      float64                 // compute efficiency
+	UserGrowthMult float64                 // user acquisition
+	RefPriceMult   float64                 // reference price / willingness to pay
+	IncidentMult   float64                 // anti-incident (used by later event plan)
+}
+
+// NeutralTechEffects returns effects that change nothing (all 1.0).
+func NeutralTechEffects() TechEffects {
+	e := TechEffects{
+		TrainRnDMult: 1, TrainWorkMult: 1, InfraMult: 1,
+		UserGrowthMult: 1, RefPriceMult: 1, IncidentMult: 1,
+	}
+	for d := range e.QualityMult {
+		e.QualityMult[d] = 1
+	}
+	return e
+}
+
+// TechNode is a tech-tree entry unlocked with R&D.
+type TechNode struct {
+	ID      string
+	Branch  TechBranch
+	Cost    float64
+	Prereqs []string
+	Effects TechEffects
+}
+
+// UnlockTech unlocks the tech node with the given ID.
+type UnlockTech struct {
+	NodeID string
+}
+
+func (UnlockTech) commandMarker() {}

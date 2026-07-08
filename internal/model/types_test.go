@@ -150,3 +150,23 @@ func TestRolesAndStaffCommands(t *testing.T) {
 		t.Fatalf("FireStaff not a Command")
 	}
 }
+
+func TestTechTypes(t *testing.T) {
+	if NumBranches != 4 || BranchAlignment != 3 {
+		t.Fatalf("branch consts wrong")
+	}
+	e := NeutralTechEffects()
+	if e.TrainRnDMult != 1 || e.InfraMult != 1 || e.QualityMult[DimCapability] != 1 {
+		t.Fatalf("neutral effects not all 1: %+v", e)
+	}
+	n := TechNode{ID: "x", Branch: BranchAlgo, Cost: 100, Effects: e}
+	var s GameState
+	s.UnlockedTech = append(s.UnlockedTech, n.ID)
+	if len(s.UnlockedTech) != 1 {
+		t.Fatalf("UnlockedTech not usable")
+	}
+	var c Command = UnlockTech{NodeID: "x"}
+	if _, ok := c.(UnlockTech); !ok {
+		t.Fatalf("UnlockTech not a Command")
+	}
+}
