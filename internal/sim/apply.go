@@ -17,6 +17,7 @@ var (
 	ErrInvalidAlloc       = errors.New("sim: allocation must sum to 1")
 	ErrInvalidModelIndex  = errors.New("sim: invalid model index")
 	ErrInvalidPrice       = errors.New("sim: price must be positive")
+	ErrInsufficientCash  = errors.New("sim: insufficient cash")
 )
 
 // Apply validates and applies a single player command, returning the new
@@ -31,6 +32,8 @@ func Apply(s model.GameState, cmd model.Command, b balance.Config) (model.GameSt
 		return applySetPrice(s, c)
 	case model.RentInferenceCompute:
 		return applyRentInferenceCompute(s, c), nil
+	case model.ExpandDatacenter:
+		return applyExpandDatacenter(s, c, b)
 	default:
 		return s, ErrUnknownCommand
 	}
@@ -98,4 +101,24 @@ func applyRentInferenceCompute(s model.GameState, c model.RentInferenceCompute) 
 		ns.Compute.InferenceCapacity = 0
 	}
 	return ns
+}
+
+func applyExpandDatacenter(s model.GameState, c model.ExpandDatacenter, b balance.Config) (model.GameState, error) {
+	power := c.PowerDelta
+	if power < 0 {
+		power = 0
+	}
+	slots := c.SlotDelta
+	if slots < 0 {
+		slots = 0
+	}
+	cost := power*b.PowerCostPerKW + slots*b.SlotCost
+	if s.Resources.Cash < cost {
+		return s, ErrInsufficientCash
+	}
+	ns := s
+	ns.Resources.Cash -= cost
+	ns.Datacenter.PowerCapacity += power
+	ns.Datacenter.SlotCapacity += slots
+	return ns, nil
 }

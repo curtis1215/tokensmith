@@ -131,3 +131,32 @@ func TestApplyRentInferenceCompute(t *testing.T) {
 		t.Fatalf("Apply mutated input")
 	}
 }
+
+func TestApplyExpandDatacenter(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Resources.Cash = 1_000_000
+	ns, err := Apply(s, model.ExpandDatacenter{PowerDelta: 800, SlotDelta: 20}, b)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if ns.Datacenter.PowerCapacity != 800 || ns.Datacenter.SlotCapacity != 20 {
+		t.Errorf("capacity wrong: %+v", ns.Datacenter)
+	}
+	wantCost := 800*b.PowerCostPerKW + 20*b.SlotCost
+	if !approx(ns.Resources.Cash, 1_000_000-wantCost) {
+		t.Errorf("cash = %v, want %v", ns.Resources.Cash, 1_000_000-wantCost)
+	}
+	if s.Datacenter.PowerCapacity != 0 {
+		t.Errorf("Apply mutated input")
+	}
+}
+
+func TestApplyExpandDatacenterInsufficientCash(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Resources.Cash = 100
+	if _, err := Apply(s, model.ExpandDatacenter{PowerDelta: 800, SlotDelta: 20}, b); err != ErrInsufficientCash {
+		t.Fatalf("err = %v, want ErrInsufficientCash", err)
+	}
+}
