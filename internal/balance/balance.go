@@ -46,6 +46,13 @@ type Config struct {
 	InferenceRentPerGPUSec float64 // cash per rented inference GPU per second
 	InferenceLoadPerUser   float64 // inference GPU load per active user
 	ServiceChurnRate       float64 // extra churn per second at full deficit
+	// Self-build compute (plan-07).
+	Chips               []model.Chip
+	ChipsPerServer      int
+	ChassisCost         float64
+	ElectricityPerKWSec float64 // cash per kW per second
+	PowerCostPerKW      float64 // datacenter power-capacity expansion cost per kW
+	SlotCost            float64 // datacenter rack-slot expansion cost per slot
 }
 
 // Default returns the v0 calibration (spec §12).
@@ -83,6 +90,15 @@ func Default() Config {
 	c.InferenceRentPerGPUSec = 0.006
 	c.InferenceLoadPerUser = 0.0001
 	c.ServiceChurnRate = 0.01
+	c.Chips = []model.Chip{
+		{Name: "H-class G3", Pool: model.PoolInference, Compute: 2, PowerKW: 3, Price: 8000},
+		{Name: "T-class G4", Pool: model.PoolTraining, Compute: 3, PowerKW: 5, Price: 18000},
+	}
+	c.ChipsPerServer = 8
+	c.ChassisCost = 5000
+	c.ElectricityPerKWSec = 0.001
+	c.PowerCostPerKW = 400
+	c.SlotCost = 30000
 	return c
 }
 
