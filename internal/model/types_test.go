@@ -179,3 +179,24 @@ func TestValuationFields(t *testing.T) {
 		t.Fatalf("valuation fields wrong: %+v", s)
 	}
 }
+
+func TestPrestigeTypes(t *testing.T) {
+	e := NeutralPrestigeEffects()
+	if e.RnDMult != 1 || e.CashMult != 1 || e.StartCash != 0 {
+		t.Fatalf("neutral prestige effects wrong: %+v", e)
+	}
+	var s GameState
+	s.Prestige.Patents = 3
+	s.Prestige.UnlockedPrestige = append(s.Prestige.UnlockedPrestige, "x")
+	if s.Prestige.Patents != 3 || len(s.Prestige.UnlockedPrestige) != 1 {
+		t.Fatalf("prestige state wrong: %+v", s.Prestige)
+	}
+	var c1 Command = PrestigeReset{}
+	var c2 Command = BuyPrestigeNode{NodeID: "x"}
+	if _, ok := c1.(PrestigeReset); !ok {
+		t.Fatalf("PrestigeReset not a Command")
+	}
+	if _, ok := c2.(BuyPrestigeNode); !ok {
+		t.Fatalf("BuyPrestigeNode not a Command")
+	}
+}

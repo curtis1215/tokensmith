@@ -48,6 +48,7 @@ type GameState struct {
 	UnlockedTech      []string
 	PeakValuation     float64
 	MilestonesReached int
+	Prestige          Prestige
 	WindowRnD         float64 // token-sourced R&D accrued in the current soft-cap window
 	WindowElapsed     float64 // seconds elapsed in the current soft-cap window
 	Compute           Compute
@@ -270,3 +271,41 @@ type UnlockTech struct {
 }
 
 func (UnlockTech) commandMarker() {}
+
+// Prestige is cross-run persistent progression.
+type Prestige struct {
+	Patents          float64
+	UnlockedPrestige []string
+}
+
+// PrestigeEffects are permanent bonuses; neutral = mults 1, adds 0.
+type PrestigeEffects struct {
+	StartCash float64
+	StartRnD  float64
+	RnDMult   float64
+	CashMult  float64
+}
+
+// NeutralPrestigeEffects returns effects that change nothing.
+func NeutralPrestigeEffects() PrestigeEffects {
+	return PrestigeEffects{RnDMult: 1, CashMult: 1}
+}
+
+// PrestigeNode is a permanent-upgrade-tree entry bought with patents.
+type PrestigeNode struct {
+	ID      string
+	Cost    float64
+	Effects PrestigeEffects
+}
+
+// PrestigeReset resets the run, banking patents from peak valuation.
+type PrestigeReset struct{}
+
+func (PrestigeReset) commandMarker() {}
+
+// BuyPrestigeNode spends patents on a permanent upgrade.
+type BuyPrestigeNode struct {
+	NodeID string
+}
+
+func (BuyPrestigeNode) commandMarker() {}
