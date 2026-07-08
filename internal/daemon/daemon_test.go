@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"tokensmith/internal/ledger"
 )
@@ -47,6 +48,53 @@ func TestHarvesterAccumulatesAndResumes(t *testing.T) {
 	got, ok, _ := ledger.Load(lp)
 	if !ok || got.UpdatedAt != 2000 {
 		t.Fatalf("ledger not persisted with UpdatedAt: %+v ok=%v", got, ok)
+	}
+}
+
+func TestStepPrunesOldFileCursors(t *testing.T) {
+	claude, codex := t.TempDir(), t.TempDir()
+	lp := filepath.Join(t.TempDir(), "ledger.json")
+	f := filepath.Join(claude, "s.jsonl")
+
+	h := New(claude, codex, lp)
+	writeLine(t, f, "A")
+	now := time.Now().Unix()
+	h.Step(now) // harvest A → cursor for f exists
+	// age the file well past the retention window
+	past := time.Now().Add(-30 * 24 * time.Hour)
+	if err := os.Chtimes(f, past, past); err != nil {
+		t.Fatal(err)
+	}
+	h.Step(now)
+
+	got, _, _ := ledger.Load(lp)
+	if len(got.Cursors) != 0 {
+		t.Fatalf("stale file cursor should be pruned, got %d cursors", len(got.Cursors))
+	}
+	if got.CumIn != 100 {
+		t.Fatalf("pruning must not change totals: %+v", got)
+	}
+}
+
+func TestPrunedFileNotRereadOnRestart(t *testing.T) {
+	claude, codex := t.TempDir(), t.TempDir()
+	lp := filepath.Join(t.TempDir(), "ledger.json")
+	f := filepath.Join(claude, "s.jsonl")
+
+	h := New(claude, codex, lp)
+	writeLine(t, f, "A")
+	now := time.Now().Unix()
+	h.Step(now) // cumIn 100
+	past := time.Now().Add(-30 * 24 * time.Hour)
+	os.Chtimes(f, past, past)
+	h.Step(now) // prune drops f's cursor from the ledger
+
+	// Restart: f has no persisted cursor, but PrimeUnknown must prime it to EOF
+	// rather than re-reading "A" (which would inflate the totals).
+	h2 := New(claude, codex, lp)
+	h2.Step(now)
+	if l := h2.Ledger(); l.CumIn != 100 {
+		t.Fatalf("pruned file re-read on restart (inflation): %+v", l)
 	}
 }
 

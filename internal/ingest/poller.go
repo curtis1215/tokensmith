@@ -83,11 +83,24 @@ func (p *Poller) Poll() []model.TokenEvent {
 // Prime sets each tracked log's cursor to its current end (via Stat, no content
 // read), so a subsequent Poll only reports usage appended after priming — the
 // game harvests new coding activity, not the entire history.
-func (p *Poller) Prime() {
+func (p *Poller) Prime() { p.prime(false) }
+
+// PrimeUnknown primes only files that do not yet have a cursor. Used on daemon
+// restart so files whose cursor was dropped from a pruned persisted set (or
+// files first seen after restart) resume at EOF instead of being re-read from
+// the start (which would double-count their history).
+func (p *Poller) PrimeUnknown() { p.prime(true) }
+
+func (p *Poller) prime(onlyUnknown bool) {
 	for _, src := range p.sources {
 		_ = filepath.WalkDir(src.root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
 				return nil
+			}
+			if onlyUnknown {
+				if _, seen := p.cursors[path]; seen {
+					return nil
+				}
 			}
 			if fi, statErr := os.Stat(path); statErr == nil {
 				p.cursors[path] = fileCursor{inode: inodeOf(fi), offset: fi.Size()}

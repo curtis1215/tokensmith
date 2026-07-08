@@ -63,6 +63,35 @@ func TestPollerPrimeSkipsHistory(t *testing.T) {
 	}
 }
 
+func TestPrimeUnknownSkipsHistoryForUncursoredFiles(t *testing.T) {
+	claude := t.TempDir()
+	f := filepath.Join(claude, "s.jsonl")
+	line := `{"type":"assistant","timestamp":"2026-07-07T10:59:19Z","message":{"id":"A","usage":{"input_tokens":100,"output_tokens":50}}}` + "\n"
+	os.WriteFile(f, []byte(line), 0o644)
+	p := NewPoller(claude, t.TempDir())
+	p.PrimeUnknown() // no cursor yet → prime to EOF, skip history
+	if got := p.Poll(); len(got) != 0 {
+		t.Fatalf("PrimeUnknown should skip existing history, got %d", len(got))
+	}
+}
+
+func TestPrimeUnknownLeavesExistingCursors(t *testing.T) {
+	claude := t.TempDir()
+	f := filepath.Join(claude, "s.jsonl")
+	line := `{"type":"assistant","timestamp":"2026-07-07T10:59:19Z","message":{"id":"A","usage":{"input_tokens":100,"output_tokens":50}}}` + "\n"
+	os.WriteFile(f, []byte(line), 0o644)
+	p := NewPoller(claude, t.TempDir())
+	p.Poll() // establishes a cursor at EOF
+	line2 := `{"type":"assistant","timestamp":"2026-07-07T10:59:20Z","message":{"id":"B","usage":{"input_tokens":10,"output_tokens":5}}}` + "\n"
+	af, _ := os.OpenFile(f, os.O_APPEND|os.O_WRONLY, 0o644)
+	af.WriteString(line2)
+	af.Close()
+	p.PrimeUnknown() // f is already cursored → must NOT skip the appended line
+	if got := p.Poll(); len(got) != 1 {
+		t.Fatalf("PrimeUnknown wrongly re-primed a cursored file, got %d", len(got))
+	}
+}
+
 func TestPollerReadsRotatedFileAfterRegrow(t *testing.T) {
 	claude := t.TempDir()
 	f := filepath.Join(claude, "session.jsonl")
