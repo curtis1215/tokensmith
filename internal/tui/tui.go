@@ -267,8 +267,9 @@ func renderResourceBar(m Model) string {
 	if cap := sim.EffectiveInference(s, m.cfg); cap > 0 {
 		infUtil = s.Compute.InferenceLoad / cap
 	}
-	bar := fmt.Sprintf("Day %d   💰 $%s   ⚡R&D %.0f/s   🖥訓練%.0f%% 推理%.0f%%   📈估值 $%s",
-		int(s.GameTime/86400), human(s.Resources.Cash), s.Resources.RnD, trainUtil*100, infUtil*100,
+	bar := fmt.Sprintf("Day %d   💰 $%s   ⚡R&D %s (+%s/s)   🖥訓練%.0f%% 推理%.0f%%   📈估值 $%s",
+		int(s.GameTime/86400), human(s.Resources.Cash), human(s.Resources.RnD),
+		human(sim.RnDRatePerSec(s, m.cfg)), trainUtil*100, infUtil*100,
 		human(sim.Valuation(s, m.cfg)))
 	if m.lastTokens > 0 {
 		bar += fmt.Sprintf("   ⚡token +%d", m.lastTokens)

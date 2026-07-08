@@ -20,6 +20,16 @@ func TestEffectiveCapacityExported(t *testing.T) {
 	}
 }
 
+func TestRnDRatePerSec(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Research.EfficiencyMult = 1
+	s.Research.Researchers[model.Tier1] = 2 // 2 × 5/s = 10/s
+	if RnDRatePerSec(s, b) != 10 {
+		t.Errorf("RnDRatePerSec = %v, want 10", RnDRatePerSec(s, b))
+	}
+}
+
 func TestTotalUsersAndRevenue(t *testing.T) {
 	s := model.GameState{Models: []model.Model{
 		{Online: true, Users: 100, Price: 12},

@@ -15,6 +15,13 @@ func EffectiveInference(ns model.GameState, b balance.Config) float64 {
 	return effectiveInference(ns, b)
 }
 
+// RnDRatePerSec is the steady R&D generated each second by staff and stars,
+// after prestige multipliers (the bursty token inflow is surfaced separately).
+func RnDRatePerSec(ns model.GameState, b balance.Config) float64 {
+	pe := prestigeEffects(ns.Prestige.UnlockedPrestige, b)
+	return (staffRnDPerSec(ns.Research, b) + starEffects(ns, b).RnDPerSec) * pe.RnDMult
+}
+
 // TotalUsers sums users across online models.
 func TotalUsers(ns model.GameState) float64 {
 	var u float64
