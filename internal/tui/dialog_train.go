@@ -8,6 +8,7 @@ import (
 
 	"tokensmith/internal/balance"
 	"tokensmith/internal/model"
+	"tokensmith/internal/sim"
 )
 
 const allocStep = 0.05
@@ -29,7 +30,7 @@ func (d trainDialog) update(msg tea.KeyMsg) (next trainDialog, confirm, cancel b
 			d.gen--
 		}
 	case "right":
-		if d.gen < balance.MaxGen {
+		if d.gen < d.maxGen {
 			d.gen++
 		}
 	case "tab":
@@ -71,13 +72,19 @@ func (d *trainDialog) normalize() {
 // trainDialog is the modal training-budget allocator (spec §11.3).
 type trainDialog struct {
 	gen     int
+	maxGen  int // highest generation currently unlocked (tech tree)
 	segment model.Segment
 	alloc   [model.NumQualityDims]float64
 	dim     int // currently selected quality dimension
 }
 
 func newTrainDialog(m Model) trainDialog {
-	return trainDialog{gen: 1, segment: model.SegConsumer, alloc: [model.NumQualityDims]float64{0.4, 0.2, 0.2, 0.2}}
+	return trainDialog{
+		gen:     1,
+		maxGen:  sim.MaxUnlockedGen(m.state, m.cfg),
+		segment: model.SegConsumer,
+		alloc:   [model.NumQualityDims]float64{0.4, 0.2, 0.2, 0.2},
+	}
 }
 
 // command builds the StartTraining for the current dialog selection, pricing at
@@ -90,8 +97,12 @@ var dimNames = [model.NumQualityDims]string{"能力", "成本", "安全", "速�
 
 func renderTrainDialog(d trainDialog, m Model) string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("訓練新模型\n世代 ‹ Gen%d ›   主打區隔 ‹ %s ›\n\n預算分配（可用 R&D %s）\n",
-		d.gen, segmentName(d.segment), human(m.state.Resources.RnD)))
+	genHint := ""
+	if d.maxGen < balance.MaxGen {
+		genHint = fmt.Sprintf("（上限 Gen%d，更高需科技樹解鎖）", d.maxGen)
+	}
+	b.WriteString(fmt.Sprintf("訓練新模型\n世代 ‹ Gen%d ›%s   主打區隔 ‹ %s ›\n\n預算分配（可用 R&D %s）\n",
+		d.gen, genHint, segmentName(d.segment), human(m.state.Resources.RnD)))
 	for i := 0; i < model.NumQualityDims; i++ {
 		cursor := " "
 		if i == d.dim {

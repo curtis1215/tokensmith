@@ -54,6 +54,18 @@ func TestDialogAllocStaysNormalized(t *testing.T) {
 	}
 }
 
+func TestDialogGenClampedToUnlocked(t *testing.T) {
+	m := testModel(t) // fresh game → only Gen1 unlocked
+	d := newTrainDialog(m)
+	if d.maxGen != 1 {
+		t.Fatalf("fresh dialog maxGen = %d, want 1", d.maxGen)
+	}
+	d, _, _ = d.update(tea.KeyMsg{Type: tea.KeyRight}) // attempt to raise gen
+	if d.gen != 1 {
+		t.Fatalf("gen should clamp to maxGen 1, got %d", d.gen)
+	}
+}
+
 func TestDialogConfirmStartsTraining(t *testing.T) {
 	m := testModel(t)
 	m.state.Resources.RnD = 50000

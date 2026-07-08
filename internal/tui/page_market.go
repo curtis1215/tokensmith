@@ -20,21 +20,21 @@ func renderMarket(m Model) string {
 			segmentName(seg), human(tam), rank, field))
 	}
 
-	b.WriteString("\n對手檔案（能力 / 每秒成長偏重）\n")
+	b.WriteString("\n對手檔案（能力 / 專長維度）\n")
 	for _, c := range s.Competitors {
-		b.WriteString(fmt.Sprintf("  %-10s 能力 %.0f · 主攻 %s\n",
-			c.Name, c.Quality[model.DimCapability], topGrowthDim(c)))
+		b.WriteString(fmt.Sprintf("  %-10s 能力 %.0f · 專長 %s\n",
+			c.Name, c.Quality[model.DimCapability], topSkillDim(c)))
 	}
 	b.WriteString(helpStyle.Render("\n[Tab]切頁"))
 	return b.String()
 }
 
-// topGrowthDim names the quality dimension a competitor grows fastest.
-func topGrowthDim(c model.Competitor) string {
+// topSkillDim names the quality dimension a competitor is strongest in.
+func topSkillDim(c model.Competitor) string {
 	best, bestDim := -1.0, 0
 	for d := 0; d < model.NumQualityDims; d++ {
-		if c.GrowthPerSec[d] > best {
-			best = c.GrowthPerSec[d]
+		if c.Skill[d] > best {
+			best = c.Skill[d]
 			bestDim = d
 		}
 	}

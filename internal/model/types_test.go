@@ -70,8 +70,8 @@ func TestSetPriceIsCommand(t *testing.T) {
 func TestCompetitorFields(t *testing.T) {
 	c := Competitor{Name: "Rival"}
 	c.Quality[DimCapability] = 55
-	c.GrowthPerSec[DimCapability] = 0.0001
-	if c.Name != "Rival" || c.Quality[DimCapability] != 55 || c.GrowthPerSec[DimCapability] != 0.0001 {
+	c.Skill[DimCapability] = 1.1
+	if c.Name != "Rival" || c.Quality[DimCapability] != 55 || c.Skill[DimCapability] != 1.1 {
 		t.Fatalf("competitor fields wrong: %+v", c)
 	}
 	var s GameState

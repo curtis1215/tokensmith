@@ -114,7 +114,7 @@ func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Co
 	ns.Resources.Cash -= serverPower * b.ElectricityPerKWSec * dt
 	ns.Resources.Cash -= (totalSalaryPerSec(ns, b) + starSalaryPerSec(ns, b)) * dt
 	ns = advanceTraining(ns, dt, b)
-	ns = advanceCompetitors(ns, dt)
+	ns = advanceCompetitors(ns, dt, b)
 	ns = advanceUsers(ns, dt, b)
 	ns = advanceServing(ns, dt, b)
 	val := Valuation(ns, b)
@@ -246,16 +246,45 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 	return ns
 }
 
-// advanceCompetitors grows each competitor's quality along its scripted
-// curve. Pure: clones Competitors.
-func advanceCompetitors(ns model.GameState, dt float64) model.GameState {
+// playerFrontier is the player's best online-model quality per dimension.
+func playerFrontier(ns model.GameState) [model.NumQualityDims]float64 {
+	var f [model.NumQualityDims]float64
+	for _, m := range ns.Models {
+		if !m.Online {
+			continue
+		}
+		for d := range model.NumQualityDims {
+			if m.Quality[d] > f[d] {
+				f[d] = m.Quality[d]
+			}
+		}
+	}
+	return f
+}
+
+// advanceCompetitors rubber-bands each competitor's quality toward
+// Skill×max(playerFrontier, base), so rivals track the player's progress
+// instead of running away on a fixed curve. Pure: clones Competitors.
+func advanceCompetitors(ns model.GameState, dt float64, b balance.Config) model.GameState {
 	if len(ns.Competitors) == 0 {
 		return ns
+	}
+	frontier := playerFrontier(ns)
+	factor := b.CompetitorCatchupRate * dt
+	if factor > 1 {
+		factor = 1
+	} else if factor < 0 {
+		factor = 0
 	}
 	comps := append([]model.Competitor(nil), ns.Competitors...)
 	for i := range comps {
 		for d := range model.NumQualityDims {
-			comps[i].Quality[d] += comps[i].GrowthPerSec[d] * dt
+			ref := frontier[d]
+			if b.CompetitorBaseQuality > ref {
+				ref = b.CompetitorBaseQuality
+			}
+			target := comps[i].Skill[d] * ref
+			comps[i].Quality[d] += (target - comps[i].Quality[d]) * factor
 		}
 	}
 	ns.Competitors = comps

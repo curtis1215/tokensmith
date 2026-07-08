@@ -137,11 +137,14 @@ type SetPrice struct {
 
 func (SetPrice) commandMarker() {}
 
-// Competitor is a rival AI company competing for market share.
+// Competitor is a rival AI company competing for market share. Skill is the
+// per-dimension strength relative to the player's frontier: rivals rubber-band
+// their quality toward Skill×(player's best), so they track the player's
+// progress instead of running away on a fixed curve.
 type Competitor struct {
-	Name         string
-	Quality      [NumQualityDims]float64
-	GrowthPerSec [NumQualityDims]float64 // per-second quality growth by dim
+	Name    string
+	Quality [NumQualityDims]float64
+	Skill   [NumQualityDims]float64
 }
 
 // RentInferenceCompute adjusts rented inference capacity by Delta.

@@ -310,13 +310,16 @@ func TestTickNoRevenueWhenOffline(t *testing.T) {
 
 func TestTickAdvancesCompetitors(t *testing.T) {
 	b := balance.Default()
+	// A rival below its target rubber-bands UP toward Skill×frontier.
 	c := model.Competitor{Name: "Rival"}
 	c.Quality[model.DimCapability] = 10
-	c.GrowthPerSec[model.DimCapability] = 0.1
-	s := model.GameState{Competitors: []model.Competitor{c}}
-	ns := Tick(s, 10, nil, b) // 10 + 0.1*10 = 11
-	if !approx(ns.Competitors[0].Quality[model.DimCapability], 11) {
-		t.Fatalf("competitor cap = %v, want 11", ns.Competitors[0].Quality[model.DimCapability])
+	c.Skill[model.DimCapability] = 1.0
+	pm := onlineModel(80, b.RefPrice) // player frontier cap 80
+	s := model.GameState{Models: []model.Model{pm}, Competitors: []model.Competitor{c}}
+	ns := Tick(s, 3600, nil, b) // target 80; moves a fraction of the gap up
+	got := ns.Competitors[0].Quality[model.DimCapability]
+	if got <= 10 || got > 80 {
+		t.Fatalf("competitor cap = %v, want (10, 80]", got)
 	}
 	// purity: input competitor untouched
 	if s.Competitors[0].Quality[model.DimCapability] != 10 {
@@ -324,9 +327,26 @@ func TestTickAdvancesCompetitors(t *testing.T) {
 	}
 }
 
+func TestCompetitorTracksPlayerNoRunaway(t *testing.T) {
+	b := balance.Default()
+	c := model.Competitor{Name: "Rival"}
+	c.Quality[model.DimCapability] = 10
+	c.Skill[model.DimCapability] = 1.1 // aims 10% above the player's frontier
+	pm := onlineModel(60, b.RefPrice)  // frontier cap 60 → target 66
+	s := model.GameState{Models: []model.Model{pm}, Competitors: []model.Competitor{c}}
+	for i := 0; i < 2000; i++ {
+		s = Tick(s, 3600, nil, b)
+	}
+	got := s.Competitors[0].Quality[model.DimCapability]
+	if got < 60 || got > 67 {
+		t.Fatalf("competitor should converge near target 66 (not run away), got %v", got)
+	}
+}
+
 func rival(cap float64) model.Competitor {
 	c := model.Competitor{Name: "Rival"}
 	c.Quality[model.DimCapability] = cap
+	c.Skill[model.DimCapability] = 1.0 // at-frontier: no meaningful rubber-band drift in these tests
 	return c
 }
 
@@ -566,8 +586,8 @@ func TestTechTrainCostAndWorkReduced(t *testing.T) {
 	if !approx(ns.Resources.RnD, 100000-20000*0.85) { // 83000
 		t.Errorf("RnD = %v, want 83000", ns.Resources.RnD)
 	}
-	if !approx(ns.Training.WorkRemaining, 1800*0.9) { // 1620
-		t.Errorf("WorkRemaining = %v, want 1620", ns.Training.WorkRemaining)
+	if !approx(ns.Training.WorkRemaining, 900000*0.9) { // 810000
+		t.Errorf("WorkRemaining = %v, want 810000", ns.Training.WorkRemaining)
 	}
 }
 

@@ -33,11 +33,11 @@ func TestDefaultGenAndTrainValues(t *testing.T) {
 	if c.GenRnDCost[1] != 20000 || c.GenRnDCost[5] != 40000000 {
 		t.Errorf("GenRnDCost wrong: %v", c.GenRnDCost)
 	}
-	if c.GenTrainWorkGPUSec[1] != 1800 { // 0.5 GPU·hr * 3600
-		t.Errorf("GenTrainWorkGPUSec[1] = %v, want 1800", c.GenTrainWorkGPUSec[1])
+	if c.GenTrainWorkGPUSec[1] != 900000 {
+		t.Errorf("GenTrainWorkGPUSec[1] = %v, want 900000", c.GenTrainWorkGPUSec[1])
 	}
-	if c.GenTrainWorkGPUSec[4] != 108000 { // 30 GPU·hr * 3600
-		t.Errorf("GenTrainWorkGPUSec[4] = %v, want 108000", c.GenTrainWorkGPUSec[4])
+	if c.GenTrainWorkGPUSec[4] != 57600000 {
+		t.Errorf("GenTrainWorkGPUSec[4] = %v, want 57600000", c.GenTrainWorkGPUSec[4])
 	}
 	if c.GenQualityCap[1] != 25 || c.GenQualityCap[5] != 100 {
 		t.Errorf("GenQualityCap wrong: %v", c.GenQualityCap)
@@ -75,13 +75,16 @@ func TestDefaultCompetitors(t *testing.T) {
 	if len(cs) != 7 {
 		t.Fatalf("competitors = %d, want 7", len(cs))
 	}
-	if cs[0].Name != "OpenAI" || cs[0].Quality[model.DimCapability] != 55 {
+	if cs[0].Name != "OpenAI" || cs[0].Quality[model.DimCapability] != 24 {
 		t.Errorf("first competitor wrong: %+v", cs[0])
 	}
-	// every competitor has a name and some capability
+	// every competitor has a name and a positive top skill
 	for _, c := range cs {
 		if c.Name == "" {
 			t.Errorf("competitor missing name: %+v", c)
+		}
+		if c.Skill[model.DimCapability] <= 0 {
+			t.Errorf("competitor missing skill: %+v", c)
 		}
 	}
 }

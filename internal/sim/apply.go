@@ -14,6 +14,7 @@ var (
 	ErrTrainingInProgress = errors.New("sim: training already in progress")
 	ErrInsufficientRnD    = errors.New("sim: insufficient R&D")
 	ErrInvalidGen         = errors.New("sim: invalid generation")
+	ErrGenLocked          = errors.New("sim: generation not unlocked (need tech tree)")
 	ErrInvalidAlloc       = errors.New("sim: allocation must sum to 1")
 	ErrInvalidModelIndex  = errors.New("sim: invalid model index")
 	ErrInvalidPrice       = errors.New("sim: price must be positive")
@@ -82,6 +83,9 @@ func applyStartTraining(s model.GameState, c model.StartTraining, b balance.Conf
 	}
 	if c.Gen < 1 || c.Gen > balance.MaxGen {
 		return s, ErrInvalidGen
+	}
+	if c.Gen > MaxUnlockedGen(s, b) {
+		return s, ErrGenLocked
 	}
 	var sum float64
 	for _, a := range c.Alloc {

@@ -53,8 +53,8 @@ func TestApplyStartTrainingSuccess(t *testing.T) {
 	if !ns.HasTraining || ns.Training.Gen != 1 || ns.Training.Price != 12 {
 		t.Errorf("training not set: %+v", ns.Training)
 	}
-	if ns.Training.WorkRemaining != 1800 {
-		t.Errorf("WorkRemaining = %v, want 1800", ns.Training.WorkRemaining)
+	if ns.Training.WorkRemaining != 900000 {
+		t.Errorf("WorkRemaining = %v, want 900000", ns.Training.WorkRemaining)
 	}
 	if s.HasTraining {
 		t.Errorf("Apply mutated input")
@@ -112,6 +112,36 @@ func TestStartTrainingCarriesSegment(t *testing.T) {
 	}
 	if len(ns.Models) == 0 || ns.Models[len(ns.Models)-1].Segment != model.SegEnterprise {
 		t.Fatalf("completed model segment wrong: %+v", ns.Models)
+	}
+}
+
+func TestMaxUnlockedGen(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	if MaxUnlockedGen(s, b) != 1 {
+		t.Fatalf("fresh game should allow only Gen1, got %d", MaxUnlockedGen(s, b))
+	}
+	s.UnlockedTech = []string{balance.GenUnlockNodeID(2), balance.GenUnlockNodeID(3)}
+	if MaxUnlockedGen(s, b) != 3 {
+		t.Fatalf("gen-2+gen-3 unlocked → max 3, got %d", MaxUnlockedGen(s, b))
+	}
+	// chain gap: gen-3 unlocked but not gen-2 → still 1
+	s.UnlockedTech = []string{balance.GenUnlockNodeID(3)}
+	if MaxUnlockedGen(s, b) != 1 {
+		t.Fatalf("gen-3 without gen-2 → max 1, got %d", MaxUnlockedGen(s, b))
+	}
+}
+
+func TestStartTrainingGenLocked(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Resources.RnD = 1e9
+	if _, err := Apply(s, model.StartTraining{Gen: 2, Alloc: validAlloc(), Price: 12}, b); err != ErrGenLocked {
+		t.Fatalf("Gen2 without unlock: err = %v, want ErrGenLocked", err)
+	}
+	s.UnlockedTech = []string{balance.GenUnlockNodeID(2)}
+	if _, err := Apply(s, model.StartTraining{Gen: 2, Alloc: validAlloc(), Price: 12}, b); err != nil {
+		t.Fatalf("Gen2 after unlock should succeed, got %v", err)
 	}
 }
 

@@ -2,10 +2,20 @@
 // design spec §12. Keeping them in one place makes tuning easy.
 package balance
 
-import "tokensmith/internal/model"
+import (
+	"strconv"
+
+	"tokensmith/internal/model"
+)
 
 // MaxGen is the highest model generation modelled in v0.
 const MaxGen = 5
+
+// GenUnlockNodeID is the tech node that unlocks training a given model
+// generation (gen >= 2); gen 1 needs no unlock.
+func GenUnlockNodeID(gen int) string {
+	return "model-gen-" + strconv.Itoa(gen)
+}
 
 // Config is the full set of balance knobs (plan-01 subset).
 type Config struct {
@@ -65,6 +75,8 @@ type Config struct {
 	EngineerInfraBonus     float64          // per engineer: compute efficiency
 	OpsChurnReduction      float64          // per ops: service-churn mitigation
 	MarketingBonus         float64          // per marketing: user-target boost
+	CompetitorBaseQuality  float64          // quality floor rivals track before the player has a model
+	CompetitorCatchupRate  float64          // per-second rubber-band rate toward Skill×frontier
 	TechNodes              []model.TechNode // tech-tree catalog (plan-09)
 	// Valuation & milestones (plan-10).
 	ValuationMilestones []float64
@@ -105,7 +117,9 @@ func Default() Config {
 
 	// gen:                      1        2         3          4           5
 	c.GenRnDCost = [MaxGen + 1]float64{0, 20000, 150000, 1000000, 6000000, 40000000}
-	c.GenTrainWorkGPUSec = [MaxGen + 1]float64{0, 1800, 7200, 28800, 108000, 432000}
+	// Training work (GPU-seconds). Scaled so a Gen1 model on ~4 rented GPU takes
+	// tens of real seconds (not a single tick); higher gens cost much more work.
+	c.GenTrainWorkGPUSec = [MaxGen + 1]float64{0, 900000, 3600000, 14400000, 57600000, 230400000}
 	c.GenQualityCap = [MaxGen + 1]float64{0, 25, 45, 65, 82, 100}
 	c.TrainRentPerGPUSec = 0.01
 
@@ -143,6 +157,8 @@ func Default() Config {
 	c.EngineerInfraBonus = 0.02
 	c.OpsChurnReduction = 0.1
 	c.MarketingBonus = 0.03
+	c.CompetitorBaseQuality = 20
+	c.CompetitorCatchupRate = 0.000005 // ~2% of the gap per tick (dt=3600)
 	c.TechNodes = DefaultTechNodes()
 	c.ValuationMilestones = []float64{1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12}
 	c.RevenueMultiple = 120
@@ -167,17 +183,19 @@ func qvec(capability, efficiency, safety, speed float64) [model.NumQualityDims]f
 	return [model.NumQualityDims]float64{capability, efficiency, safety, speed}
 }
 
-// DefaultCompetitors returns the v0 named-competitor roster (spec §17.1).
-// GrowthPerSec is tunable v0; specialty dimensions grow fastest.
+// DefaultCompetitors returns the v0 named-competitor roster (spec §17.1). Skill
+// is per-dimension relative strength (>1 aims above the player's frontier in
+// that dim, <1 below); initial Quality is set near Skill×CompetitorBaseQuality
+// so rivals start beatable and then track the player's progress.
 func DefaultCompetitors() []model.Competitor {
 	return []model.Competitor{
-		{Name: "OpenAI", Quality: qvec(55, 35, 35, 45), GrowthPerSec: qvec(0.0001, 0.00003, 0.00003, 0.00005)},
-		{Name: "Anthropic", Quality: qvec(52, 30, 55, 40), GrowthPerSec: qvec(0.00007, 0.00003, 0.0001, 0.00004)},
-		{Name: "xAI", Quality: qvec(45, 30, 20, 50), GrowthPerSec: qvec(0.0001, 0.00003, 0.00002, 0.00008)},
-		{Name: "DeepSeek", Quality: qvec(42, 60, 25, 45), GrowthPerSec: qvec(0.00005, 0.0001, 0.00003, 0.00005)},
-		{Name: "Qwen", Quality: qvec(40, 50, 30, 45), GrowthPerSec: qvec(0.00005, 0.00007, 0.00004, 0.00005)},
-		{Name: "Zhipu", Quality: qvec(40, 45, 35, 38), GrowthPerSec: qvec(0.00004, 0.00005, 0.00004, 0.00003)},
-		{Name: "Gemini", Quality: qvec(48, 40, 42, 45), GrowthPerSec: qvec(0.00006, 0.00005, 0.00006, 0.00005)},
+		{Name: "OpenAI", Quality: qvec(24, 20, 19, 21), Skill: qvec(1.20, 1.00, 0.95, 1.05)},
+		{Name: "Anthropic", Quality: qvec(22, 19, 25, 19), Skill: qvec(1.10, 0.95, 1.25, 0.95)},
+		{Name: "xAI", Quality: qvec(21, 19, 16, 23), Skill: qvec(1.05, 0.95, 0.80, 1.15)},
+		{Name: "DeepSeek", Quality: qvec(19, 25, 17, 20), Skill: qvec(0.95, 1.25, 0.85, 1.00)},
+		{Name: "Qwen", Quality: qvec(18, 22, 19, 20), Skill: qvec(0.90, 1.10, 0.95, 1.00)},
+		{Name: "Zhipu", Quality: qvec(17, 20, 19, 17), Skill: qvec(0.85, 1.00, 0.95, 0.85)},
+		{Name: "Gemini", Quality: qvec(21, 20, 21, 20), Skill: qvec(1.05, 1.00, 1.05, 1.00)},
 	}
 }
 
@@ -216,6 +234,12 @@ func DefaultTechNodes() []model.TechNode {
 		techNode("align-incident-1", model.BranchAlignment, 300000, []string{"align-safety-1"}, func(e *model.TechEffects) {
 			e.IncidentMult = 0.5
 		}),
+		// Model-generation unlocks — chained gates (no direct effect) so higher
+		// generations must be earned via R&D rather than picked from the start.
+		techNode(GenUnlockNodeID(2), model.BranchAlgo, 200000, nil, func(e *model.TechEffects) {}),
+		techNode(GenUnlockNodeID(3), model.BranchAlgo, 1500000, []string{GenUnlockNodeID(2)}, func(e *model.TechEffects) {}),
+		techNode(GenUnlockNodeID(4), model.BranchAlgo, 10000000, []string{GenUnlockNodeID(3)}, func(e *model.TechEffects) {}),
+		techNode(GenUnlockNodeID(5), model.BranchAlgo, 60000000, []string{GenUnlockNodeID(4)}, func(e *model.TechEffects) {}),
 	}
 }
 

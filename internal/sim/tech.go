@@ -15,6 +15,19 @@ func isUnlocked(ns model.GameState, id string) bool {
 	return false
 }
 
+// MaxUnlockedGen is the highest model generation the player may train: gen 1 is
+// always available; higher gens require the chained model-gen tech nodes.
+func MaxUnlockedGen(ns model.GameState, b balance.Config) int {
+	g := 1
+	for n := 2; n <= balance.MaxGen; n++ {
+		if !isUnlocked(ns, balance.GenUnlockNodeID(n)) {
+			break
+		}
+		g = n
+	}
+	return g
+}
+
 // techEffects aggregates the multipliers of all unlocked tech nodes.
 // Iterates the catalog (deterministic order); neutral when nothing unlocked.
 func techEffects(ns model.GameState, b balance.Config) model.TechEffects {
