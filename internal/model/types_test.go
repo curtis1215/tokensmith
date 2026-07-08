@@ -94,3 +94,16 @@ func TestSegmentConstsAndModelField(t *testing.T) {
 		t.Fatalf("default segment should be SegConsumer(0), got %v", zero.Segment)
 	}
 }
+
+func TestInferenceComputeAndCommand(t *testing.T) {
+	var s GameState
+	s.Compute.InferenceCapacity = 4
+	s.Compute.InferenceLoad = 1.5
+	if s.Compute.InferenceCapacity != 4 || s.Compute.InferenceLoad != 1.5 {
+		t.Fatalf("inference compute fields wrong: %+v", s.Compute)
+	}
+	var c Command = RentInferenceCompute{Delta: 2}
+	if _, ok := c.(RentInferenceCompute); !ok {
+		t.Fatalf("RentInferenceCompute not a Command")
+	}
+}

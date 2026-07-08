@@ -92,7 +92,9 @@ type TrainingJob struct {
 
 // Compute holds compute capacity (plan-02: training pool only).
 type Compute struct {
-	TrainingCapacity float64 // rented training GPUs
+	TrainingCapacity  float64 // rented training GPUs
+	InferenceCapacity float64 // rented inference GPUs
+	InferenceLoad     float64 // current inference load (computed each tick)
 }
 
 // Command is a validated player action applied via sim.Apply.
@@ -128,3 +130,10 @@ type Competitor struct {
 	Quality      [NumQualityDims]float64
 	GrowthPerSec [NumQualityDims]float64 // per-second quality growth by dim
 }
+
+// RentInferenceCompute adjusts rented inference capacity by Delta.
+type RentInferenceCompute struct {
+	Delta float64
+}
+
+func (RentInferenceCompute) commandMarker() {}
