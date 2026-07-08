@@ -82,7 +82,8 @@ func applyStartTraining(s model.GameState, c model.StartTraining, b balance.Conf
 	if sum < 0.999 || sum > 1.001 {
 		return s, ErrInvalidAlloc
 	}
-	cost := b.GenRnDCost[c.Gen]
+	te := techEffects(s, b)
+	cost := b.GenRnDCost[c.Gen] * te.TrainRnDMult
 	if s.Resources.RnD < cost {
 		return s, ErrInsufficientRnD
 	}
@@ -93,7 +94,7 @@ func applyStartTraining(s model.GameState, c model.StartTraining, b balance.Conf
 		Gen:           c.Gen,
 		Alloc:         c.Alloc,
 		Price:         c.Price,
-		WorkRemaining: b.GenTrainWorkGPUSec[c.Gen],
+		WorkRemaining: b.GenTrainWorkGPUSec[c.Gen] * te.TrainWorkMult,
 	}
 	return ns, nil
 }

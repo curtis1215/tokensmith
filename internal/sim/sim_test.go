@@ -530,3 +530,55 @@ func TestOpsReducesServiceChurn(t *testing.T) {
 		t.Fatalf("ops should reduce churn: %v vs %v", no.Models[0].Users, nb.Models[0].Users)
 	}
 }
+
+func TestTechQualityMultOnTrainedModel(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{HasTraining: true, UnlockedTech: []string{"algo-cap-1"}} // cap ×1.15
+	s.Compute.TrainingCapacity = 1000
+	s.Training = model.TrainingJob{Gen: 2, Alloc: [model.NumQualityDims]float64{0.4, 0.2, 0.2, 0.2}, WorkRemaining: 1}
+	ns := Tick(s, 1, nil, b)
+	if !approx(ns.Models[0].Quality[model.DimCapability], 0.4*45*1.15) { // 20.7
+		t.Fatalf("capability = %v, want %v", ns.Models[0].Quality[model.DimCapability], 0.4*45*1.15)
+	}
+}
+
+func TestTechTrainCostAndWorkReduced(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{UnlockedTech: []string{"algo-train-1"}} // RnD ×0.85, work ×0.9
+	s.Resources.RnD = 100000
+	ns, err := Apply(s, model.StartTraining{Gen: 1, Alloc: [model.NumQualityDims]float64{0.4, 0.2, 0.2, 0.2}, Price: 12}, b)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !approx(ns.Resources.RnD, 100000-20000*0.85) { // 83000
+		t.Errorf("RnD = %v, want 83000", ns.Resources.RnD)
+	}
+	if !approx(ns.Training.WorkRemaining, 1800*0.9) { // 1620
+		t.Errorf("WorkRemaining = %v, want 1620", ns.Training.WorkRemaining)
+	}
+}
+
+func TestTechInfraSpeedsTraining(t *testing.T) {
+	b := balance.Default()
+	base := model.GameState{HasTraining: true}
+	base.Compute.TrainingCapacity = 10
+	base.Training = model.TrainingJob{Gen: 1, WorkRemaining: 1e9}
+	withTech := base
+	withTech.UnlockedTech = []string{"infra-eff-1"} // InfraMult 1.1
+	nb := Tick(base, 1, nil, b)
+	nt := Tick(withTech, 1, nil, b)
+	if nt.Training.WorkRemaining >= nb.Training.WorkRemaining {
+		t.Fatalf("infra tech should speed training: %v vs %v", nt.Training.WorkRemaining, nb.Training.WorkRemaining)
+	}
+}
+
+func TestTechGrowthBoostsUsers(t *testing.T) {
+	b := balance.Default()
+	base := model.GameState{Models: []model.Model{onlineModel(50, b.RefPrice)}}
+	withTech := model.GameState{Models: []model.Model{onlineModel(50, b.RefPrice)}, UnlockedTech: []string{"biz-growth-1"}}
+	nb := Tick(base, 1, nil, b)
+	nt := Tick(withTech, 1, nil, b)
+	if nt.Models[0].Users <= nb.Models[0].Users {
+		t.Fatalf("growth tech should boost users: %v vs %v", nt.Models[0].Users, nb.Models[0].Users)
+	}
+}

@@ -104,7 +104,7 @@ func effectiveTraining(ns model.GameState, b balance.Config) float64 {
 			c += sv.Compute
 		}
 	}
-	return c * infraEfficiency(ns, b)
+	return c * infraEfficiency(ns, b) * techEffects(ns, b).InfraMult
 }
 
 // effectiveInference is rented plus self-built inference compute, scaled by engineer efficiency.
@@ -115,7 +115,7 @@ func effectiveInference(ns model.GameState, b balance.Config) float64 {
 			c += sv.Compute
 		}
 	}
-	return c * infraEfficiency(ns, b)
+	return c * infraEfficiency(ns, b) * techEffects(ns, b).InfraMult
 }
 
 // advanceTraining progresses the in-progress training job by dt and onlines
@@ -129,10 +129,11 @@ func advanceTraining(ns model.GameState, dt float64, b balance.Config) model.Gam
 		return ns
 	}
 	// Completed → build the model and online it.
+	te := techEffects(ns, b)
 	job := ns.Training
 	m := model.Model{Gen: job.Gen, Price: job.Price, Online: true}
 	for d := range model.NumQualityDims {
-		m.Quality[d] = job.Alloc[d] * b.GenQualityCap[job.Gen]
+		m.Quality[d] = job.Alloc[d] * b.GenQualityCap[job.Gen] * te.QualityMult[d]
 	}
 	cloned := append([]model.Model(nil), ns.Models...)
 	ns.Models = append(cloned, m)
@@ -171,7 +172,8 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 		for _, c := range ns.Competitors {
 			rivalAppeal += appealOf(c.Quality, w)
 		}
-		refPrice := b.SegmentRefPrice[m.Segment]
+		te := techEffects(ns, b)
+		refPrice := b.SegmentRefPrice[m.Segment] * te.RefPriceMult
 		var demandMult float64
 		if m.Price > 0 {
 			demandMult = math.Pow(refPrice/m.Price, b.PriceElasticity)
@@ -181,7 +183,7 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 			share = appeal / (appeal + rivalAppeal)
 		}
 		marketingMult := 1 + float64(ns.Marketing)*b.MarketingBonus
-		target := appeal * b.SegmentTargetScale[m.Segment] * demandMult * share * marketingMult
+		target := appeal * b.SegmentTargetScale[m.Segment] * demandMult * share * marketingMult * te.UserGrowthMult
 		m.Users += (target - m.Users) * b.UserGrowthRate * dt
 		if m.Users < 0 {
 			m.Users = 0
