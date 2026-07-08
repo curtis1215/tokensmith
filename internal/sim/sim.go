@@ -91,26 +91,31 @@ func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Co
 	return ns
 }
 
-// effectiveTraining is rented plus self-built training compute.
-func effectiveTraining(ns model.GameState) float64 {
+// infraEfficiency scales compute effectiveness with engineers.
+func infraEfficiency(ns model.GameState, b balance.Config) float64 {
+	return 1 + float64(ns.Engineers) * b.EngineerInfraBonus
+}
+
+// effectiveTraining is rented plus self-built training compute, scaled by engineer efficiency.
+func effectiveTraining(ns model.GameState, b balance.Config) float64 {
 	c := ns.Compute.TrainingCapacity
 	for _, sv := range ns.Servers {
 		if sv.Pool == model.PoolTraining {
 			c += sv.Compute
 		}
 	}
-	return c
+	return c * infraEfficiency(ns, b)
 }
 
-// effectiveInference is rented plus self-built inference compute.
-func effectiveInference(ns model.GameState) float64 {
+// effectiveInference is rented plus self-built inference compute, scaled by engineer efficiency.
+func effectiveInference(ns model.GameState, b balance.Config) float64 {
 	c := ns.Compute.InferenceCapacity
 	for _, sv := range ns.Servers {
 		if sv.Pool == model.PoolInference {
 			c += sv.Compute
 		}
 	}
-	return c
+	return c * infraEfficiency(ns, b)
 }
 
 // advanceTraining progresses the in-progress training job by dt and onlines
@@ -119,7 +124,7 @@ func advanceTraining(ns model.GameState, dt float64, b balance.Config) model.Gam
 	if !ns.HasTraining {
 		return ns
 	}
-	ns.Training.WorkRemaining -= effectiveTraining(ns) * dt
+	ns.Training.WorkRemaining -= effectiveTraining(ns, b) * dt
 	if ns.Training.WorkRemaining > 0 {
 		return ns
 	}
@@ -175,7 +180,8 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 		if appeal+rivalAppeal > 0 {
 			share = appeal / (appeal + rivalAppeal)
 		}
-		target := appeal * b.SegmentTargetScale[m.Segment] * demandMult * share
+		marketingMult := 1 + float64(ns.Marketing)*b.MarketingBonus
+		target := appeal * b.SegmentTargetScale[m.Segment] * demandMult * share * marketingMult
 		m.Users += (target - m.Users) * b.UserGrowthRate * dt
 		if m.Users < 0 {
 			m.Users = 0
@@ -213,18 +219,19 @@ func advanceServing(ns model.GameState, dt float64, b balance.Config) model.Game
 		}
 	}
 	ns.Compute.InferenceLoad = load
-	capacity := effectiveInference(ns)
+	capacity := effectiveInference(ns, b)
 	if capacity <= 0 || load <= capacity {
 		return ns
 	}
 	deficit := (load - capacity) / load
+	opsFactor := 1.0 / (1 + float64(ns.Ops)*b.OpsChurnReduction)
 	models := append([]model.Model(nil), ns.Models...)
 	for i := range models {
 		m := &models[i]
 		if !m.Online {
 			continue
 		}
-		m.Users -= m.Users * b.ServiceChurnRate * deficit * dt
+		m.Users -= m.Users * b.ServiceChurnRate * deficit * dt * opsFactor
 		if m.Users < 0 {
 			m.Users = 0
 		}

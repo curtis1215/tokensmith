@@ -490,3 +490,43 @@ func TestTickDeductsSalary(t *testing.T) {
 		t.Fatalf("Cash = %v, want %v", ns.Resources.Cash, want)
 	}
 }
+
+func TestEngineersSpeedTraining(t *testing.T) {
+	b := balance.Default()
+	base := model.GameState{HasTraining: true}
+	base.Compute.TrainingCapacity = 10
+	base.Training = model.TrainingJob{Gen: 1, WorkRemaining: 1e9}
+	withEng := base
+	withEng.Engineers = 5 // infra mult 1.1
+	nb := Tick(base, 1, nil, b)
+	ne := Tick(withEng, 1, nil, b)
+	if ne.Training.WorkRemaining >= nb.Training.WorkRemaining {
+		t.Fatalf("engineers should speed training: %v vs %v", ne.Training.WorkRemaining, nb.Training.WorkRemaining)
+	}
+}
+
+func TestMarketingBoostsUsers(t *testing.T) {
+	b := balance.Default()
+	base := model.GameState{Models: []model.Model{onlineModel(50, b.RefPrice)}}
+	withMkt := model.GameState{Models: []model.Model{onlineModel(50, b.RefPrice)}, Marketing: 10}
+	nb := Tick(base, 1, nil, b)
+	nm := Tick(withMkt, 1, nil, b)
+	if nm.Models[0].Users <= nb.Models[0].Users {
+		t.Fatalf("marketing should boost users: %v vs %v", nm.Models[0].Users, nb.Models[0].Users)
+	}
+}
+
+func TestOpsReducesServiceChurn(t *testing.T) {
+	b := balance.Default()
+	m := onlineModel(50, b.RefPrice)
+	m.Users = 100000
+	base := model.GameState{Models: []model.Model{m}}
+	base.Compute.InferenceCapacity = 1 // overloaded
+	withOps := base
+	withOps.Ops = 20
+	nb := Tick(base, 1, nil, b)
+	no := Tick(withOps, 1, nil, b)
+	if no.Models[0].Users <= nb.Models[0].Users {
+		t.Fatalf("ops should reduce churn: %v vs %v", no.Models[0].Users, nb.Models[0].Users)
+	}
+}
