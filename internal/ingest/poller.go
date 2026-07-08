@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"tokensmith/internal/model"
 )
@@ -18,11 +19,28 @@ type dirSource struct {
 	parse parser
 }
 
-// Poller tails Claude Code and Codex JSONL logs, tracking a per-file byte
-// cursor so each token event is emitted exactly once.
+// fileCursor tracks how far a log file has been consumed, keyed to the file's
+// identity so a rotated file (new inode at the same path) restarts from 0 even
+// if the replacement has already grown past the old byte offset.
+type fileCursor struct {
+	inode  uint64
+	offset int64
+}
+
+// inodeOf returns the file's inode, or 0 on platforms without Unix stat.
+func inodeOf(fi os.FileInfo) uint64 {
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+		return st.Ino
+	}
+	return 0
+}
+
+// Poller tails Claude Code and Codex JSONL logs, tracking a per-file cursor
+// (inode + byte offset) so each token event is emitted exactly once and file
+// rotation is detected.
 type Poller struct {
 	sources []dirSource
-	offsets map[string]int64
+	cursors map[string]fileCursor
 	seen    map[string]bool // dedup keys already emitted (e.g. Claude message ids)
 }
 
@@ -33,7 +51,7 @@ func NewPoller(claudeDir, codexDir string) *Poller {
 			{claudeDir, ParseClaudeCodeLine},
 			{codexDir, ParseCodexLine},
 		},
-		offsets: map[string]int64{},
+		cursors: map[string]fileCursor{},
 		seen:    map[string]bool{},
 	}
 }
@@ -72,7 +90,7 @@ func (p *Poller) Prime() {
 				return nil
 			}
 			if fi, statErr := os.Stat(path); statErr == nil {
-				p.offsets[path] = fi.Size()
+				p.cursors[path] = fileCursor{inode: inodeOf(fi), offset: fi.Size()}
 			}
 			return nil
 		})
@@ -84,11 +102,16 @@ func (p *Poller) tailFile(path string, parse parser) []model.TokenEvent {
 	if err != nil {
 		return nil
 	}
-	off := p.offsets[path]
-	if fi.Size() < off { // rotated / truncated
+	ino := inodeOf(fi)
+	cur := p.cursors[path]
+	off := cur.offset
+	// A different inode at this path (rotation) or a file now shorter than our
+	// cursor (truncation) means the old file is gone — restart from the start.
+	if cur.inode != ino || fi.Size() < off {
 		off = 0
 	}
 	if fi.Size() <= off {
+		p.cursors[path] = fileCursor{inode: ino, offset: off}
 		return nil
 	}
 	f, err := os.Open(path)
@@ -124,6 +147,6 @@ func (p *Poller) tailFile(path string, parse parser) []model.TokenEvent {
 			events = append(events, ev)
 		}
 	}
-	p.offsets[path] = off + int64(lastNL) + 1
+	p.cursors[path] = fileCursor{inode: ino, offset: off + int64(lastNL) + 1}
 	return events
 }

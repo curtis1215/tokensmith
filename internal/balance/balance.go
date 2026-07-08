@@ -75,8 +75,14 @@ type Config struct {
 	PrestigeNodes           []model.PrestigeNode
 	PrestigeUnlockValuation float64
 	PatentK                 float64
-	StartingCash            float64
-	Stars                   []model.Star // star-employee roster (plan-12)
+	// New-run baseline, shared by game.NewGame and prestige freshRun so a
+	// reset reseeds the same starting researchers/compute/R&D.
+	StartingCash              float64
+	StartingRnD               float64
+	StartingResearchersT1     int
+	StartingTrainingCapacity  float64
+	StartingInferenceCapacity float64
+	Stars                     []model.Star // star-employee roster (plan-12)
 }
 
 // Default returns the v0 calibration (spec §12).
@@ -142,6 +148,10 @@ func Default() Config {
 	c.PrestigeUnlockValuation = 1e9
 	c.PatentK = 1e8
 	c.StartingCash = 100000
+	c.StartingRnD = 50000
+	c.StartingResearchersT1 = 2
+	c.StartingTrainingCapacity = 4
+	c.StartingInferenceCapacity = 2
 	c.PrestigeNodes = DefaultPrestigeNodes()
 	c.Stars = DefaultStars()
 	return c

@@ -93,6 +93,23 @@ func TestNewLoadsSaveIfPresent(t *testing.T) {
 	}
 }
 
+func TestNewAtPreservesCorruptSave(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "save.json")
+	if err := os.WriteFile(path, []byte("{not valid json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := newAt(path)
+	// A fresh game is started (NewGame seeds competitors)...
+	if len(m.state.Competitors) == 0 {
+		t.Fatalf("corrupt save should start a fresh game, got no competitors")
+	}
+	// ...and the corrupt save is preserved instead of clobbered.
+	if _, err := os.Stat(path + ".corrupt"); err != nil {
+		t.Fatalf("corrupt save not preserved: %v", err)
+	}
+}
+
 func TestQuitSavesState(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "save.json")

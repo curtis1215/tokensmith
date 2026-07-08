@@ -81,10 +81,14 @@ func TestApplyStartTrainingErrors(t *testing.T) {
 	if _, err := Apply(base, model.StartTraining{Gen: 1, Alloc: bad}, b); err != ErrInvalidAlloc {
 		t.Errorf("alloc: err = %v, want ErrInvalidAlloc", err)
 	}
+	// non-positive price (validated before the R&D check)
+	if _, err := Apply(base, model.StartTraining{Gen: 1, Alloc: validAlloc(), Price: 0}, b); err != ErrInvalidPrice {
+		t.Errorf("price: err = %v, want ErrInvalidPrice", err)
+	}
 	// insufficient R&D
 	poor := model.GameState{}
 	poor.Resources.RnD = 100
-	if _, err := Apply(poor, model.StartTraining{Gen: 1, Alloc: validAlloc()}, b); err != ErrInsufficientRnD {
+	if _, err := Apply(poor, model.StartTraining{Gen: 1, Alloc: validAlloc(), Price: 12}, b); err != ErrInsufficientRnD {
 		t.Errorf("poor: err = %v, want ErrInsufficientRnD", err)
 	}
 }

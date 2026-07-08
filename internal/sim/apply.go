@@ -93,6 +93,9 @@ func applyStartTraining(s model.GameState, c model.StartTraining, b balance.Conf
 	if sum < 0.999 || sum > 1.001 {
 		return s, ErrInvalidAlloc
 	}
+	if c.Price <= 0 {
+		return s, ErrInvalidPrice
+	}
 	te := techEffects(s, b)
 	cost := b.GenRnDCost[c.Gen] * te.TrainRnDMult
 	if s.Resources.RnD < cost {

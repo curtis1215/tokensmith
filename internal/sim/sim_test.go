@@ -249,6 +249,19 @@ func TestTickUserGrowthTowardTarget(t *testing.T) {
 	}
 }
 
+func TestTickSkipsOutOfRangeSegment(t *testing.T) {
+	b := balance.Default()
+	// A corrupt save could carry a segment past NumSegments; the segment-indexed
+	// lookups must not panic — the model is simply skipped.
+	m := onlineModel(50, b.RefPrice)
+	m.Segment = model.Segment(99)
+	s := model.GameState{Models: []model.Model{m}}
+	ns := Tick(s, 1, nil, b) // must not panic
+	if ns.Models[0].Users != 0 {
+		t.Fatalf("out-of-range segment model should not grow users, got %v", ns.Models[0].Users)
+	}
+}
+
 func TestTickPriceElasticityReducesTarget(t *testing.T) {
 	b := balance.Default()
 	// double the reference price → demandMult = (1/2)^1.5.

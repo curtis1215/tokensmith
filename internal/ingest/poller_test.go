@@ -63,6 +63,27 @@ func TestPollerPrimeSkipsHistory(t *testing.T) {
 	}
 }
 
+func TestPollerReadsRotatedFileAfterRegrow(t *testing.T) {
+	claude := t.TempDir()
+	f := filepath.Join(claude, "session.jsonl")
+	mk := func(id string) string {
+		return `{"type":"assistant","timestamp":"2026-07-07T10:59:19Z","message":{"id":"` + id + `","usage":{"input_tokens":100,"output_tokens":50}}}` + "\n"
+	}
+	// Initial file: 2 lines; poll consumes them, cursor sits at their end.
+	os.WriteFile(f, []byte(mk("A")+mk("B")), 0o644)
+	p := NewPoller(claude, t.TempDir())
+	if got := p.Poll(); len(got) != 2 {
+		t.Fatalf("initial poll = %d, want 2", len(got))
+	}
+	// Rotate: replace with a NEW file (new inode) whose 3 lines already exceed
+	// the old byte offset. A pure byte-offset cursor would skip the early lines.
+	os.Remove(f)
+	os.WriteFile(f, []byte(mk("C")+mk("D")+mk("E")), 0o644)
+	if got := p.Poll(); len(got) != 3 {
+		t.Fatalf("post-rotation poll = %d, want 3 (all new lines read)", len(got))
+	}
+}
+
 func TestPollerDedupsByMessageID(t *testing.T) {
 	claude := t.TempDir()
 	f := filepath.Join(claude, "session.jsonl")

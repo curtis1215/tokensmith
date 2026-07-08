@@ -3,6 +3,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -40,8 +41,13 @@ type Model struct {
 func New() Model { return newAt(store.DefaultPath()) }
 
 func newAt(savePath string) Model {
-	state, ok, _ := store.Load(savePath)
-	if !ok {
+	state, ok, err := store.Load(savePath)
+	if err != nil {
+		// Corrupt/unreadable save: preserve it beside the original so a later
+		// autosave doesn't silently clobber recoverable data, then start fresh.
+		_ = os.Rename(savePath, savePath+".corrupt")
+		state = game.NewGame()
+	} else if !ok {
 		state = game.NewGame()
 	}
 	return Model{

@@ -204,6 +204,11 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 		if !m.Online {
 			continue
 		}
+		// Guard against a corrupt save carrying an out-of-range segment, which
+		// would panic the segment-indexed lookups below.
+		if int(m.Segment) < 0 || int(m.Segment) >= model.NumSegments {
+			continue
+		}
 		ns.Resources.Cash += m.Users * m.Price * dt / b.MonthSec * pe.CashMult
 
 		w := b.SegmentWeights[m.Segment]
@@ -229,6 +234,8 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 		growthFactor := b.UserGrowthRate * dt
 		if growthFactor > 1 {
 			growthFactor = 1
+		} else if growthFactor < 0 {
+			growthFactor = 0
 		}
 		m.Users += (target - m.Users) * growthFactor
 		if m.Users < 0 {
