@@ -27,12 +27,17 @@ func TestUpdateTickAdvancesState(t *testing.T) {
 	}
 }
 
-func TestTrainKeyStartsTraining(t *testing.T) {
+func TestTrainKeyOpensDialogThenConfirms(t *testing.T) {
 	m := newAt(filepath.Join(t.TempDir(), "s.json")) // seeded with enough R&D + training capacity
 	m.poller = ingestEmptyPoller(t)
+	// t opens the training modal; Enter confirms and starts training.
 	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	if nm.(Model).dialog == nil {
+		t.Fatalf("train key did not open the dialog")
+	}
+	nm, _ = nm.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if !nm.(Model).state.HasTraining {
-		t.Fatalf("train key did not start training")
+		t.Fatalf("confirming the dialog did not start training")
 	}
 }
 

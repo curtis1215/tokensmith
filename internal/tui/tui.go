@@ -51,6 +51,7 @@ type Model struct {
 	savePath       string
 	ticksSinceSave int
 	page           Page
+	dialog         *trainDialog // non-nil while the training modal is open
 }
 
 // New returns a fresh prototype model.
@@ -95,6 +96,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tick()
 	case tea.KeyMsg:
+		if m.dialog != nil {
+			return m.updateDialog(msg)
+		}
 		switch msg.String() {
 		case "tab", "right":
 			m.page = (m.page + 1) % numPages
@@ -109,14 +113,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_ = store.Save(m.savePath, m.state)
 			return m, tea.Quit
 		case "t":
-			cmd := model.StartTraining{
-				Gen:   1,
-				Alloc: [model.NumQualityDims]float64{0.4, 0.2, 0.2, 0.2},
-				Price: m.cfg.SegmentRefPrice[model.SegConsumer],
+			if m.page == PageModels || m.page == PageOverview {
+				d := newTrainDialog(m)
+				m.dialog = &d
 			}
-			if ns, err := sim.Apply(m.state, cmd, m.cfg); err == nil {
-				m.state = ns
-			}
+			return m, nil
 		case "r":
 			if ns, err := sim.Apply(m.state, model.RentTrainingCompute{Delta: 1}, m.cfg); err == nil {
 				m.state = ns
@@ -128,6 +129,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// updateDialog routes keys to the open training modal, applying StartTraining
+// on confirm and closing on either confirm or cancel.
+func (m Model) updateDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	d, confirm, cancel := m.dialog.update(msg)
+	if cancel {
+		m.dialog = nil
+		return m, nil
+	}
+	if confirm {
+		m.state = applyOK(m.state, d.command(m.cfg), m.cfg)
+		m.dialog = nil
+		return m, nil
+	}
+	m.dialog = &d
+	return m, nil
+}
+
+// applyOK applies a command, returning the new state or the old one unchanged
+// if the command was rejected (keeps a bad keystroke a harmless no-op).
+func applyOK(s model.GameState, cmd model.Command, b balance.Config) model.GameState {
+	if ns, err := sim.Apply(s, cmd, b); err == nil {
+		return ns
+	}
+	return s
 }
 
 var (
@@ -213,12 +240,16 @@ func (m Model) renderPage() string {
 
 func (m Model) View() string {
 	sep := strings.Repeat("─", 66)
+	page := m.renderPage()
+	if m.dialog != nil {
+		page = renderTrainDialog(*m.dialog, m)
+	}
 	body := lipgloss.JoinVertical(lipgloss.Left,
 		renderResourceBar(m),
 		sep,
 		renderTabBar(m.page),
 		sep,
-		m.renderPage(),
+		page,
 	)
 	return boxStyle.Render(lipgloss.JoinVertical(lipgloss.Left, titleStyle.Render("Tokensmith"), body))
 }
