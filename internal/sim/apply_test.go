@@ -114,3 +114,20 @@ func TestApplySetPriceErrors(t *testing.T) {
 		t.Errorf("price: err = %v, want ErrInvalidPrice", err)
 	}
 }
+
+func TestApplyRentInferenceCompute(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Compute.InferenceCapacity = 2
+	ns, err := Apply(s, model.RentInferenceCompute{Delta: 3}, b)
+	if err != nil || ns.Compute.InferenceCapacity != 5 {
+		t.Fatalf("capacity = %v err=%v, want 5", ns.Compute.InferenceCapacity, err)
+	}
+	ns2, _ := Apply(s, model.RentInferenceCompute{Delta: -10}, b)
+	if ns2.Compute.InferenceCapacity != 0 {
+		t.Fatalf("should floor at 0, got %v", ns2.Compute.InferenceCapacity)
+	}
+	if s.Compute.InferenceCapacity != 2 {
+		t.Fatalf("Apply mutated input")
+	}
+}

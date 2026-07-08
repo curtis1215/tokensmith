@@ -29,6 +29,8 @@ func Apply(s model.GameState, cmd model.Command, b balance.Config) (model.GameSt
 		return applyStartTraining(s, c, b)
 	case model.SetPrice:
 		return applySetPrice(s, c)
+	case model.RentInferenceCompute:
+		return applyRentInferenceCompute(s, c), nil
 	default:
 		return s, ErrUnknownCommand
 	}
@@ -87,4 +89,13 @@ func applySetPrice(s model.GameState, c model.SetPrice) (model.GameState, error)
 	ns.Models = append([]model.Model(nil), s.Models...)
 	ns.Models[c.ModelIndex].Price = c.Price
 	return ns, nil
+}
+
+func applyRentInferenceCompute(s model.GameState, c model.RentInferenceCompute) model.GameState {
+	ns := s
+	ns.Compute.InferenceCapacity += c.Delta
+	if ns.Compute.InferenceCapacity < 0 {
+		ns.Compute.InferenceCapacity = 0
+	}
+	return ns
 }
