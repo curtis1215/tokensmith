@@ -58,6 +58,7 @@ type GameState struct {
 	Datacenter        Datacenter
 	HasTraining       bool
 	Training          TrainingJob
+	HiredStars        []string
 }
 
 // QualityDim indexes Model.Quality.
@@ -309,3 +310,36 @@ type BuyPrestigeNode struct {
 }
 
 func (BuyPrestigeNode) commandMarker() {}
+
+// StarEffects are a star employee's numeric bonuses; neutral = mults 1, bonus 0.
+type StarEffects struct {
+	QualityMult    [NumQualityDims]float64
+	RnDPerSec      float64
+	InfraMult      float64
+	UserGrowthMult float64
+}
+
+// NeutralStarEffects returns effects that change nothing.
+func NeutralStarEffects() StarEffects {
+	e := StarEffects{RnDPerSec: 0, InfraMult: 1, UserGrowthMult: 1}
+	for d := range e.QualityMult {
+		e.QualityMult[d] = 1
+	}
+	return e
+}
+
+// Star is a named hireable employee.
+type Star struct {
+	ID           string
+	Name         string
+	SigningCost  float64
+	SalaryPerSec float64
+	Effects      StarEffects
+}
+
+// SignStar hires the star with the given ID.
+type SignStar struct {
+	StarID string
+}
+
+func (SignStar) commandMarker() {}

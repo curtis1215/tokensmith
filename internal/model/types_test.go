@@ -200,3 +200,20 @@ func TestPrestigeTypes(t *testing.T) {
 		t.Fatalf("BuyPrestigeNode not a Command")
 	}
 }
+
+func TestStarTypes(t *testing.T) {
+	e := NeutralStarEffects()
+	if e.QualityMult[DimCapability] != 1 || e.InfraMult != 1 || e.UserGrowthMult != 1 || e.RnDPerSec != 0 {
+		t.Fatalf("neutral star effects wrong: %+v", e)
+	}
+	st := Star{ID: "x", Name: "X", SigningCost: 100, SalaryPerSec: 1, Effects: e}
+	var s GameState
+	s.HiredStars = append(s.HiredStars, st.ID)
+	if len(s.HiredStars) != 1 {
+		t.Fatalf("HiredStars not usable")
+	}
+	var c Command = SignStar{StarID: "x"}
+	if _, ok := c.(SignStar); !ok {
+		t.Fatalf("SignStar not a Command")
+	}
+}
