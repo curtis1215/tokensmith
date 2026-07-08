@@ -52,6 +52,7 @@ type Model struct {
 	ticksSinceSave int
 	page           Page
 	dialog         *trainDialog // non-nil while the training modal is open
+	techCursor     int          // selected tech node on the tech page
 }
 
 // New returns a fresh prototype model.
@@ -108,6 +109,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "1", "2", "3", "4", "5", "6":
 			m.page = Page(msg.String()[0] - '1')
+			return m, nil
+		case "up":
+			if m.page == PageTech && m.techCursor > 0 {
+				m.techCursor--
+			}
+			return m, nil
+		case "down":
+			if m.page == PageTech && m.techCursor < len(m.cfg.TechNodes)-1 {
+				m.techCursor++
+			}
+			return m, nil
+		case "enter":
+			if m.page == PageTech && m.techCursor >= 0 && m.techCursor < len(m.cfg.TechNodes) {
+				m.state = applyOK(m.state, model.UnlockTech{NodeID: m.cfg.TechNodes[m.techCursor].ID}, m.cfg)
+			}
 			return m, nil
 		case "q", "ctrl+c":
 			_ = store.Save(m.savePath, m.state)
