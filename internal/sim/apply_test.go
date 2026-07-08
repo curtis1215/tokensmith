@@ -210,3 +210,58 @@ func TestApplyBuildServerErrors(t *testing.T) {
 		t.Errorf("space: err = %v, want ErrInsufficientSpace", err)
 	}
 }
+
+func TestApplyHireStaff(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Resources.Cash = 100000
+	// hire 2 T2 researchers
+	ns, err := Apply(s, model.HireStaff{Role: model.RoleResearcher, Tier: model.Tier2, Count: 2}, b)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if ns.Research.Researchers[model.Tier2] != 2 {
+		t.Errorf("researchers = %d, want 2", ns.Research.Researchers[model.Tier2])
+	}
+	if !approx(ns.Resources.Cash, 100000-2*b.ResearcherHireCost[model.Tier2]) {
+		t.Errorf("cash wrong: %v", ns.Resources.Cash)
+	}
+	// hire 3 engineers
+	ns2, _ := Apply(ns, model.HireStaff{Role: model.RoleEngineer, Count: 3}, b)
+	if ns2.Engineers != 3 {
+		t.Errorf("engineers = %d, want 3", ns2.Engineers)
+	}
+	// purity
+	if s.Research.Researchers[model.Tier2] != 0 {
+		t.Errorf("Apply mutated input")
+	}
+}
+
+func TestApplyHireStaffErrors(t *testing.T) {
+	b := balance.Default()
+	rich := model.GameState{}
+	rich.Resources.Cash = 1e9
+	if _, err := Apply(rich, model.HireStaff{Role: model.RoleResearcher, Tier: model.Tier2, Count: 0}, b); err != ErrInvalidCount {
+		t.Errorf("count: err = %v, want ErrInvalidCount", err)
+	}
+	if _, err := Apply(rich, model.HireStaff{Role: model.RoleResearcher, Tier: model.TierNone, Count: 1}, b); err != ErrInvalidTier {
+		t.Errorf("tier: err = %v, want ErrInvalidTier", err)
+	}
+	poor := model.GameState{}
+	poor.Resources.Cash = 10
+	if _, err := Apply(poor, model.HireStaff{Role: model.RoleEngineer, Count: 1}, b); err != ErrInsufficientCash {
+		t.Errorf("cash: err = %v, want ErrInsufficientCash", err)
+	}
+}
+
+func TestApplyFireStaffFloorsAtZero(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{Engineers: 2}
+	ns, err := Apply(s, model.FireStaff{Role: model.RoleEngineer, Count: 5}, b)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if ns.Engineers != 0 {
+		t.Fatalf("engineers = %d, want 0", ns.Engineers)
+	}
+}

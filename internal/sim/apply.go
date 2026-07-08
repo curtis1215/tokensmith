@@ -21,6 +21,9 @@ var (
 	ErrInvalidChip       = errors.New("sim: unknown chip")
 	ErrInsufficientPower = errors.New("sim: datacenter power capacity exceeded")
 	ErrInsufficientSpace = errors.New("sim: datacenter rack space exceeded")
+	ErrInvalidCount = errors.New("sim: count must be positive")
+	ErrInvalidTier  = errors.New("sim: invalid researcher tier")
+	ErrInvalidRole  = errors.New("sim: invalid role")
 )
 
 // Apply validates and applies a single player command, returning the new
@@ -39,6 +42,10 @@ func Apply(s model.GameState, cmd model.Command, b balance.Config) (model.GameSt
 		return applyExpandDatacenter(s, c, b)
 	case model.BuildServer:
 		return applyBuildServer(s, c, b)
+	case model.HireStaff:
+		return applyHireStaff(s, c, b)
+	case model.FireStaff:
+		return applyFireStaff(s, c)
 	default:
 		return s, ErrUnknownCommand
 	}
@@ -168,4 +175,75 @@ func applyBuildServer(s model.GameState, c model.BuildServer, b balance.Config) 
 	ns.Resources.Cash -= capex
 	ns.Servers = append(append([]model.Server(nil), s.Servers...), server)
 	return ns, nil
+}
+
+func applyHireStaff(s model.GameState, c model.HireStaff, b balance.Config) (model.GameState, error) {
+	if c.Count <= 0 {
+		return s, ErrInvalidCount
+	}
+	n := float64(c.Count)
+	ns := s
+	switch c.Role {
+	case model.RoleResearcher:
+		if c.Tier < model.Tier1 || c.Tier > model.Tier3 {
+			return s, ErrInvalidTier
+		}
+		cost := n * b.ResearcherHireCost[c.Tier]
+		if s.Resources.Cash < cost {
+			return s, ErrInsufficientCash
+		}
+		ns.Resources.Cash -= cost
+		ns.Research.Researchers[c.Tier] += c.Count
+	case model.RoleEngineer:
+		if s.Resources.Cash < n*b.EngineerHireCost {
+			return s, ErrInsufficientCash
+		}
+		ns.Resources.Cash -= n * b.EngineerHireCost
+		ns.Engineers += c.Count
+	case model.RoleOps:
+		if s.Resources.Cash < n*b.OpsHireCost {
+			return s, ErrInsufficientCash
+		}
+		ns.Resources.Cash -= n * b.OpsHireCost
+		ns.Ops += c.Count
+	case model.RoleMarketing:
+		if s.Resources.Cash < n*b.MarketingHireCost {
+			return s, ErrInsufficientCash
+		}
+		ns.Resources.Cash -= n * b.MarketingHireCost
+		ns.Marketing += c.Count
+	default:
+		return s, ErrInvalidRole
+	}
+	return ns, nil
+}
+
+func applyFireStaff(s model.GameState, c model.FireStaff) (model.GameState, error) {
+	if c.Count <= 0 {
+		return s, ErrInvalidCount
+	}
+	ns := s
+	switch c.Role {
+	case model.RoleResearcher:
+		if c.Tier < model.Tier1 || c.Tier > model.Tier3 {
+			return s, ErrInvalidTier
+		}
+		ns.Research.Researchers[c.Tier] = max0(ns.Research.Researchers[c.Tier] - c.Count)
+	case model.RoleEngineer:
+		ns.Engineers = max0(ns.Engineers - c.Count)
+	case model.RoleOps:
+		ns.Ops = max0(ns.Ops - c.Count)
+	case model.RoleMarketing:
+		ns.Marketing = max0(ns.Marketing - c.Count)
+	default:
+		return s, ErrInvalidRole
+	}
+	return ns, nil
+}
+
+func max0(n int) int {
+	if n < 0 {
+		return 0
+	}
+	return n
 }
