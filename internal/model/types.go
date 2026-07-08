@@ -39,22 +39,24 @@ type TokenEvent struct {
 // GameState is the full simulation state (plan-01 subset).
 // GameTime and WindowElapsed are in seconds.
 type GameState struct {
-	GameTime      float64
-	Resources     Resources
-	Research      Research
-	Engineers     int
-	Ops           int
-	Marketing     int
-	UnlockedTech  []string
-	WindowRnD     float64 // token-sourced R&D accrued in the current soft-cap window
-	WindowElapsed float64 // seconds elapsed in the current soft-cap window
-	Compute       Compute
-	Models        []Model
-	Competitors   []Competitor
-	Servers       []Server
-	Datacenter    Datacenter
-	HasTraining   bool
-	Training      TrainingJob
+	GameTime          float64
+	Resources         Resources
+	Research          Research
+	Engineers         int
+	Ops               int
+	Marketing         int
+	UnlockedTech      []string
+	PeakValuation     float64
+	MilestonesReached int
+	WindowRnD         float64 // token-sourced R&D accrued in the current soft-cap window
+	WindowElapsed     float64 // seconds elapsed in the current soft-cap window
+	Compute           Compute
+	Models            []Model
+	Competitors       []Competitor
+	Servers           []Server
+	Datacenter        Datacenter
+	HasTraining       bool
+	Training          TrainingJob
 }
 
 // QualityDim indexes Model.Quality.

@@ -170,3 +170,12 @@ func TestTechTypes(t *testing.T) {
 		t.Fatalf("UnlockTech not a Command")
 	}
 }
+
+func TestValuationFields(t *testing.T) {
+	var s GameState
+	s.PeakValuation = 1_500_000
+	s.MilestonesReached = 1
+	if s.PeakValuation != 1_500_000 || s.MilestonesReached != 1 {
+		t.Fatalf("valuation fields wrong: %+v", s)
+	}
+}
