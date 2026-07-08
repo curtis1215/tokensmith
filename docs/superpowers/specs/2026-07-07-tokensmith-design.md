@@ -552,6 +552,19 @@ CREATE TABLE meta (
 
 - **錯誤碼**：InsufficientCash / InsufficientRnD / CapacityExceeded / LockedByMilestone / InvalidCommand…（驅動 TUI 的 ⚠ 提示）。
 
+### 10.2 v1 實作：輕量採集 daemon（單進程 TUI 變體）
+
+v1 的 TUI 採單進程、直接驅動 sim（見 §11 實作）。因此 daemon 不擁有 sim、不跑 socket，改採**「daemon 唯一採集、TUI 唯一消費」**的解耦設計：
+
+- **`tokensmithd`**（獨立 binary）：背景常駐，每 ~5s poll `~/.claude` + `~/.codex`，持久化 cursor（含 inode，重啟不重讀/不漏），把 token 累積量原子寫進 ledger；單例保護用 PID/lock file。
+- **ledger**（`~/Library/Application Support/tokensmith/ledger.json`）：`{cumInputTokens, cumOutputTokens, updatedAt}`，單調遞增。
+- **TUI sidecar meta**（`meta.json`，與 save 同目錄）：`{consumedIn, consumedOut, lastRealUnix}`；sim 維持純函式，牆鐘時間只存在此。
+- **消費**：TUI 每 tick 取 `delta = ledger.cum − consumed` 當 token events 餵進 `sim.Tick`，再把 consumed 推進到 ledger.cum——線上/離線統一。
+- **離線結算**（TUI 開啟時）：`offlineDelta = ledger.cum − consumed`、`elapsed = now − lastRealUnix`；分段 Tick（每段 ≤1h，首段帶 offlineDelta tokens）推進世界（訓練完成、用戶成長、對手推進、離線 R&D 入帳），顯示總結。
+- **降級**：ledger 過期（>30s 未更新）或缺失 → TUI fallback 回內建 poller，遊戲仍可獨立玩。
+- **一致性**：daemon 只寫 ledger、TUI 只寫 save/meta（不同檔），無鎖、無 race。
+- **v1 不含**：桌面通知、daemon 自動啟動、多客戶端（皆需 §10.1 全 IPC 版，留 v2）。
+
 ---
 
 ## 11. TUI
