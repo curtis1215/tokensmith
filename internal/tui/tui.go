@@ -146,6 +146,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "e":
 			if m.page == PageCompute {
 				m.state = applyOK(m.state, model.ExpandDatacenter{PowerDelta: 100, SlotDelta: 5}, m.cfg)
+			} else if m.page == PageTeam {
+				m.state = applyOK(m.state, model.HireStaff{Role: model.RoleEngineer, Count: 1}, m.cfg)
+			}
+			return m, nil
+		case "h":
+			if m.page == PageTeam {
+				m.state = applyOK(m.state, model.HireStaff{Role: model.RoleResearcher, Tier: model.Tier1, Count: 1}, m.cfg)
+			}
+			return m, nil
+		case "o":
+			if m.page == PageTeam {
+				m.state = applyOK(m.state, model.HireStaff{Role: model.RoleOps, Count: 1}, m.cfg)
+			}
+			return m, nil
+		case "k":
+			if m.page == PageTeam {
+				m.state = applyOK(m.state, model.HireStaff{Role: model.RoleMarketing, Count: 1}, m.cfg)
+			}
+			return m, nil
+		case "s":
+			if m.page == PageTeam {
+				if id := firstUnhiredStar(m); id != "" {
+					m.state = applyOK(m.state, model.SignStar{StarID: id}, m.cfg)
+				}
 			}
 			return m, nil
 		}
