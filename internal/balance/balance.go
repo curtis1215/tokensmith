@@ -53,6 +53,18 @@ type Config struct {
 	ElectricityPerKWSec float64 // cash per kW per second
 	PowerCostPerKW      float64 // datacenter power-capacity expansion cost per kW
 	SlotCost            float64 // datacenter rack-slot expansion cost per slot
+	// Aggregate staff (plan-08).
+	ResearcherHireCost     [model.NumTiers]float64
+	ResearcherSalaryPerSec [model.NumTiers]float64
+	EngineerHireCost       float64
+	OpsHireCost            float64
+	MarketingHireCost      float64
+	EngineerSalaryPerSec   float64
+	OpsSalaryPerSec        float64
+	MarketingSalaryPerSec  float64
+	EngineerInfraBonus     float64 // per engineer: compute efficiency
+	OpsChurnReduction      float64 // per ops: service-churn mitigation
+	MarketingBonus         float64 // per marketing: user-target boost
 }
 
 // Default returns the v0 calibration (spec §12).
@@ -99,6 +111,17 @@ func Default() Config {
 	c.ElectricityPerKWSec = 0.001
 	c.PowerCostPerKW = 400
 	c.SlotCost = 30000
+	c.ResearcherHireCost = [model.NumTiers]float64{0, 5000, 15000, 40000}
+	c.ResearcherSalaryPerSec = [model.NumTiers]float64{0, 0.001, 0.002, 0.005}
+	c.EngineerHireCost = 8000
+	c.OpsHireCost = 6000
+	c.MarketingHireCost = 6000
+	c.EngineerSalaryPerSec = 0.002
+	c.OpsSalaryPerSec = 0.0015
+	c.MarketingSalaryPerSec = 0.0015
+	c.EngineerInfraBonus = 0.02
+	c.OpsChurnReduction = 0.1
+	c.MarketingBonus = 0.03
 	return c
 }
 

@@ -149,3 +149,19 @@ func TestDefaultChipsAndInfra(t *testing.T) {
 		t.Errorf("infra costs wrong: %+v", c)
 	}
 }
+
+func TestDefaultStaffValues(t *testing.T) {
+	c := Default()
+	if c.ResearcherHireCost[model.Tier2] != 15000 {
+		t.Errorf("ResearcherHireCost[T2] = %v, want 15000", c.ResearcherHireCost[model.Tier2])
+	}
+	if c.ResearcherSalaryPerSec[model.Tier3] != 0.005 {
+		t.Errorf("ResearcherSalaryPerSec[T3] = %v, want 0.005", c.ResearcherSalaryPerSec[model.Tier3])
+	}
+	if c.EngineerHireCost != 8000 || c.OpsHireCost != 6000 || c.MarketingHireCost != 6000 {
+		t.Errorf("hire costs wrong: %+v", c)
+	}
+	if c.EngineerInfraBonus != 0.02 || c.OpsChurnReduction != 0.1 || c.MarketingBonus != 0.03 {
+		t.Errorf("staff bonuses wrong: %+v", c)
+	}
+}
