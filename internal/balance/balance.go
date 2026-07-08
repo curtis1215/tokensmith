@@ -38,6 +38,10 @@ type Config struct {
 	RefPrice            float64                       // reference price for elasticity
 	PriceElasticity     float64                       // demand elasticity exponent
 	MonthSec            float64                       // seconds per month (price is per-user-per-month)
+	// Market segments (plan-05). Index 0 (consumer) mirrors the legacy scalars.
+	SegmentWeights     [model.NumSegments][model.NumQualityDims]float64
+	SegmentTargetScale [model.NumSegments]float64
+	SegmentRefPrice    [model.NumSegments]float64
 }
 
 // Default returns the v0 calibration (spec §12).
@@ -67,6 +71,11 @@ func Default() Config {
 	c.RefPrice = 12
 	c.PriceElasticity = 1.5
 	c.MonthSec = 2592000
+	c.SegmentWeights[model.SegConsumer] = qvec(0.4, 0.2, 0.2, 0.2)    // == QualityWeights
+	c.SegmentWeights[model.SegEnterprise] = qvec(0.2, 0.1, 0.5, 0.2)  // values safety
+	c.SegmentWeights[model.SegDeveloper] = qvec(0.15, 0.4, 0.1, 0.35) // values efficiency+speed
+	c.SegmentTargetScale = [model.NumSegments]float64{1000, 500, 800}
+	c.SegmentRefPrice = [model.NumSegments]float64{12, 180, 6}
 	return c
 }
 

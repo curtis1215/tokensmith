@@ -85,3 +85,35 @@ func TestDefaultCompetitors(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultSegments(t *testing.T) {
+	c := Default()
+	// consumer(0) mirrors legacy scalars
+	if c.SegmentWeights[model.SegConsumer] != c.QualityWeights {
+		t.Errorf("consumer weights should mirror QualityWeights")
+	}
+	if c.SegmentTargetScale[model.SegConsumer] != c.UserTargetPerAppeal {
+		t.Errorf("consumer scale should mirror UserTargetPerAppeal")
+	}
+	if c.SegmentRefPrice[model.SegConsumer] != c.RefPrice {
+		t.Errorf("consumer ref price should mirror RefPrice")
+	}
+	// enterprise weights safety over capability
+	ew := c.SegmentWeights[model.SegEnterprise]
+	if ew[model.DimSafety] <= ew[model.DimCapability] {
+		t.Errorf("enterprise should weight safety over capability: %+v", ew)
+	}
+	if c.SegmentRefPrice[model.SegEnterprise] != 180 || c.SegmentRefPrice[model.SegDeveloper] != 6 {
+		t.Errorf("segment ref prices wrong: %+v", c.SegmentRefPrice)
+	}
+	// every segment's weights sum to 1
+	for s, sw := range c.SegmentWeights {
+		var sum float64
+		for _, w := range sw {
+			sum += w
+		}
+		if sum < 0.999 || sum > 1.001 {
+			t.Errorf("segment %d weights sum = %v, want 1", s, sum)
+		}
+	}
+}
