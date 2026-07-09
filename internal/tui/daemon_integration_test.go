@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"tokensmith/internal/ledger"
+	"tokensmith/internal/model"
 	"tokensmith/internal/store"
 )
 
@@ -13,7 +14,10 @@ func TestTickConsumesLedgerDelta(t *testing.T) {
 	dir := t.TempDir()
 	lp := filepath.Join(dir, "ledger.json")
 	mp := filepath.Join(dir, "meta.json")
-	ledger.Save(lp, ledger.Ledger{CumIn: 1000, CumOut: 500, UpdatedAt: 9_000_000_000})
+	ledger.Save(lp, ledger.Ledger{
+		Sources:   map[string]model.SourceTotals{"claude-code": {In: 1000, Out: 500}},
+		UpdatedAt: 9_000_000_000,
+	})
 	store.SaveMeta(mp, store.Meta{ConsumedIn: 0, ConsumedOut: 0, LastRealUnix: 9_000_000_000})
 
 	m := newAtPaths(filepath.Join(dir, "s.json"), lp, mp)
@@ -39,7 +43,10 @@ func TestStartupSettlesOffline(t *testing.T) {
 	lp := filepath.Join(dir, "ledger.json")
 	mp := filepath.Join(dir, "meta.json")
 	now := int64(1_800_000_000)
-	ledger.Save(lp, ledger.Ledger{CumIn: 300000, CumOut: 150000, UpdatedAt: now}) // fresh
+	ledger.Save(lp, ledger.Ledger{
+		Sources:   map[string]model.SourceTotals{"claude-code": {In: 300000, Out: 150000}},
+		UpdatedAt: now,
+	}) // fresh
 	store.SaveMeta(mp, store.Meta{ConsumedIn: 0, ConsumedOut: 0, LastRealUnix: now - 8*3600})
 
 	m := newAtPaths(filepath.Join(dir, "s.json"), lp, mp).startup(now)
@@ -59,7 +66,10 @@ func TestStartupFirstOpenNoSettlement(t *testing.T) {
 	lp := filepath.Join(dir, "ledger.json")
 	mp := filepath.Join(dir, "meta.json") // no meta written → first-ever open
 	now := int64(1_800_000_000)
-	ledger.Save(lp, ledger.Ledger{CumIn: 999999, CumOut: 999999, UpdatedAt: now})
+	ledger.Save(lp, ledger.Ledger{
+		Sources:   map[string]model.SourceTotals{"claude-code": {In: 999999, Out: 999999}},
+		UpdatedAt: now,
+	})
 
 	m := newAtPaths(filepath.Join(dir, "s.json"), lp, mp).startup(now)
 	if !m.daemonMode {
@@ -78,7 +88,10 @@ func TestStartupStandaloneWhenLedgerStale(t *testing.T) {
 	lp := filepath.Join(dir, "ledger.json")
 	mp := filepath.Join(dir, "meta.json")
 	now := int64(1_800_000_000)
-	ledger.Save(lp, ledger.Ledger{CumIn: 100, UpdatedAt: now - 3600}) // 1h stale
+	ledger.Save(lp, ledger.Ledger{
+		Sources:   map[string]model.SourceTotals{"claude-code": {In: 100}},
+		UpdatedAt: now - 3600,
+	}) // 1h stale
 
 	m := newAtPaths(filepath.Join(dir, "s.json"), lp, mp).startup(now)
 	if m.daemonMode {

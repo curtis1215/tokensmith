@@ -37,6 +37,14 @@ type TokenEvent struct {
 	ID           string // stable dedup key (e.g. Claude message id); "" if none
 }
 
+// SourceTotals is a cumulative per-source token count, used by the ledger and
+// the TUI's consumed-watermark to attribute harvested tokens to the tool that
+// produced them (e.g. "claude-code" vs "codex").
+type SourceTotals struct {
+	In  int
+	Out int
+}
+
 // GameState is the full simulation state (plan-01 subset).
 // GameTime and WindowElapsed are in seconds.
 type GameState struct {

@@ -150,15 +150,15 @@ func (m Model) startup(now int64) Model {
 	if m.metaMissing {
 		// First-ever open: adopt the current total so we don't settle a phantom
 		// window of everything harvested before the player ever played.
-		m.consumedIn, m.consumedOut = l.CumIn, l.CumOut
+		m.consumedIn, m.consumedOut = l.TotalIn(), l.TotalOut()
 		return m
 	}
-	offIn := l.CumIn - m.consumedIn
-	offOut := l.CumOut - m.consumedOut
+	offIn := l.TotalIn() - m.consumedIn
+	offOut := l.TotalOut() - m.consumedOut
 	elapsed := float64(now - m.lastRealUnix)
 	ns, sum := Settle(m.state, m.cfg, elapsed, offIn, offOut)
 	m.state = ns
-	m.consumedIn, m.consumedOut = l.CumIn, l.CumOut
+	m.consumedIn, m.consumedOut = l.TotalIn(), l.TotalOut()
 	if sum.RnDGained > 0 || sum.TrainingCompleted || sum.EventsFired > 0 || sum.EventsAutoResolved > 0 {
 		m.offlineSummary = &sum
 	}
@@ -191,12 +191,12 @@ func (m *Model) pollTokens() []model.TokenEvent {
 	if !ok {
 		return nil
 	}
-	di := l.CumIn - m.consumedIn
-	do := l.CumOut - m.consumedOut
+	di := l.TotalIn() - m.consumedIn
+	do := l.TotalOut() - m.consumedOut
 	if di <= 0 && do <= 0 {
 		return nil
 	}
-	m.consumedIn, m.consumedOut = l.CumIn, l.CumOut
+	m.consumedIn, m.consumedOut = l.TotalIn(), l.TotalOut()
 	return []model.TokenEvent{{InputTokens: di, OutputTokens: do}}
 }
 
