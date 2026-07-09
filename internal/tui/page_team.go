@@ -49,14 +49,14 @@ func renderTeam(m Model) string {
 		} else {
 			status = fmt.Sprintf("簽約 $%s · 薪 $%.3f/s", human(st.SigningCost), st.SalaryPerSec)
 		}
-		
+
 		blurb := starBlurb(st)
 		starLines = append(starLines, fmt.Sprintf("%-15s %-25s (%s)",
 			st.Name, status, blurb))
 	}
 	starsCard := Card("明星員工", VStack(starLines...))
 
-	row := HRow(2, rolesCard, starsCard)
+	row := ResponsiveRow(m.width, 2, rolesCard, starsCard)
 	return VStack(row, Footer("[h]雇研究員 [e]雇工程 [o]雇營運 [k]雇行銷 [s]簽明星"))
 }
 
@@ -66,22 +66,22 @@ func starBlurb(st model.Star) string {
 	if e.RnDPerSec != 0 {
 		parts = append(parts, fmt.Sprintf("R&D+%.0f/s", e.RnDPerSec))
 	}
-	
+
 	dimNames := [4]string{"能力", "成本", "安全", "速度"}
 	for d := 0; d < 4; d++ {
 		if e.QualityMult[d] > 0 && e.QualityMult[d] != 1.0 {
 			parts = append(parts, fmt.Sprintf("%s×%.2f", dimNames[d], e.QualityMult[d]))
 		}
 	}
-	
+
 	if e.UserGrowthMult > 0 && e.UserGrowthMult != 1.0 {
 		parts = append(parts, fmt.Sprintf("用戶成長×%.2f", e.UserGrowthMult))
 	}
-	
+
 	if e.InfraMult > 0 && e.InfraMult != 1.0 {
 		parts = append(parts, fmt.Sprintf("算力效率×%.2f", e.InfraMult))
 	}
-	
+
 	if len(parts) == 0 {
 		return "無特殊加成"
 	}

@@ -12,6 +12,32 @@ func Card(title, body string) string {
 	return boxStyle.Render(inner)
 }
 
+const minDashWidth = 80
+
+// ResponsiveRow joins parts horizontally with a gap if width >= minDashWidth and the horizontal row width does not exceed the available width.
+// Otherwise, it stacks them vertically using VStack.
+func ResponsiveRow(width int, gap int, parts ...string) string {
+	if len(parts) == 0 {
+		return ""
+	}
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	if width < minDashWidth {
+		return VStack(parts...)
+	}
+	hrow := HRow(gap, parts...)
+	if lipgloss.Width(hrow) > width {
+		return VStack(parts...)
+	}
+	return hrow
+}
+
+// DashRow is an alias for ResponsiveRow.
+func DashRow(width int, gap int, parts ...string) string {
+	return ResponsiveRow(width, gap, parts...)
+}
+
 // HRow joins multiple parts horizontally with a gap.
 func HRow(gap int, parts ...string) string {
 	if len(parts) == 0 {

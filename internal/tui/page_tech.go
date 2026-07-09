@@ -17,14 +17,14 @@ func renderTech(m Model) string {
 		name  string
 		nodes []int // indices into m.cfg.TechNodes
 	}
-	
+
 	branches := make([]groupedBranch, model.NumBranches)
 	for b := 0; b < model.NumBranches; b++ {
 		branches[b] = groupedBranch{
 			name: branchNames[b],
 		}
 	}
-	
+
 	for i, node := range m.cfg.TechNodes {
 		branches[node.Branch].nodes = append(branches[node.Branch].nodes, i)
 	}
@@ -42,9 +42,9 @@ func renderTech(m Model) string {
 			if idx == m.techCursor {
 				cursor = "▸"
 			}
-			
+
 			meta := techLabel(node.ID)
-			
+
 			stateStr := fmt.Sprintf("%s R&D", human(node.Cost))
 			switch {
 			case techUnlocked(s, node.ID):
@@ -56,7 +56,7 @@ func renderTech(m Model) string {
 				}
 				stateStr = "🔒 需 " + strings.Join(prereqNames, ",")
 			}
-			
+
 			nameWithID := fmt.Sprintf("%s (%s)", meta.Name, node.ID)
 			lines = append(lines, fmt.Sprintf("%s %-25s %-16s | %s",
 				cursor, nameWithID, stateStr, meta.Effect))

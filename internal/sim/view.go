@@ -253,4 +253,3 @@ func ServableUsers(ns model.GameState, b balance.Config) float64 {
 	cap := EffectiveInference(ns, b)
 	return cap / b.InferenceLoadPerUser
 }
-

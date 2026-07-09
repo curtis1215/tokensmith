@@ -61,11 +61,11 @@ type Model struct {
 	savePath       string
 	ticksSinceSave int
 	page           Page
-	dialog         *trainDialog // non-nil while the training modal is open
+	dialog         *trainDialog   // non-nil while the training modal is open
 	publish        *publishDialog // non-nil while the publish/price modal is open
-	techCursor     int          // selected tech node on the tech page
-	procCursor     int          // selected process node on the compute page
-	modelCursor    int          // selected index into state.Models on models page
+	techCursor     int            // selected tech node on the tech page
+	procCursor     int            // selected process node on the compute page
+	modelCursor    int            // selected index into state.Models on models page
 	// Harvest-daemon integration (§10.2).
 	ledgerPath     string
 	metaPath       string
@@ -76,7 +76,8 @@ type Model struct {
 	metaMissing    bool
 	offlineSummary *Summary // shown as a banner until dismissed by any key
 	notice         string   // transient one-line banner, dismissed by any key
-	pendingRestart bool      // armed manual restart; a second X confirms it
+	pendingRestart bool     // armed manual restart; a second X confirms it
+	width          int      // terminal width
 }
 
 // New returns the game model wired to the real save/ledger/meta locations,
@@ -115,6 +116,7 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 		consumedOut:  meta.ConsumedOut,
 		lastRealUnix: meta.LastRealUnix,
 		metaMissing:  !metaOK,
+		width:        100,
 	}
 }
 
@@ -192,6 +194,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		return m, nil
 	case tickMsg:
 		events := m.pollTokens()
 		m.lastTokens = 0
@@ -439,8 +444,6 @@ func applyOK(s model.GameState, cmd model.Command, b balance.Config) model.GameS
 	return s
 }
 
-
-
 // human formats large numbers compactly (e.g. 1.84M, 340k).
 func human(v float64) string {
 	switch {
@@ -454,8 +457,6 @@ func human(v float64) string {
 		return fmt.Sprintf("%.0f", v)
 	}
 }
-
-
 
 func renderResourceBar(m Model) string {
 	s := m.state

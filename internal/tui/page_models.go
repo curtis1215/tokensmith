@@ -75,7 +75,7 @@ func renderModels(m Model) string {
 	detailCard := renderModelDetail(m, m.modelCursor)
 
 	// Combine into horizontal row plus footer
-	row := HRow(2, listCard, detailCard)
+	row := ResponsiveRow(m.width, 2, listCard, detailCard)
 	return VStack(row, Footer("[↑↓]選模型 [p]發佈 [t]訓練 [$]改價"))
 }
 
@@ -107,7 +107,7 @@ func renderModelDetail(m Model, idx int) string {
 		est := sim.EstimateUserTarget(m.state, idx, md.Price, m.cfg)
 		monthly := md.Users * md.Price
 		loadContrib := md.Users * m.cfg.InferenceLoadPerUser
-		
+
 		infCap := sim.EffectiveInference(m.state, m.cfg)
 		util := 0.0
 		if infCap > 0 {

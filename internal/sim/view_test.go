@@ -150,7 +150,7 @@ func TestThreatLevelOrdering(t *testing.T) {
 
 	// ThreatLevel: 0 low, 1 mid, 2 high — rival appeal vs player's best in seg.
 	// Threat: if rival > player*1.1 → high (2); >= player*0.9 → mid (1); else low (0)
-	
+
 	// rival appeal = appeal of 8 (below 0.9)
 	rivalLow := model.Competitor{Name: "low", Quality: [model.NumQualityDims]float64{8, 0, 0, 0}}
 	if got := ThreatLevel(s, b, model.SegConsumer, rivalLow); got != 0 {

@@ -31,7 +31,7 @@ func renderCompute(m Model) string {
 
 	servable := sim.ServableUsers(s, m.cfg)
 	totalUsers := sim.TotalUsers(s)
-	
+
 	causalLines := []string{
 		trainBarStr,
 		infBarStr,
@@ -75,7 +75,7 @@ func renderCompute(m Model) string {
 		usedPower += sv.PowerKW
 		usedSlots += sv.Slots
 	}
-	
+
 	powerUtil := 0.0
 	if s.Datacenter.PowerCapacity > 0 {
 		powerUtil = usedPower / s.Datacenter.PowerCapacity
@@ -93,8 +93,7 @@ func renderCompute(m Model) string {
 
 	// Combine columns
 	leftCol := VStack(causalCard, dcCard)
-	rightCol := procCard
-	row := HRow(2, leftCol, rightCol)
+	row := ResponsiveRow(m.width, 2, leftCol, procCard)
 
 	return VStack(row, Footer("[↑↓]選製程 [r/R]±訓練 [i/I]±推理 [b/B]建訓練/推理伺服器 [e]擴機房"))
 }

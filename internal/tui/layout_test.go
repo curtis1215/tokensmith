@@ -55,3 +55,25 @@ func TestBar(t *testing.T) {
 		t.Fatalf("Bar missing content: %q", s)
 	}
 }
+
+func TestResponsiveRow(t *testing.T) {
+	// Case 1: width < 80 should stack vertically (contain newline)
+	narrow := ResponsiveRow(50, 2, "AAAAA", "BBBBB")
+	if !strings.Contains(narrow, "\n") {
+		t.Errorf("expected narrow row to stack vertically, got %q", narrow)
+	}
+
+	// Case 2: width >= 80, but parts are too wide to fit in the available width
+	part1 := strings.Repeat("A", 50)
+	part2 := strings.Repeat("B", 50)
+	tooWide := ResponsiveRow(90, 2, part1, part2)
+	if !strings.Contains(tooWide, "\n") {
+		t.Errorf("expected too wide row to stack vertically, got %q", tooWide)
+	}
+
+	// Case 3: width >= 80, parts fit in the available width
+	wideFit := ResponsiveRow(100, 2, "AAA", "BBB")
+	if strings.Contains(wideFit, "\n") {
+		t.Errorf("expected wide fitting row to be horizontal (no newline), got %q", wideFit)
+	}
+}

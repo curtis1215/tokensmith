@@ -135,8 +135,6 @@ func TestQuitSavesState(t *testing.T) {
 	_ = os.Remove(path)
 }
 
-
-
 func TestViewShellHasTabsAndFooterPattern(t *testing.T) {
 	m := testModel(t)
 	v := m.View()
@@ -147,3 +145,24 @@ func TestViewShellHasTabsAndFooterPattern(t *testing.T) {
 	}
 }
 
+func TestModelResponsiveLayout(t *testing.T) {
+	// 1. Narrow width (< 80)
+	mNarrow := testModel(t)
+	mNarrow.width = 50
+	viewNarrow := mNarrow.View()
+
+	// 2. Wide width (>= 80)
+	mWide := testModel(t)
+	mWide.width = 120
+	viewWide := mWide.View()
+
+	// They should both contain essential elements
+	if !strings.Contains(viewNarrow, "公司") || !strings.Contains(viewWide, "公司") {
+		t.Fatalf("missing company card")
+	}
+
+	// Verify that viewNarrow is different from viewWide
+	if viewNarrow == viewWide {
+		t.Fatalf("narrow and wide views should not be identical")
+	}
+}

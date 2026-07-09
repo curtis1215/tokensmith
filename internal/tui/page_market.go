@@ -15,11 +15,11 @@ func renderMarket(m Model) string {
 	segs := []model.Segment{model.SegConsumer, model.SegEnterprise, model.SegDeveloper}
 	for _, seg := range segs {
 		rank, field := sim.MarketRank(s, m.cfg, seg)
-		
+
 		// Users, rank, scale
 		headerInfo := fmt.Sprintf("你的用戶: %s  ·  排名: #%d / %d  ·  市場規模: %s",
 			human(segmentUsers(s, seg)), rank, field, marketSizeLabel(m.cfg, seg))
-			
+
 		// Bars from SegmentShareBars
 		bars := sim.SegmentShareBars(s, m.cfg, seg)
 		var shareLines []string
@@ -36,7 +36,7 @@ func renderMarket(m Model) string {
 			}
 			shareLines = append(shareLines, fmt.Sprintf("%s %s%s %s %.0f%%", star, name, namePadding, Bar(bRow.Share, 10), bRow.Share*100))
 		}
-		
+
 		cardBody := VStack(
 			headerInfo,
 			"",
@@ -54,7 +54,7 @@ func renderMarket(m Model) string {
 		}
 		level := sim.ThreatLevel(s, m.cfg, model.SegConsumer, c)
 		label := threatLabel(level)
-		
+
 		rivalLines = append(rivalLines, fmt.Sprintf("%-10s 能力 %s (%.0f) · 專長 %-4s · 威脅 %s",
 			c.Name, Bar(capFrac, 10), capVal, topSkillDim(c), label))
 	}
@@ -62,8 +62,8 @@ func renderMarket(m Model) string {
 
 	leftColumn := VStack(cards...)
 	rightColumn := rivalsCard
-	
-	row := HRow(2, leftColumn, rightColumn)
+
+	row := ResponsiveRow(m.width, 2, leftColumn, rightColumn)
 	return VStack(row, Footer("[Tab]切頁"))
 }
 
