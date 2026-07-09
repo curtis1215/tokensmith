@@ -639,6 +639,30 @@ func TestOpsReducesServiceChurn(t *testing.T) {
 	}
 }
 
+// Large TUI ticks (dt=3600) must not thrash users 0↔market-target when inference
+// is overloaded. After an hour-scale tick, users should settle near the count
+// capacity can serve (capacity / InferenceLoadPerUser), not collapse to 0.
+func TestTickLargeDtServingSettlesAtCapacityNotZero(t *testing.T) {
+	b := balance.Default()
+	m := onlineModel(25, b.SegmentRefPrice[model.SegConsumer])
+	m.Users = 30000 // load = 3.0 with default 0.0001/user
+	s := model.GameState{Models: []model.Model{m}}
+	s.Compute.RentedInference = map[string]int{"N7": 1} // capacity 1 → max ~10k users
+	const hour = 3600.0
+	ns := Tick(s, hour, nil, b)
+	got := ns.Models[0].Users
+	// Continuous approach: with rate*dt ≫ 1, load → capacity ⇒ users → 1/0.0001 = 10000.
+	// Allow a band; must not be wiped near 0 or stay at the 30k start.
+	if got < 5000 || got > 15000 {
+		t.Fatalf("after 1h overload, users=%v; want near capacity cap ~10000 (not 0 or 30k)", got)
+	}
+	// A second hour should stay stable near the cap (no 0/high oscillation).
+	ns2 := Tick(ns, hour, nil, b)
+	if ns2.Models[0].Users < 5000 || ns2.Models[0].Users > 15000 {
+		t.Fatalf("second hour users=%v; thrashing instead of settling", ns2.Models[0].Users)
+	}
+}
+
 func TestTechQualityMultOnTrainedModel(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{HasTraining: true, UnlockedTech: []string{"algo-cap-1"}} // cap ×1.15

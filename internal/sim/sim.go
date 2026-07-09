@@ -306,6 +306,17 @@ func advanceCompetitors(ns model.GameState, dt float64, b balance.Config) model.
 // capacity cannot meet it, churns users by the service deficit. Pure: clones
 // Models. v0: zero capacity is graced (no churn) so pre-inference behavior is
 // unchanged.
+//
+// Large-dt stability: the old Euler form
+//   users -= users * rate * deficit * dt
+// with TUI tickDT=3600 and rate=0.01 wipes users to 0 on any meaningful
+// overload (rate*dt=36). Next tick they regrow toward market target, then wipe
+// again → visible 5k/9k/0k thrash after the Gen1 scale-up. Instead we
+// exponentially approach the load that capacity can support:
+//   newLoad = capacity + (load-capacity)*exp(-rate*dt*ops)
+// then scale every online model's users by newLoad/load. For small dt this
+// matches the linear Euler to first order; for hour ticks it settles at the
+// servable user count instead of oscillating through zero.
 func advanceServing(ns model.GameState, dt float64, b balance.Config) model.GameState {
 	load := 0.0
 	for _, m := range ns.Models {
@@ -318,19 +329,26 @@ func advanceServing(ns model.GameState, dt float64, b balance.Config) model.Game
 	if capacity <= 0 || load <= capacity {
 		return ns
 	}
-	deficit := (load - capacity) / load
 	opsFactor := 1.0 / (1 + float64(ns.Ops)*b.OpsChurnReduction)
+	// Continuous approach of total load toward capacity.
+	newLoad := capacity + (load-capacity)*math.Exp(-b.ServiceChurnRate*dt*opsFactor)
+	if newLoad < 0 {
+		newLoad = 0
+	}
+	scale := newLoad / load
 	models := append([]model.Model(nil), ns.Models...)
 	for i := range models {
 		m := &models[i]
 		if !m.Online {
 			continue
 		}
-		m.Users -= m.Users * b.ServiceChurnRate * deficit * dt * opsFactor
+		m.Users *= scale
 		if m.Users < 0 {
 			m.Users = 0
 		}
 	}
 	ns.Models = models
+	// Keep the displayed load consistent with post-churn users.
+	ns.Compute.InferenceLoad = newLoad
 	return ns
 }
