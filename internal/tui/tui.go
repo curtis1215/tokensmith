@@ -440,12 +440,7 @@ func applyOK(s model.GameState, cmd model.Command, b balance.Config) model.GameS
 	return s
 }
 
-var (
-	titleStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
-	boxStyle       = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
-	helpStyle      = lipgloss.NewStyle().Faint(true)
-	tabActiveStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).Underline(true)
-)
+
 
 // human formats large numbers compactly (e.g. 1.84M, 340k).
 func human(v float64) string {
@@ -461,17 +456,7 @@ func human(v float64) string {
 	}
 }
 
-// progressBar renders a fixed-width ▓/░ bar for frac∈[0,1].
-func progressBar(frac float64, width int) string {
-	if frac < 0 {
-		frac = 0
-	}
-	if frac > 1 {
-		frac = 1
-	}
-	n := int(frac * float64(width))
-	return strings.Repeat("▓", n) + strings.Repeat("░", width-n)
-}
+
 
 func renderResourceBar(m Model) string {
 	s := m.state
