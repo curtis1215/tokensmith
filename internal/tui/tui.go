@@ -496,9 +496,9 @@ func (m Model) chromeRows() int {
 	if m.notice != "" {
 		n++
 	}
-	n++ // resource bar
-	n++ // tabs
-	n++ // footer
+	n++    // resource bar
+	n++    // tabs
+	n++    // footer
 	n += 2 // breathing room / padding
 	return n
 }
