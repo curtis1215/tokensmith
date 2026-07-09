@@ -38,6 +38,8 @@ var (
 	ErrAlreadyHired        = errors.New("sim: star already hired")
 	ErrNotDraft            = errors.New("sim: model is not a publishable draft")
 	ErrInvalidName         = errors.New("sim: model name must be 1–24 characters")
+	ErrInvalidEventIndex   = errors.New("sim: invalid pending-event index")
+	ErrInvalidEventChoice  = errors.New("sim: invalid event choice")
 )
 
 // Apply validates and applies a single player command, returning the new
