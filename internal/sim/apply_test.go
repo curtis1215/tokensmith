@@ -228,7 +228,7 @@ func TestApplyBuildServerSuccess(t *testing.T) {
 	b := balance.Default()
 	n7, _ := balance.ProcessByID(b.Processes, "N7")
 	s := dcState(1_000_000, 800, 20)
-	ns, err := Apply(s, model.BuildServer{Process: "N7"}, b)
+	ns, err := Apply(s, model.BuildServer{Process: "N7", Pool: model.PoolTraining}, b)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -251,24 +251,36 @@ func TestApplyBuildServerSuccess(t *testing.T) {
 func TestApplyBuildServerErrors(t *testing.T) {
 	b := balance.Default()
 	// unknown process
-	if _, err := Apply(dcState(1e9, 1e9, 1e9), model.BuildServer{Process: "nope"}, b); err != ErrInvalidProcess {
+	if _, err := Apply(dcState(1e9, 1e9, 1e9), model.BuildServer{Process: "nope", Pool: model.PoolTraining}, b); err != ErrInvalidProcess {
 		t.Errorf("process: err = %v, want ErrInvalidProcess", err)
 	}
 	// insufficient cash
-	if _, err := Apply(dcState(100, 1e9, 1e9), model.BuildServer{Process: "N7"}, b); err != ErrInsufficientCash {
+	if _, err := Apply(dcState(100, 1e9, 1e9), model.BuildServer{Process: "N7", Pool: model.PoolTraining}, b); err != ErrInsufficientCash {
 		t.Errorf("cash: err = %v, want ErrInsufficientCash", err)
 	}
 	// insufficient power (N7 server draws 2kW; capacity 1)
-	if _, err := Apply(dcState(1e9, 1, 1e9), model.BuildServer{Process: "N7"}, b); err != ErrInsufficientPower {
+	if _, err := Apply(dcState(1e9, 1, 1e9), model.BuildServer{Process: "N7", Pool: model.PoolTraining}, b); err != ErrInsufficientPower {
 		t.Errorf("power: err = %v, want ErrInsufficientPower", err)
 	}
 	// insufficient space (slots 0)
-	if _, err := Apply(dcState(1e9, 1e9, 0), model.BuildServer{Process: "N7"}, b); err != ErrInsufficientSpace {
+	if _, err := Apply(dcState(1e9, 1e9, 0), model.BuildServer{Process: "N7", Pool: model.PoolTraining}, b); err != ErrInsufficientSpace {
 		t.Errorf("space: err = %v, want ErrInsufficientSpace", err)
 	}
 	// locked process (N5 needs process-N5 tech)
-	if _, err := Apply(dcState(1e9, 1e9, 1e9), model.BuildServer{Process: "N5"}, b); err != ErrProcessLocked {
+	if _, err := Apply(dcState(1e9, 1e9, 1e9), model.BuildServer{Process: "N5", Pool: model.PoolTraining}, b); err != ErrProcessLocked {
 		t.Errorf("locked: err = %v, want ErrProcessLocked", err)
+	}
+}
+
+func TestApplyBuildServerIntoInferencePool(t *testing.T) {
+	b := balance.Default()
+	s := dcState(1_000_000, 800, 20)
+	ns, err := Apply(s, model.BuildServer{Process: "N7", Pool: model.PoolInference}, b)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(ns.Servers) != 1 || ns.Servers[0].Pool != model.PoolInference {
+		t.Fatalf("expected 1 server in inference pool, got %+v", ns.Servers)
 	}
 }
 

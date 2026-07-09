@@ -63,6 +63,7 @@ type Model struct {
 	page           Page
 	dialog         *trainDialog // non-nil while the training modal is open
 	techCursor     int          // selected tech node on the tech page
+	procCursor     int          // selected process node on the compute page
 	// Harvest-daemon integration (§10.2).
 	ledgerPath     string
 	metaPath       string
@@ -235,10 +236,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.page == PageTech && m.techCursor > 0 {
 				m.techCursor--
 			}
+			if m.page == PageCompute && m.procCursor > 0 {
+				m.procCursor--
+			}
 			return m, nil
 		case "down":
 			if m.page == PageTech && m.techCursor < len(m.cfg.TechNodes)-1 {
 				m.techCursor++
+			}
+			if m.page == PageCompute && m.procCursor < len(m.cfg.Processes)-1 {
+				m.procCursor++
 			}
 			return m, nil
 		case "enter":
@@ -261,29 +268,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = applyOK(m.state, model.PrestigeReset{}, m.cfg)
 			}
 			return m, nil
-		case "r":
+		case "r", "R", "i", "I":
 			if m.page == PageCompute {
-				m.state = applyOK(m.state, model.RentCompute{Process: balance.EntryProcessID, Pool: model.PoolTraining, Delta: 1}, m.cfg)
+				p := m.cfg.Processes[m.procCursor]
+				pool := model.PoolInference
+				if msg.String() == "r" || msg.String() == "R" {
+					pool = model.PoolTraining
+				}
+				d := 1
+				if msg.String() == "R" || msg.String() == "I" {
+					d = -1
+				}
+				m.state = applyOK(m.state, model.RentCompute{Process: p.ID, Pool: pool, Delta: d}, m.cfg)
 			}
 			return m, nil
-		case "R":
+		case "b", "B":
 			if m.page == PageCompute {
-				m.state = applyOK(m.state, model.RentCompute{Process: balance.EntryProcessID, Pool: model.PoolTraining, Delta: -1}, m.cfg)
-			}
-			return m, nil
-		case "i":
-			if m.page == PageCompute {
-				m.state = applyOK(m.state, model.RentCompute{Process: balance.EntryProcessID, Pool: model.PoolInference, Delta: 1}, m.cfg)
-			}
-			return m, nil
-		case "I":
-			if m.page == PageCompute {
-				m.state = applyOK(m.state, model.RentCompute{Process: balance.EntryProcessID, Pool: model.PoolInference, Delta: -1}, m.cfg)
-			}
-			return m, nil
-		case "b":
-			if m.page == PageCompute {
-				m.state = applyOK(m.state, model.BuildServer{Process: balance.EntryProcessID}, m.cfg)
+				pool := model.PoolTraining
+				if msg.String() == "B" {
+					pool = model.PoolInference
+				}
+				m.state = applyOK(m.state, model.BuildServer{Process: m.cfg.Processes[m.procCursor].ID, Pool: pool}, m.cfg)
 			}
 			return m, nil
 		case "e":

@@ -172,9 +172,11 @@ type Datacenter struct {
 	SlotCapacity  float64
 }
 
-// BuildServer builds one server from the named process in the datacenter.
+// BuildServer builds one server from the named process into Pool in the
+// datacenter.
 type BuildServer struct {
 	Process string
+	Pool    ComputePool
 }
 
 func (BuildServer) commandMarker() {}

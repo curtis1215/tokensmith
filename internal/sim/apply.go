@@ -159,9 +159,7 @@ func applyExpandDatacenter(s model.GameState, c model.ExpandDatacenter, b balanc
 	return ns, nil
 }
 
-// applyBuildServer builds one server from the named process, contributing to
-// the training pool. (Process-aware self-build; per-pool selection is a later
-// task's process-table UI.)
+// applyBuildServer builds one server from the named process into c.Pool.
 func applyBuildServer(s model.GameState, c model.BuildServer, b balance.Config) (model.GameState, error) {
 	p, ok := balance.ProcessByID(b.Processes, c.Process)
 	if !ok {
@@ -172,7 +170,7 @@ func applyBuildServer(s model.GameState, c model.BuildServer, b balance.Config) 
 	}
 	n := 1.0
 	server := model.Server{
-		Pool:    model.PoolTraining,
+		Pool:    c.Pool,
 		Compute: p.Compute * n,
 		PowerKW: p.PowerKW * n,
 		Slots:   1,
