@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"math"
 	"testing"
 
 	"tokensmith/internal/balance"
@@ -94,5 +95,77 @@ func TestIsDraft(t *testing.T) {
 	}
 	if IsDraft(used) {
 		t.Error("used should not be draft")
+	}
+}
+
+func TestSegmentShareBarsSumsToOne(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{
+		Models: []model.Model{
+			{Online: true, Segment: model.SegConsumer, Quality: [model.NumQualityDims]float64{10, 0, 0, 0}, Name: "MyModel"},
+		},
+		Competitors: []model.Competitor{
+			{Name: "Rival1", Quality: [model.NumQualityDims]float64{5, 0, 0, 0}},
+			{Name: "Rival2", Quality: [model.NumQualityDims]float64{8, 0, 0, 0}},
+		},
+	}
+	bars := SegmentShareBars(s, b, model.SegConsumer)
+	if len(bars) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(bars))
+	}
+	sum := 0.0
+	for _, bar := range bars {
+		sum += bar.Share
+	}
+	if math.Abs(sum-1.0) > 1e-6 {
+		t.Errorf("sum of shares = %v, want 1.0", sum)
+	}
+	// Verify sorting desc
+	if bars[0].Share < bars[1].Share || bars[1].Share < bars[2].Share {
+		t.Errorf("SegmentShareBars is not sorted descending: %v", bars)
+	}
+}
+
+func TestServableUsers(t *testing.T) {
+	b := balance.Default()
+	b.InferenceLoadPerUser = 0.0001
+	s := model.GameState{}
+	s.Compute.RentedInference = map[string]int{"N7": 10} // 10 N7 inference
+	// EffectiveInference should be 10.
+	got := ServableUsers(s, b)
+	want := 10.0 / 0.0001
+	if got != want {
+		t.Errorf("ServableUsers = %v, want %v", got, want)
+	}
+}
+
+func TestThreatLevelOrdering(t *testing.T) {
+	b := balance.Default()
+	// player best appeal in seg = appeal of 10
+	s := model.GameState{
+		Models: []model.Model{
+			{Online: true, Segment: model.SegConsumer, Quality: [model.NumQualityDims]float64{10, 0, 0, 0}},
+		},
+	}
+
+	// ThreatLevel: 0 low, 1 mid, 2 high — rival appeal vs player's best in seg.
+	// Threat: if rival > player*1.1 → high (2); >= player*0.9 → mid (1); else low (0)
+
+	// rival appeal = appeal of 8 (below 0.9)
+	rivalLow := model.Competitor{Name: "low", Quality: [model.NumQualityDims]float64{8, 0, 0, 0}}
+	if got := ThreatLevel(s, b, model.SegConsumer, rivalLow); got != 0 {
+		t.Errorf("ThreatLevel for low rival = %d, want 0", got)
+	}
+
+	// rival appeal = appeal of 9.5 (between 0.9 and 1.1)
+	rivalMid := model.Competitor{Name: "mid", Quality: [model.NumQualityDims]float64{9.5, 0, 0, 0}}
+	if got := ThreatLevel(s, b, model.SegConsumer, rivalMid); got != 1 {
+		t.Errorf("ThreatLevel for mid rival = %d, want 1", got)
+	}
+
+	// rival appeal = appeal of 12 (above 1.1)
+	rivalHigh := model.Competitor{Name: "high", Quality: [model.NumQualityDims]float64{12, 0, 0, 0}}
+	if got := ThreatLevel(s, b, model.SegConsumer, rivalHigh); got != 2 {
+		t.Errorf("ThreatLevel for high rival = %d, want 2", got)
 	}
 }

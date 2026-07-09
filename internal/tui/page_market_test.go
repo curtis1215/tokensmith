@@ -11,7 +11,7 @@ func TestMarketPageShowsSegmentsAndRivals(t *testing.T) {
 	m := testModel(t)
 	m.page = PageMarket
 	v := renderMarket(m)
-	for _, w := range []string{"消費者", "企業", "開發者", "對手", "你的用戶", "市場規模"} {
+	for _, w := range []string{"消費者", "企業", "開發者", "對手", "你的用戶", "市場規模", "威脅"} {
 		if !strings.Contains(v, w) {
 			t.Errorf("market page missing %q:\n%s", w, v)
 		}

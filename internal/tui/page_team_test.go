@@ -12,7 +12,7 @@ func TestTeamPageShowsRoles(t *testing.T) {
 	m := testModel(t)
 	m.page = PageTeam
 	v := renderTeam(m)
-	for _, w := range []string{"研究員", "工程", "營運", "行銷", "明星"} {
+	for _, w := range []string{"研究員", "工程", "營運", "行銷", "明星", "Dr. Aria Chen"} {
 		if !strings.Contains(v, w) {
 			t.Errorf("team page missing %q:\n%s", w, v)
 		}

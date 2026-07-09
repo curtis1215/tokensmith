@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -132,4 +133,36 @@ func TestQuitSavesState(t *testing.T) {
 		t.Fatalf("quit did not save: ok=%v cash=%v", ok, got.Resources.Cash)
 	}
 	_ = os.Remove(path)
+}
+
+func TestViewShellHasTabsAndFooterPattern(t *testing.T) {
+	m := testModel(t)
+	v := m.View()
+	for _, want := range []string{"Tokensmith", "總覽", "模型", "Day"} {
+		if !strings.Contains(v, want) {
+			t.Fatalf("missing %q in view", want)
+		}
+	}
+}
+
+func TestModelResponsiveLayout(t *testing.T) {
+	// 1. Narrow width (< 80)
+	mNarrow := testModel(t)
+	mNarrow.width = 50
+	viewNarrow := mNarrow.View()
+
+	// 2. Wide width (>= 80)
+	mWide := testModel(t)
+	mWide.width = 120
+	viewWide := mWide.View()
+
+	// They should both contain essential elements
+	if !strings.Contains(viewNarrow, "公司") || !strings.Contains(viewWide, "公司") {
+		t.Fatalf("missing company card")
+	}
+
+	// Verify that viewNarrow is different from viewWide
+	if viewNarrow == viewWide {
+		t.Fatalf("narrow and wide views should not be identical")
+	}
 }

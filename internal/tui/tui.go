@@ -10,7 +10,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"tokensmith/internal/balance"
 	"tokensmith/internal/game"
@@ -62,11 +61,11 @@ type Model struct {
 	savePath       string
 	ticksSinceSave int
 	page           Page
-	dialog         *trainDialog // non-nil while the training modal is open
+	dialog         *trainDialog   // non-nil while the training modal is open
 	publish        *publishDialog // non-nil while the publish/price modal is open
-	techCursor     int          // selected tech node on the tech page
-	procCursor     int          // selected process node on the compute page
-	modelCursor    int          // selected index into state.Models on models page
+	techCursor     int            // selected tech node on the tech page
+	procCursor     int            // selected process node on the compute page
+	modelCursor    int            // selected index into state.Models on models page
 	// Harvest-daemon integration (§10.2).
 	ledgerPath     string
 	metaPath       string
@@ -77,7 +76,8 @@ type Model struct {
 	metaMissing    bool
 	offlineSummary *Summary // shown as a banner until dismissed by any key
 	notice         string   // transient one-line banner, dismissed by any key
-	pendingRestart bool      // armed manual restart; a second X confirms it
+	pendingRestart bool     // armed manual restart; a second X confirms it
+	width          int      // terminal width
 }
 
 // New returns the game model wired to the real save/ledger/meta locations,
@@ -116,6 +116,7 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 		consumedOut:  meta.ConsumedOut,
 		lastRealUnix: meta.LastRealUnix,
 		metaMissing:  !metaOK,
+		width:        100,
 	}
 }
 
@@ -193,6 +194,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		return m, nil
 	case tickMsg:
 		events := m.pollTokens()
 		m.lastTokens = 0
@@ -440,13 +444,6 @@ func applyOK(s model.GameState, cmd model.Command, b balance.Config) model.GameS
 	return s
 }
 
-var (
-	titleStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
-	boxStyle       = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
-	helpStyle      = lipgloss.NewStyle().Faint(true)
-	tabActiveStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).Underline(true)
-)
-
 // human formats large numbers compactly (e.g. 1.84M, 340k).
 func human(v float64) string {
 	switch {
@@ -459,18 +456,6 @@ func human(v float64) string {
 	default:
 		return fmt.Sprintf("%.0f", v)
 	}
-}
-
-// progressBar renders a fixed-width ▓/░ bar for frac∈[0,1].
-func progressBar(frac float64, width int) string {
-	if frac < 0 {
-		frac = 0
-	}
-	if frac > 1 {
-		frac = 1
-	}
-	n := int(frac * float64(width))
-	return strings.Repeat("▓", n) + strings.Repeat("░", width-n)
 }
 
 func renderResourceBar(m Model) string {
@@ -486,10 +471,21 @@ func renderResourceBar(m Model) string {
 	// Show the R&D rate per real second (what the player perceives), not per
 	// game-second — the latter is tiny and rounds to 0 in the display.
 	rndPerRealSec := sim.RnDRatePerSec(s, m.cfg) * gameSecPerRealSec
-	bar := fmt.Sprintf("Day %d   💰 $%s   ⚡R&D %s (+%s/s)   🖥訓練%.0f%% 推理%.0f%%   📈估值 $%s",
-		int(s.GameTime/86400), human(s.Resources.Cash), human(s.Resources.RnD),
-		human(rndPerRealSec), trainUtil*100, infUtil*100,
-		human(sim.Valuation(s, m.cfg)))
+
+	cashStr := fmt.Sprintf("💰 $%s", human(s.Resources.Cash))
+	if s.Resources.Cash < 0 {
+		cashStr = styleWarn.Render(cashStr)
+	}
+
+	infStr := fmt.Sprintf("推理%.0f%%", infUtil*100)
+	if infUtil >= 0.9 {
+		infStr = styleWarn.Render(infStr)
+	}
+
+	bar := fmt.Sprintf("%s   ⚡R&D %s (+%s/s)   🖥訓練%.0f%% %s   📈估值 $%s",
+		cashStr, human(s.Resources.RnD), human(rndPerRealSec),
+		trainUtil*100, infStr, human(sim.Valuation(s, m.cfg)))
+
 	if m.lastTokens > 0 {
 		bar += fmt.Sprintf("   ⚡token +%d", m.lastTokens)
 	}
@@ -559,28 +555,31 @@ func (m Model) renderPage() string {
 }
 
 func (m Model) View() string {
-	sep := strings.Repeat("─", 66)
+	var rows []string
+	day := int(m.state.GameTime / 86400)
+	header := styleTitle.Render(fmt.Sprintf("Tokensmith  ·  Day %d", day))
+	rows = append(rows, header)
+	if m.offlineSummary != nil {
+		rows = append(rows, offlineBanner(*m.offlineSummary))
+	}
+	if m.notice != "" {
+		rows = append(rows, styleAccent.Render(m.notice))
+	}
+	rows = append(rows, renderResourceBar(m))
+	rows = append(rows, renderTabBar(m.page))
+
 	page := m.renderPage()
 	if m.publish != nil {
 		page = renderPublishDialog(*m.publish, m)
 	} else if m.dialog != nil {
 		page = renderTrainDialog(*m.dialog, m)
 	}
-	rows := []string{titleStyle.Render("Tokensmith")}
-	if m.offlineSummary != nil {
-		rows = append(rows, offlineBanner(*m.offlineSummary))
-	}
-	if m.notice != "" {
-		rows = append(rows, tabActiveStyle.Render(m.notice))
-	}
-	rows = append(rows, lipgloss.JoinVertical(lipgloss.Left,
-		renderResourceBar(m),
-		sep,
-		renderTabBar(m.page),
-		sep,
-		page,
-	))
-	return boxStyle.Render(lipgloss.JoinVertical(lipgloss.Left, rows...))
+	rows = append(rows, page)
+
+	// Page-level footer is rendered by each page via Footer(...).
+	// Shell does not duplicate page keys.
+
+	return boxStyle.Render(VStack(rows...))
 }
 
 // offlineBanner summarises what happened while the game was closed.

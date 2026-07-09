@@ -15,7 +15,7 @@ func TestStaffRnDPerSec(t *testing.T) {
 	r := model.Research{EfficiencyMult: 1.0}
 	r.Researchers[model.Tier1] = 2 // 2*0.005 = 0.01
 	r.Researchers[model.Tier2] = 1 // 1*0.015 = 0.015
-	got := staffRnDPerSec(r, b) // 0.025/s
+	got := staffRnDPerSec(r, b)    // 0.025/s
 	if !approx(got, 0.025) {
 		t.Fatalf("staffRnDPerSec = %v, want 0.025", got)
 	}
@@ -34,7 +34,7 @@ func TestTickAddsStaffRnDAndAdvancesTime(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{Research: model.Research{EfficiencyMult: 1.0}}
 	s.Research.Researchers[model.Tier2] = 4 // 0.06/s
-	ns := Tick(s, 10, nil, b) // 0.06/s * 10s = 0.6
+	ns := Tick(s, 10, nil, b)               // 0.06/s * 10s = 0.6
 	if !approx(ns.Resources.RnD, 0.6) {
 		t.Fatalf("RnD = %v, want 0.6", ns.Resources.RnD)
 	}
@@ -50,8 +50,8 @@ func TestTickAddsStaffRnDAndAdvancesTime(t *testing.T) {
 func TestTokenRawRnD(t *testing.T) {
 	b := balance.Default()
 	events := []model.TokenEvent{
-		{InputTokens: 1000, OutputTokens: 500},  // (1000 + 2*500)/10 = 200
-		{InputTokens: 0, OutputTokens: 1000},    // (0 + 2000)/10   = 200
+		{InputTokens: 1000, OutputTokens: 500}, // (1000 + 2*500)/10 = 200
+		{InputTokens: 0, OutputTokens: 1000},   // (0 + 2000)/10   = 200
 	}
 	if got := tokenRawRnD(events, b); !approx(got, 400) {
 		t.Fatalf("tokenRawRnD = %v, want 400", got)
@@ -552,7 +552,7 @@ func TestTickZeroCapacityGrace(t *testing.T) {
 
 func TestEffectiveTrainingIncludesServers(t *testing.T) {
 	b := balance.Default()
-	s := model.GameState{HasTraining: true} // no rented
+	s := model.GameState{HasTraining: true}                             // no rented
 	s.Servers = []model.Server{{Pool: model.PoolTraining, Compute: 10}} // PowerKW 0 → no electricity
 	s.Training = model.TrainingJob{Gen: 1, WorkRemaining: 100}
 	ns := Tick(s, 1, nil, b) // effective training 10 → work -= 10 → 90

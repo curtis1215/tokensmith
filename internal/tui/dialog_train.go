@@ -101,7 +101,7 @@ func renderTrainDialog(d trainDialog, m Model) string {
 	if d.maxGen < balance.MaxGen {
 		genHint = fmt.Sprintf("（上限 Gen%d，更高需科技樹解鎖）", d.maxGen)
 	}
-	b.WriteString(fmt.Sprintf("訓練新模型\n世代 ‹ Gen%d ›%s   主打區隔 ‹ %s ›\n\n預算分配（可用 R&D %s）\n",
+	b.WriteString(fmt.Sprintf("世代 ‹ Gen%d ›%s   主打區隔 ‹ %s ›\n\n預算分配（可用 R&D %s）\n",
 		d.gen, genHint, segmentName(d.segment), human(m.state.Resources.RnD)))
 	for i := 0; i < model.NumQualityDims; i++ {
 		cursor := " "
@@ -110,9 +110,9 @@ func renderTrainDialog(d trainDialog, m Model) string {
 		}
 		est := d.alloc[i] * m.cfg.GenQualityCap[d.gen]
 		b.WriteString(fmt.Sprintf("%s %s %s %.0f%%  → 預估 %.0f\n",
-			cursor, dimNames[i], progressBar(d.alloc[i], 10), d.alloc[i]*100, est))
+			cursor, dimNames[i], Bar(d.alloc[i], 10), d.alloc[i]*100, est))
 	}
-	b.WriteString(fmt.Sprintf("\n成本 %s R&D + %.0f GPU·s\n", human(m.cfg.GenRnDCost[d.gen]), m.cfg.GenTrainWorkGPUSec[d.gen]))
+	b.WriteString(fmt.Sprintf("\n成本 %s R&D + %.0f GPU·s\n\n", human(m.cfg.GenRnDCost[d.gen]), m.cfg.GenTrainWorkGPUSec[d.gen]))
 	b.WriteString(helpStyle.Render("[←→]世代 [Tab]區隔 [↑↓]維度 [+/-]分配 [Enter]開訓 [Esc]取消"))
-	return boxStyle.Render(b.String())
+	return Card("訓練新模型", b.String())
 }

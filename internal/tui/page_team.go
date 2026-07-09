@@ -9,27 +9,83 @@ import (
 
 func renderTeam(m Model) string {
 	s := m.state
-	var b strings.Builder
-	b.WriteString("四職能\n")
-	b.WriteString(fmt.Sprintf("  研究員  T1 %d · T2 %d · T3 %d\n",
-		s.Research.Researchers[model.Tier1], s.Research.Researchers[model.Tier2], s.Research.Researchers[model.Tier3]))
-	b.WriteString(fmt.Sprintf("  工程    %d 人（算力效率 +%.0f%%）\n",
-		s.Engineers, float64(s.Engineers)*m.cfg.EngineerInfraBonus*100))
-	b.WriteString(fmt.Sprintf("  營運    %d 人（降流失）\n", s.Ops))
-	b.WriteString(fmt.Sprintf("  行銷    %d 人（用戶成長 +%.0f%%）\n",
-		s.Marketing, float64(s.Marketing)*m.cfg.MarketingBonus*100))
 
-	b.WriteString("\n明星員工\n")
-	for _, st := range m.cfg.Stars {
-		status := fmt.Sprintf("簽約 $%s · 薪 $%.3f/s", human(st.SigningCost), st.SalaryPerSec)
-		if starHired(s, st.ID) {
-			status = "✓ 已簽"
+	// Calculate salary sum
+	salarySum := 0.0
+	for t := 1; t < model.NumTiers; t++ {
+		salarySum += float64(s.Research.Researchers[t]) * m.cfg.ResearcherSalaryPerSec[t]
+	}
+	salarySum += float64(s.Engineers) * m.cfg.EngineerSalaryPerSec
+	salarySum += float64(s.Ops) * m.cfg.OpsSalaryPerSec
+	salarySum += float64(s.Marketing) * m.cfg.MarketingSalaryPerSec
+	for _, hID := range s.HiredStars {
+		for _, st := range m.cfg.Stars {
+			if st.ID == hID {
+				salarySum += st.SalaryPerSec
+			}
 		}
-		b.WriteString(fmt.Sprintf("  %-14s %s\n", st.Name, status))
 	}
 
-	b.WriteString(helpStyle.Render("\n[h]雇研究員 [e]雇工程 [o]雇營運 [k]雇行銷 [s]簽明星 [Tab]切頁"))
-	return b.String()
+	// 1. Roles Card
+	rolesBody := VStack(
+		KV("研究員", fmt.Sprintf("T1 %d · T2 %d · T3 %d",
+			s.Research.Researchers[model.Tier1], s.Research.Researchers[model.Tier2], s.Research.Researchers[model.Tier3])),
+		KV("工程", fmt.Sprintf("%d 人 (算力效率 +%.0f%%)",
+			s.Engineers, float64(s.Engineers)*m.cfg.EngineerInfraBonus*100)),
+		KV("營運", fmt.Sprintf("%d 人 (降流失)", s.Ops)),
+		KV("行銷", fmt.Sprintf("%d 人 (用戶成長 +%.0f%%)",
+			s.Marketing, float64(s.Marketing)*m.cfg.MarketingBonus*100)),
+		"",
+		KV("薪資合計", fmt.Sprintf("$%.3f/s", salarySum)),
+	)
+	rolesCard := Card("團隊四職能", rolesBody)
+
+	// 2. Stars Card
+	var starLines []string
+	for _, st := range m.cfg.Stars {
+		status := ""
+		if starHired(s, st.ID) {
+			status = "✓ 已簽"
+		} else {
+			status = fmt.Sprintf("簽約 $%s · 薪 $%.3f/s", human(st.SigningCost), st.SalaryPerSec)
+		}
+
+		blurb := starBlurb(st)
+		starLines = append(starLines, fmt.Sprintf("%-15s %-25s (%s)",
+			st.Name, status, blurb))
+	}
+	starsCard := Card("明星員工", VStack(starLines...))
+
+	row := ResponsiveRow(m.width, 2, rolesCard, starsCard)
+	return VStack(row, Footer("[h]雇研究員 [e]雇工程 [o]雇營運 [k]雇行銷 [s]簽明星"))
+}
+
+func starBlurb(st model.Star) string {
+	var parts []string
+	e := st.Effects
+	if e.RnDPerSec != 0 {
+		parts = append(parts, fmt.Sprintf("R&D+%.0f/s", e.RnDPerSec))
+	}
+
+	dimNames := [4]string{"能力", "成本", "安全", "速度"}
+	for d := 0; d < 4; d++ {
+		if e.QualityMult[d] > 0 && e.QualityMult[d] != 1.0 {
+			parts = append(parts, fmt.Sprintf("%s×%.2f", dimNames[d], e.QualityMult[d]))
+		}
+	}
+
+	if e.UserGrowthMult > 0 && e.UserGrowthMult != 1.0 {
+		parts = append(parts, fmt.Sprintf("用戶成長×%.2f", e.UserGrowthMult))
+	}
+
+	if e.InfraMult > 0 && e.InfraMult != 1.0 {
+		parts = append(parts, fmt.Sprintf("算力效率×%.2f", e.InfraMult))
+	}
+
+	if len(parts) == 0 {
+		return "無特殊加成"
+	}
+	return strings.Join(parts, " · ")
 }
 
 // starHired reports whether the star id is already on the roster.

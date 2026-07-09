@@ -15,6 +15,9 @@ func TestTechPageListsNodesAndUnlocks(t *testing.T) {
 	if len(m.cfg.TechNodes) > 0 && !strings.Contains(v, m.cfg.TechNodes[0].ID) {
 		t.Fatalf("tech page should list node ids:\n%s", v)
 	}
+	if !strings.Contains(v, "演算法") || !strings.Contains(v, "能力架構 I") {
+		t.Fatalf("tech page missing branch or Chinese name:\n%s", v)
+	}
 	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // unlock node under cursor 0 (no prereqs)
 	if len(nm.(Model).state.UnlockedTech) == 0 {
 		t.Fatalf("Enter should unlock the selected tech node")

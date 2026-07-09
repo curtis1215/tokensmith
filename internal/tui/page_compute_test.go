@@ -14,7 +14,7 @@ func TestComputePageShowsPools(t *testing.T) {
 	m := testModel(t)
 	m.page = PageCompute
 	v := renderCompute(m)
-	for _, w := range []string{"訓練", "推理", "機房", "製程"} {
+	for _, w := range []string{"訓練", "推理", "機房", "製程", "可撐用戶"} {
 		if !strings.Contains(v, w) {
 			t.Errorf("compute page missing %q:\n%s", w, v)
 		}
