@@ -702,6 +702,8 @@ func human(v float64) string {
 		return fmt.Sprintf("%.2fM", v/1e6)
 	case v >= 1e3:
 		return fmt.Sprintf("%.0fk", v/1e3)
+	case v > 0 && v < 1:
+		return fmt.Sprintf("%.2f", v)
 	default:
 		return fmt.Sprintf("%.0f", v)
 	}

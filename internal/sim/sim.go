@@ -21,9 +21,11 @@ func staffRnDPerSec(r model.Research, b balance.Config) float64 {
 	return perSec * r.EfficiencyMult
 }
 
-// tokenRawRnD returns the raw R&D produced by a batch of token events,
-// before any soft-cap diminishing is applied.
-func tokenRawRnD(events []model.TokenEvent, b balance.Config) float64 {
+// TokenRawRnD returns the raw R&D produced by a batch of token events, before
+// any soft-cap diminishing is applied. Exported so the TUI display layer can
+// compute the same per-source amount it's about to book (avoids the display
+// and the actual booked value drifting apart).
+func TokenRawRnD(events []model.TokenEvent, b balance.Config) float64 {
 	var raw float64
 	for _, e := range events {
 		raw += (float64(e.InputTokens)*b.TokenInputWeight + float64(e.OutputTokens)*b.TokenOutputWeight) / b.TokenDivisor
@@ -103,13 +105,13 @@ func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Co
 
 	staffRnD := staffRnDPerSec(s.Research, b) * dt
 
-	raw := tokenRawRnD(events, b)
+	raw := TokenRawRnD(events, b)
 	tokenRnD, newWindow := applySoftCap(ns.WindowRnD, raw, b.SoftCapFull, b.SoftCapMult)
 	ns.WindowRnD = newWindow
 
 	pe := prestigeEffects(ns.Prestige.UnlockedPrestige, b)
 	starRnD := starEffects(ns, b).RnDPerSec * dt
-	ns.Resources.RnD += (staffRnD + tokenRnD + starRnD) * pe.RnDMult
+	ns.Resources.RnD += (staffRnD+starRnD)*pe.RnDMult + tokenRnD*b.StreakMult*pe.RnDMult
 	ns.Resources.Cash -= poolRentPerSec(ns, b) * dt
 	serverPower := 0.0
 	for _, sv := range ns.Servers {

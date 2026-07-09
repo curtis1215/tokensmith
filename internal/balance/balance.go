@@ -14,6 +14,15 @@ const MaxGen = 5
 // EntryProcessID is the process available from the first day (no tech unlock).
 const EntryProcessID = "N7"
 
+// RealSecCompression is how many simulated seconds the TUI advances per real
+// second: tickDT(3600) × 4 ticks/sec at a 250ms tick interval
+// (internal/tui/tui.go). Balance numbers meant to represent "per real second"
+// production (researcher and star R&D rates) divide by this so they aren't
+// silently inflated by the sim-time compression. internal/tui has a test
+// (TestRealSecCompressionMatchesTickRate) asserting this constant tracks
+// tui's own tickDT/tickInterval derivation.
+const RealSecCompression = 14400.0
+
 // GenUnlockNodeID is the tech node that unlocks training a given model
 // generation (gen >= 2); gen 1 needs no unlock.
 func GenUnlockNodeID(gen int) string {
@@ -29,6 +38,12 @@ type Config struct {
 	TokenInputWeight  float64
 	TokenOutputWeight float64
 	TokenDivisor      float64
+
+	// StreakMult multiplies token-sourced R&D only (never staff/star R&D). Set
+	// per tick by the TUI from the real-world coding-streak bonus; Default()
+	// seeds it to 1.0 (neutral) so every caller that never touches it keeps
+	// today's behavior unchanged.
+	StreakMult float64
 
 	// Daily soft cap on token-sourced R&D within a rolling window.
 	SoftCapFull      float64 // R&D granted at full rate before diminishing
@@ -121,13 +136,14 @@ func Default() Config {
 	var c Config
 	// R&D per researcher-second. Kept low so the tech tree is a real time-gate
 	// (not trivially affordable) and real coding (token R&D) stays impactful.
-	c.ResearcherRnDPerSec[model.Tier1] = 0.005
-	c.ResearcherRnDPerSec[model.Tier2] = 0.015
-	c.ResearcherRnDPerSec[model.Tier3] = 0.04
+	c.ResearcherRnDPerSec[model.Tier1] = 0.005 / RealSecCompression
+	c.ResearcherRnDPerSec[model.Tier2] = 0.015 / RealSecCompression
+	c.ResearcherRnDPerSec[model.Tier3] = 0.04 / RealSecCompression
 
 	c.TokenInputWeight = 1
 	c.TokenOutputWeight = 2
 	c.TokenDivisor = 10
+	c.StreakMult = 1.0
 
 	c.SoftCapFull = 200000
 	c.SoftCapMult = 0.3
@@ -340,13 +356,13 @@ func DefaultStars() []model.Star {
 	return []model.Star{
 		star("aria-chen", "Dr. Aria Chen", 600000, 0.02, func(e *model.StarEffects) {
 			e.QualityMult[model.DimCapability] = 1.22
-			e.RnDPerSec = 300
+			e.RnDPerSec = 300 / RealSecCompression
 		}),
 		star("nova", "Nova", 1000000, 0.03, func(e *model.StarEffects) {
 			for d := range e.QualityMult {
 				e.QualityMult[d] = 1.10
 			}
-			e.RnDPerSec = 400
+			e.RnDPerSec = 400 / RealSecCompression
 		}),
 		star("sofia-reyes", "Dr. Sofia Reyes", 450000, 0.018, func(e *model.StarEffects) {
 			e.QualityMult[model.DimSafety] = 1.25
