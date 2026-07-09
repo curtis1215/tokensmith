@@ -180,12 +180,12 @@ func TestTickTrainingCompletes(t *testing.T) {
 	s := model.GameState{HasTraining: true}
 	s.Compute.RentedTraining = map[string]int{"N7": 10}
 	s.Training = model.TrainingJob{
-		Gen:           2, // GenQualityCap[2] = 45
+		Gen:           2,
 		Alloc:         [model.NumQualityDims]float64{0.4, 0.2, 0.2, 0.2},
 		Price:         12,
 		WorkRemaining: 7200,
 	}
-	ns := Tick(s, 1000, nil, b) // 10*1000 = 10000 >= 7200 → completes
+	ns := Tick(s, 1000, nil, b)
 	if ns.HasTraining {
 		t.Fatalf("training should be done")
 	}
@@ -193,18 +193,44 @@ func TestTickTrainingCompletes(t *testing.T) {
 		t.Fatalf("expected 1 model, got %d", len(ns.Models))
 	}
 	m := ns.Models[0]
-	if !m.Online || m.Gen != 2 || m.Price != 12 {
+	if m.Online || m.Users != 0 || m.Name != "" {
+		t.Fatalf("completed model should be draft: %+v", m)
+	}
+	if m.Gen != 2 || m.Price != 12 {
 		t.Fatalf("model fields wrong: %+v", m)
 	}
-	if !approx(m.Quality[model.DimCapability], 18) { // 0.4 * 45
+	if !approx(m.Quality[model.DimCapability], 18) {
 		t.Errorf("capability = %v, want 18", m.Quality[model.DimCapability])
 	}
-	if !approx(m.Quality[model.DimSafety], 9) { // 0.2 * 45
+	if !approx(m.Quality[model.DimSafety], 9) {
 		t.Errorf("safety = %v, want 9", m.Quality[model.DimSafety])
 	}
-	// purity: input Models slice untouched
 	if len(s.Models) != 0 {
 		t.Errorf("Tick mutated input Models")
+	}
+}
+
+func TestTickTrainingCompleteAllowsNewTraining(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{HasTraining: true, Resources: model.Resources{RnD: 1e9}}
+	s.Compute.RentedTraining = map[string]int{"N7": 100}
+	s.Training = model.TrainingJob{
+		Gen: 1, Alloc: [model.NumQualityDims]float64{1, 0, 0, 0},
+		Price: 12, WorkRemaining: 1,
+	}
+	s = Tick(s, 1, nil, b)
+	if s.HasTraining || len(s.Models) != 1 || s.Models[0].Online {
+		t.Fatalf("want one draft, no active job: %+v", s)
+	}
+	ns, err := Apply(s, model.StartTraining{
+		Gen: 1, Segment: model.SegConsumer,
+		Alloc: [model.NumQualityDims]float64{1, 0, 0, 0}, Price: 12,
+	}, b)
+	if err != nil {
+		t.Fatalf("should allow new training while draft exists: %v", err)
+	}
+	if !ns.HasTraining {
+		t.Fatal("expected new training job")
 	}
 }
 
