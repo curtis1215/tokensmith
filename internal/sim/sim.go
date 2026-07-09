@@ -109,7 +109,7 @@ func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Co
 	tokenRnD, newWindow := applySoftCap(ns.WindowRnD, raw, b.SoftCapFull, b.SoftCapMult)
 	ns.WindowRnD = newWindow
 
-	pe := prestigeEffects(ns.Prestige.UnlockedPrestige, b)
+	pe := PrestigeEffects(ns.Prestige.UnlockedPrestige, b)
 	starRnD := starEffects(ns, b).RnDPerSec * dt
 	ns.Resources.RnD += (staffRnD+starRnD)*pe.RnDMult + tokenRnD*b.StreakMult*pe.RnDMult
 	ns.Resources.Cash -= poolRentPerSec(ns, b) * dt
@@ -209,7 +209,7 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 	if len(ns.Models) == 0 {
 		return ns
 	}
-	pe := prestigeEffects(ns.Prestige.UnlockedPrestige, b)
+	pe := PrestigeEffects(ns.Prestige.UnlockedPrestige, b)
 	se := starEffects(ns, b)
 	ee := eventEffects(ns, b)
 	models := append([]model.Model(nil), ns.Models...)

@@ -16,8 +16,11 @@ func isPrestigeUnlocked(s model.GameState, id string) bool {
 	return false
 }
 
-// prestigeEffects aggregates permanent upgrades (neutral when none unlocked).
-func prestigeEffects(unlocked []string, b balance.Config) model.PrestigeEffects {
+// PrestigeEffects aggregates permanent upgrades (neutral when none unlocked).
+// Exported so the TUI display layer can apply the same R&D multiplier that Tick
+// uses when booking token-derived R&D (avoids status-bar display drifting from
+// the actual booked value after prestige unlocks).
+func PrestigeEffects(unlocked []string, b balance.Config) model.PrestigeEffects {
 	agg := model.NeutralPrestigeEffects()
 	for _, node := range b.PrestigeNodes {
 		if !contains(unlocked, node.ID) {
@@ -62,7 +65,7 @@ func Restart(s model.GameState, b balance.Config) model.GameState {
 
 // freshRun produces a new run's starting state, preserving prestige.
 func freshRun(p model.Prestige, b balance.Config) model.GameState {
-	pe := prestigeEffects(p.UnlockedPrestige, b)
+	pe := PrestigeEffects(p.UnlockedPrestige, b)
 	var ns model.GameState
 	ns.Prestige = p
 	ns.Competitors = balance.DefaultCompetitors()

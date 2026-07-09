@@ -9,7 +9,7 @@ import (
 
 func TestPrestigeEffectsAggregate(t *testing.T) {
 	b := balance.Default()
-	pe := prestigeEffects([]string{"start-cash-1", "rnd-mult-1"}, b)
+	pe := PrestigeEffects([]string{"start-cash-1", "rnd-mult-1"}, b)
 	if !approx(pe.StartCash, 100000) {
 		t.Errorf("StartCash = %v, want 100000", pe.StartCash)
 	}

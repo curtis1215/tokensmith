@@ -2,10 +2,15 @@ package tui
 
 import (
 	"math"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"tokensmith/internal/ledger"
 	"tokensmith/internal/model"
+	"tokensmith/internal/sim"
+	"tokensmith/internal/store"
 )
 
 func TestLerpApproaches(t *testing.T) {
@@ -92,6 +97,55 @@ func TestRenderResourceBarShowsPerSourceRnD(t *testing.T) {
 	}
 	if !strings.Contains(bar, "Codex +15 R&D") {
 		t.Fatalf("expected Codex R&D segment, got:\n%s", bar)
+	}
+}
+
+// TestPerSourceRnDDisplayIncludesPrestigeMult proves the status-bar per-source
+// R&D includes pe.RnDMult (e.g. rnd-mult-1 → 1.1x), matching what sim.Tick
+// actually books — without this, prestiging permanently under-reports the bar.
+func TestPerSourceRnDDisplayIncludesPrestigeMult(t *testing.T) {
+	dir := t.TempDir()
+	lp := filepath.Join(dir, "ledger.json")
+	mp := filepath.Join(dir, "meta.json")
+	// raw = (1000*1 + 500*2) / 10 = 200
+	ledger.Save(lp, ledger.Ledger{
+		Sources:   map[string]model.SourceTotals{"claude-code": {In: 1000, Out: 500}},
+		UpdatedAt: 9_000_000_000,
+	})
+	store.SaveMeta(mp, store.Meta{LastRealUnix: 9_000_000_000})
+
+	m := newAtPaths(filepath.Join(dir, "s.json"), lp, mp)
+	m.daemonMode = true
+	m.state.Prestige.UnlockedPrestige = []string{"rnd-mult-1"}
+
+	nm, _ := m.Update(tickMsg(time.Unix(0, 0)))
+	got := nm.(Model)
+
+	raw := sim.TokenRawRnD([]model.TokenEvent{{
+		Source: "claude-code", InputTokens: 1000, OutputTokens: 500,
+	}}, got.cfg)
+	pe := sim.PrestigeEffects(got.state.Prestige.UnlockedPrestige, got.cfg)
+	// First active day sets streakDays=1 → StreakMult 1.06; RnDMult 1.1 from rnd-mult-1.
+	want := raw * got.currentStreakMult() * pe.RnDMult // 200 * 1.06 * 1.1 = 233.2
+	if math.Abs(got.lastTokenRnD["claude-code"]-want) > 1e-9 {
+		t.Fatalf("lastTokenRnD[claude-code]=%v want %v (raw*StreakMult*RnDMult)",
+			got.lastTokenRnD["claude-code"], want)
+	}
+	if pe.RnDMult != 1.1 {
+		t.Fatalf("RnDMult=%v want 1.1 from rnd-mult-1", pe.RnDMult)
+	}
+	// Without prestige the same tick would show raw*streak only (~212); assert the 1.1x gap.
+	withoutPrestige := raw * got.currentStreakMult()
+	if math.Abs(got.lastTokenRnD["claude-code"]-withoutPrestige*1.1) > 1e-9 {
+		t.Fatalf("displayed R&D should be 1.1× the non-prestige amount: got %v vs base %v",
+			got.lastTokenRnD["claude-code"], withoutPrestige)
+	}
+
+	got.disp.PulseToken = 5
+	bar := renderResourceBar(got)
+	wantSeg := "Claude Code +" + human(want) + " R&D"
+	if !strings.Contains(bar, wantSeg) {
+		t.Fatalf("expected prestige-multiplied segment %q in status bar, got:\n%s", wantSeg, bar)
 	}
 }
 

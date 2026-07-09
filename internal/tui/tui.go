@@ -304,9 +304,14 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		cfgTick := m.cfg
 		cfgTick.StreakMult = m.currentStreakMult()
 		if m.tokensThisTick {
+			// ponytail: soft cap (SoftCapFull/SoftCapMult) is intentionally not
+			// reflected here — only matters at extreme burst volumes (~2M weighted
+			// tokens in ~6s) normal solo usage never reaches. If that ever becomes
+			// needed, have sim.Tick return the actual token R&D applied this tick.
+			pe := sim.PrestigeEffects(m.state.Prestige.UnlockedPrestige, cfgTick)
 			rnd := make(map[string]float64, len(events))
 			for _, e := range events {
-				rnd[e.Source] += sim.TokenRawRnD([]model.TokenEvent{e}, cfgTick) * cfgTick.StreakMult
+				rnd[e.Source] += sim.TokenRawRnD([]model.TokenEvent{e}, cfgTick) * cfgTick.StreakMult * pe.RnDMult
 			}
 			m.lastTokenRnD = rnd
 		}
