@@ -59,7 +59,7 @@ func TestDefaultUserRevenueValues(t *testing.T) {
 	if sum < 0.999 || sum > 1.001 {
 		t.Errorf("QualityWeights sum = %v, want 1", sum)
 	}
-	if c.UserTargetPerAppeal != 1000 || c.UserGrowthRate != 0.001 {
+	if c.UserTargetPerAppeal != 20000 || c.UserGrowthRate != 3.5e-5 {
 		t.Errorf("user growth params wrong: %+v", c)
 	}
 	if c.RefPrice != 12 || c.PriceElasticity != 1.5 {

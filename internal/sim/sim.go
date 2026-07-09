@@ -154,8 +154,8 @@ func effectiveInference(ns model.GameState, b balance.Config) float64 {
 	return c * infraEfficiency(ns, b) * techEffects(ns, b).InfraMult * starEffects(ns, b).InfraMult
 }
 
-// advanceTraining progresses the in-progress training job by dt and onlines
-// the model on completion. Pure: clones Models before appending.
+// advanceTraining progresses the in-progress training job by dt and appends
+// the completed model as a draft. Pure: clones Models before appending.
 func advanceTraining(ns model.GameState, dt float64, b balance.Config) model.GameState {
 	if !ns.HasTraining {
 		return ns
@@ -164,11 +164,18 @@ func advanceTraining(ns model.GameState, dt float64, b balance.Config) model.Gam
 	if ns.Training.WorkRemaining > 0 {
 		return ns
 	}
-	// Completed → build the model and online it.
+	// Completed → append draft (not online until PublishModel).
 	te := techEffects(ns, b)
 	se := starEffects(ns, b)
 	job := ns.Training
-	m := model.Model{Gen: job.Gen, Segment: job.Segment, Price: job.Price, Online: true}
+	m := model.Model{
+		Gen:     job.Gen,
+		Segment: job.Segment,
+		Price:   job.Price,
+		Online:  false,
+		Users:   0,
+		Name:    "",
+	}
 	for d := range model.NumQualityDims {
 		m.Quality[d] = job.Alloc[d] * b.GenQualityCap[job.Gen] * te.QualityMult[d] * se.QualityMult[d]
 	}
@@ -228,15 +235,8 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 		}
 		marketingMult := 1 + float64(ns.Marketing)*b.MarketingBonus
 		target := appeal * b.SegmentTargetScale[m.Segment] * demandMult * share * marketingMult * te.UserGrowthMult * se.UserGrowthMult
-		// Bounded approach to target: clamp the Euler factor to [0,1] so large
-		// ticks (e.g. TUI dt=3600) converge instead of overshooting/oscillating.
-		growthFactor := b.UserGrowthRate * dt
-		if growthFactor > 1 {
-			growthFactor = 1
-		} else if growthFactor < 0 {
-			growthFactor = 0
-		}
-		m.Users += (target - m.Users) * growthFactor
+		decay := math.Exp(-b.UserGrowthRate * dt)
+		m.Users = target + (m.Users-target)*decay
 		if m.Users < 0 {
 			m.Users = 0
 		}

@@ -180,12 +180,12 @@ func TestTickTrainingCompletes(t *testing.T) {
 	s := model.GameState{HasTraining: true}
 	s.Compute.RentedTraining = map[string]int{"N7": 10}
 	s.Training = model.TrainingJob{
-		Gen:           2, // GenQualityCap[2] = 45
+		Gen:           2,
 		Alloc:         [model.NumQualityDims]float64{0.4, 0.2, 0.2, 0.2},
 		Price:         12,
 		WorkRemaining: 7200,
 	}
-	ns := Tick(s, 1000, nil, b) // 10*1000 = 10000 >= 7200 → completes
+	ns := Tick(s, 1000, nil, b)
 	if ns.HasTraining {
 		t.Fatalf("training should be done")
 	}
@@ -193,18 +193,44 @@ func TestTickTrainingCompletes(t *testing.T) {
 		t.Fatalf("expected 1 model, got %d", len(ns.Models))
 	}
 	m := ns.Models[0]
-	if !m.Online || m.Gen != 2 || m.Price != 12 {
+	if m.Online || m.Users != 0 || m.Name != "" {
+		t.Fatalf("completed model should be draft: %+v", m)
+	}
+	if m.Gen != 2 || m.Price != 12 {
 		t.Fatalf("model fields wrong: %+v", m)
 	}
-	if !approx(m.Quality[model.DimCapability], 18) { // 0.4 * 45
+	if !approx(m.Quality[model.DimCapability], 18) {
 		t.Errorf("capability = %v, want 18", m.Quality[model.DimCapability])
 	}
-	if !approx(m.Quality[model.DimSafety], 9) { // 0.2 * 45
+	if !approx(m.Quality[model.DimSafety], 9) {
 		t.Errorf("safety = %v, want 9", m.Quality[model.DimSafety])
 	}
-	// purity: input Models slice untouched
 	if len(s.Models) != 0 {
 		t.Errorf("Tick mutated input Models")
+	}
+}
+
+func TestTickTrainingCompleteAllowsNewTraining(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{HasTraining: true, Resources: model.Resources{RnD: 1e9}}
+	s.Compute.RentedTraining = map[string]int{"N7": 100}
+	s.Training = model.TrainingJob{
+		Gen: 1, Alloc: [model.NumQualityDims]float64{1, 0, 0, 0},
+		Price: 12, WorkRemaining: 1,
+	}
+	s = Tick(s, 1, nil, b)
+	if s.HasTraining || len(s.Models) != 1 || s.Models[0].Online {
+		t.Fatalf("want one draft, no active job: %+v", s)
+	}
+	ns, err := Apply(s, model.StartTraining{
+		Gen: 1, Segment: model.SegConsumer,
+		Alloc: [model.NumQualityDims]float64{1, 0, 0, 0}, Price: 12,
+	}, b)
+	if err != nil {
+		t.Fatalf("should allow new training while draft exists: %v", err)
+	}
+	if !ns.HasTraining {
+		t.Fatal("expected new training job")
 	}
 }
 
@@ -231,6 +257,12 @@ func TestTickRentZeroWhenNoCapacity(t *testing.T) {
 	}
 }
 
+func pinLegacyBalance(b *balance.Config) {
+	b.UserGrowthRate = 0.001
+	b.UserTargetPerAppeal = 1000
+	b.SegmentTargetScale = [model.NumSegments]float64{1000, 500, 800}
+}
+
 func onlineModel(cap, price float64) model.Model {
 	m := model.Model{Online: true, Price: price}
 	m.Quality[model.DimCapability] = cap
@@ -239,11 +271,13 @@ func onlineModel(cap, price float64) model.Model {
 
 func TestTickUserGrowthTowardTarget(t *testing.T) {
 	b := balance.Default()
+	pinLegacyBalance(&b)
 	// appeal = 50 * 0.4 = 20; price = ref → demandMult 1; target = 20*1000 = 20000.
 	s := model.GameState{Models: []model.Model{onlineModel(50, b.RefPrice)}}
-	ns := Tick(s, 1, nil, b) // Users += (20000-0)*0.001*1 = 20
-	if !approx(ns.Models[0].Users, 20) {
-		t.Fatalf("Users = %v, want 20", ns.Models[0].Users)
+	ns := Tick(s, 1, nil, b)
+	want := 20000.0 * (1.0 - math.Exp(-b.UserGrowthRate*1))
+	if !approx(ns.Models[0].Users, want) {
+		t.Fatalf("Users = %v, want %v", ns.Models[0].Users, want)
 	}
 	// input not mutated
 	if s.Models[0].Users != 0 {
@@ -266,11 +300,12 @@ func TestTickSkipsOutOfRangeSegment(t *testing.T) {
 
 func TestTickPriceElasticityReducesTarget(t *testing.T) {
 	b := balance.Default()
+	pinLegacyBalance(&b)
 	// double the reference price → demandMult = (1/2)^1.5.
 	s := model.GameState{Models: []model.Model{onlineModel(50, 2*b.RefPrice)}}
 	ns := Tick(s, 1, nil, b)
 	wantTarget := 20.0 * b.UserTargetPerAppeal * math.Pow(0.5, b.PriceElasticity) // appeal 20
-	wantUsers := wantTarget * b.UserGrowthRate * 1
+	wantUsers := wantTarget * (1.0 - math.Exp(-b.UserGrowthRate*1))
 	if !approx(ns.Models[0].Users, wantUsers) {
 		t.Fatalf("Users = %v, want %v", ns.Models[0].Users, wantUsers)
 	}
@@ -278,6 +313,7 @@ func TestTickPriceElasticityReducesTarget(t *testing.T) {
 
 func TestTickHighPriceChurns(t *testing.T) {
 	b := balance.Default()
+	pinLegacyBalance(&b)
 	m := onlineModel(50, 2*b.RefPrice) // target well below 30000
 	m.Users = 30000
 	s := model.GameState{Models: []model.Model{m}}
@@ -388,19 +424,22 @@ func rival(cap float64) model.Competitor {
 
 func TestTickCompetitorHalvesUserTarget(t *testing.T) {
 	b := balance.Default()
+	pinLegacyBalance(&b)
 	// your model appeal 20 (cap 50 * 0.4). equal competitor appeal 20 → share 0.5.
 	s := model.GameState{
 		Models:      []model.Model{onlineModel(50, b.RefPrice)},
 		Competitors: []model.Competitor{rival(50)}, // GrowthPerSec 0 → stays 20
 	}
-	ns := Tick(s, 1, nil, b) // target = 20*1000*1*0.5 = 10000; users = 10000*0.001 = 10
-	if !approx(ns.Models[0].Users, 10) {
-		t.Fatalf("Users = %v, want 10 (halved by equal competitor)", ns.Models[0].Users)
+	ns := Tick(s, 1, nil, b)
+	want := 10000.0 * (1.0 - math.Exp(-b.UserGrowthRate*1))
+	if !approx(ns.Models[0].Users, want) {
+		t.Fatalf("Users = %v, want %v (halved by equal competitor)", ns.Models[0].Users, want)
 	}
 }
 
 func TestTickStrongCompetitorChurnsUsers(t *testing.T) {
 	b := balance.Default()
+	pinLegacyBalance(&b)
 	m := onlineModel(50, b.RefPrice) // appeal 20
 	m.Users = 5000
 	s := model.GameState{
@@ -447,7 +486,7 @@ func TestSegmentRefPriceNeutralAtReference(t *testing.T) {
 	// appeal = 40 (efficiency 100 * developer weight 0.4); target = 40*800*1*1 = 32000.
 	dev := segModel(model.SegDeveloper, model.DimEfficiency, 100, b.SegmentRefPrice[model.SegDeveloper])
 	ns := Tick(model.GameState{Models: []model.Model{dev}}, 1, nil, b)
-	want := 40.0 * b.SegmentTargetScale[model.SegDeveloper] * b.UserGrowthRate // *1 tick
+	want := 40.0 * b.SegmentTargetScale[model.SegDeveloper] * (1.0 - math.Exp(-b.UserGrowthRate*1))
 	if !approx(ns.Models[0].Users, want) {
 		t.Fatalf("developer users = %v, want %v", ns.Models[0].Users, want)
 	}
@@ -790,6 +829,7 @@ func TestStarGrowthBoostsUsers(t *testing.T) {
 
 func TestUserGrowthClampedAtLargeDt(t *testing.T) {
 	b := balance.Default()
+	pinLegacyBalance(&b)
 	// appeal 20, no rivals/tech/marketing → target = 20*1000 = 20000.
 	// growthFactor = UserGrowthRate(0.001) * dt(3600) = 3.6, must clamp to 1.
 	s := model.GameState{Models: []model.Model{onlineModel(50, b.RefPrice)}}
@@ -800,5 +840,40 @@ func TestUserGrowthClampedAtLargeDt(t *testing.T) {
 	}
 	if u > 20000.0001 {
 		t.Fatalf("users overshot target (unstable Euler step): %v > 20000", u)
+	}
+}
+
+func TestTickUserGrowthExponentialNotInstant(t *testing.T) {
+	b := balance.Default()
+	// Force known rate for the assertion regardless of balance defaults during this task.
+	b.UserGrowthRate = 3.5e-5
+	b.SegmentTargetScale[model.SegConsumer] = 20000
+	m := onlineModel(25, b.SegmentRefPrice[model.SegConsumer]) // appeal 10 if weights 0.4
+	m.Users = 0
+	// No competitors → share 1 → target = 10 * 20000 = 200000
+	s := model.GameState{Models: []model.Model{m}}
+	ns := Tick(s, 3600, nil, b) // one sim hour
+	// remaining = exp(-3.5e-5*3600)=exp(-0.126)≈0.881 → users≈0.119*target
+	if ns.Models[0].Users <= 0 {
+		t.Fatal("expected some users after 1h")
+	}
+	if ns.Models[0].Users > 0.25*200000 {
+		t.Fatalf("1h users=%v; want < 25%% of target (not instant fill)", ns.Models[0].Users)
+	}
+}
+
+func TestTickUserGrowthEightHoursNear63Percent(t *testing.T) {
+	b := balance.Default()
+	b.UserGrowthRate = 3.5e-5
+	b.SegmentTargetScale[model.SegConsumer] = 20000
+	m := onlineModel(25, b.SegmentRefPrice[model.SegConsumer])
+	s := model.GameState{Models: []model.Model{m}}
+	const target = 200000.0
+	for i := 0; i < 8; i++ {
+		s = Tick(s, 3600, nil, b)
+	}
+	u := s.Models[0].Users
+	if u < 0.50*target || u > 0.75*target {
+		t.Fatalf("after 8h users=%v; want ~63%% of %v (50–75%%)", u, target)
 	}
 }

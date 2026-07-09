@@ -1,6 +1,8 @@
 package sim
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"tokensmith/internal/balance"
@@ -492,5 +494,54 @@ func TestApplySignStarErrors(t *testing.T) {
 	poor.Resources.Cash = 100
 	if _, err := Apply(poor, model.SignStar{StarID: "aria-chen"}, b); err != ErrInsufficientCash {
 		t.Errorf("cash: err = %v, want ErrInsufficientCash", err)
+	}
+}
+
+func TestApplyPublishModel(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{
+		Models: []model.Model{{
+			Gen: 1, Segment: model.SegConsumer, Price: 12,
+			Online: false, Users: 0,
+			Quality: [model.NumQualityDims]float64{25, 0, 0, 0},
+		}},
+	}
+	ns, err := Apply(s, model.PublishModel{ModelIndex: 0, Name: "  Nova-1  ", Price: 9}, b)
+	if err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	if !ns.Models[0].Online || ns.Models[0].Name != "Nova-1" || ns.Models[0].Price != 9 {
+		t.Fatalf("published model wrong: %+v", ns.Models[0])
+	}
+	// purity
+	if s.Models[0].Online || s.Models[0].Name != "" {
+		t.Fatal("Apply mutated input")
+	}
+}
+
+func TestApplyPublishModelRejects(t *testing.T) {
+	b := balance.Default()
+	draft := model.Model{Online: false, Users: 0}
+	live := model.Model{Online: true, Users: 0, Name: "x"}
+	used := model.Model{Online: false, Users: 10} // not a draft
+
+	s := model.GameState{Models: []model.Model{draft, live, used}}
+	cases := []struct {
+		cmd model.PublishModel
+		err error
+	}{
+		{model.PublishModel{ModelIndex: -1, Name: "a", Price: 1}, ErrInvalidModelIndex},
+		{model.PublishModel{ModelIndex: 99, Name: "a", Price: 1}, ErrInvalidModelIndex},
+		{model.PublishModel{ModelIndex: 1, Name: "a", Price: 1}, ErrNotDraft},
+		{model.PublishModel{ModelIndex: 2, Name: "a", Price: 1}, ErrNotDraft},
+		{model.PublishModel{ModelIndex: 0, Name: "   ", Price: 1}, ErrInvalidName},
+		{model.PublishModel{ModelIndex: 0, Name: strings.Repeat("字", 25), Price: 1}, ErrInvalidName},
+		{model.PublishModel{ModelIndex: 0, Name: "ok", Price: 0}, ErrInvalidPrice},
+		{model.PublishModel{ModelIndex: 0, Name: "ok", Price: -1}, ErrInvalidPrice},
+	}
+	for _, tc := range cases {
+		if _, err := Apply(s, tc.cmd, b); !errors.Is(err, tc.err) {
+			t.Errorf("cmd=%+v err=%v want %v", tc.cmd, err, tc.err)
+		}
 	}
 }

@@ -136,15 +136,15 @@ func Default() Config {
 	c.TrainRentPerGPUSec = 0.01
 
 	c.QualityWeights = [model.NumQualityDims]float64{0.4, 0.2, 0.2, 0.2}
-	c.UserTargetPerAppeal = 1000
-	c.UserGrowthRate = 0.001
+	c.UserTargetPerAppeal = 20000
+	c.UserGrowthRate = 3.5e-5
 	c.RefPrice = 12
 	c.PriceElasticity = 1.5
 	c.MonthSec = 2592000
 	c.SegmentWeights[model.SegConsumer] = qvec(0.4, 0.2, 0.2, 0.2)    // == QualityWeights
 	c.SegmentWeights[model.SegEnterprise] = qvec(0.2, 0.1, 0.5, 0.2)  // values safety
 	c.SegmentWeights[model.SegDeveloper] = qvec(0.15, 0.4, 0.1, 0.35) // values efficiency+speed
-	c.SegmentTargetScale = [model.NumSegments]float64{1000, 500, 800}
+	c.SegmentTargetScale = [model.NumSegments]float64{20000, 10000, 16000}
 	c.SegmentRefPrice = [model.NumSegments]float64{12, 180, 6}
 	c.InferenceRentPerGPUSec = 0.006
 	c.InferenceLoadPerUser = 0.0001

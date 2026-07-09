@@ -216,3 +216,11 @@ func TestStarTypes(t *testing.T) {
 		t.Fatalf("SignStar not a Command")
 	}
 }
+
+func TestPublishModelIsCommand(t *testing.T) {
+	var c Command = PublishModel{ModelIndex: 0, Name: "ModelA", Price: 12.5}
+	pm, ok := c.(PublishModel)
+	if !ok || pm.ModelIndex != 0 || pm.Name != "ModelA" || pm.Price != 12.5 {
+		t.Fatalf("PublishModel command wrong: %+v ok=%v", c, ok)
+	}
+}

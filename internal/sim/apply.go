@@ -2,6 +2,8 @@ package sim
 
 import (
 	"errors"
+	"strings"
+	"unicode/utf8"
 
 	"tokensmith/internal/balance"
 	"tokensmith/internal/model"
@@ -34,6 +36,8 @@ var (
 	ErrPrestigeLocked      = errors.New("sim: prestige not unlocked")
 	ErrInvalidStar         = errors.New("sim: unknown star")
 	ErrAlreadyHired        = errors.New("sim: star already hired")
+	ErrNotDraft            = errors.New("sim: model is not a publishable draft")
+	ErrInvalidName         = errors.New("sim: model name must be 1–24 characters")
 )
 
 // Apply validates and applies a single player command, returning the new
@@ -62,6 +66,8 @@ func Apply(s model.GameState, cmd model.Command, b balance.Config) (model.GameSt
 		return applyPrestigeReset(s, b)
 	case model.SignStar:
 		return applySignStar(s, c, b)
+	case model.PublishModel:
+		return applyPublishModel(s, c)
 	default:
 		return s, ErrUnknownCommand
 	}
@@ -355,5 +361,29 @@ func applySignStar(s model.GameState, c model.SignStar, b balance.Config) (model
 	ns := s
 	ns.Resources.Cash -= st.SigningCost
 	ns.HiredStars = append(append([]string(nil), s.HiredStars...), st.ID)
+	return ns, nil
+}
+
+func applyPublishModel(s model.GameState, c model.PublishModel) (model.GameState, error) {
+	if c.ModelIndex < 0 || c.ModelIndex >= len(s.Models) {
+		return s, ErrInvalidModelIndex
+	}
+	m := s.Models[c.ModelIndex]
+	// Draft is defined as Online == false && Users == 0
+	if m.Online || m.Users != 0 {
+		return s, ErrNotDraft
+	}
+	name := strings.TrimSpace(c.Name)
+	if name == "" || utf8.RuneCountInString(name) > 24 {
+		return s, ErrInvalidName
+	}
+	if c.Price <= 0 {
+		return s, ErrInvalidPrice
+	}
+	ns := s
+	ns.Models = append([]model.Model(nil), s.Models...)
+	ns.Models[c.ModelIndex].Name = name
+	ns.Models[c.ModelIndex].Price = c.Price
+	ns.Models[c.ModelIndex].Online = true
 	return ns, nil
 }
