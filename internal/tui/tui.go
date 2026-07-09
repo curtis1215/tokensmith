@@ -58,7 +58,6 @@ type Model struct {
 	state          model.GameState
 	cfg            balance.Config
 	poller         *ingest.Poller
-	lastTokens     int
 	savePath       string
 	ticksSinceSave int
 	page           Page
@@ -834,10 +833,52 @@ func renderResourceBar(m Model) string {
 		cashStr, rndSeg,
 		trainUtil*100, infStr, human(val))
 
-	if m.lastTokens > 0 {
-		bar += fmt.Sprintf("   ⚡token +%d", m.lastTokens)
+	if m.disp.PulseToken > 0 && len(m.lastTokenRnD) > 0 {
+		parts := make([]string, 0, len(m.lastTokenRnD)+1)
+		for _, src := range sourceKeysOrdered(m.lastTokenRnD) {
+			parts = append(parts, fmt.Sprintf("⚡ %s +%s R&D", sourceLabel(src), human(m.lastTokenRnD[src])))
+		}
+		if m.streakDays > 0 {
+			parts = append(parts, fmt.Sprintf("🔥連續%d天 ×%.2f", m.streakDays, m.currentStreakMult()))
+		}
+		bar += "   " + strings.Join(parts, "   ")
 	}
 	return bar
+}
+
+// knownSourceOrder fixes the display order of the two known token sources;
+// any future/unknown source is appended after them in map-iteration order.
+var knownSourceOrder = []string{"claude-code", "codex"}
+
+// sourceKeysOrdered returns m's keys in a stable, deterministic order so the
+// status bar doesn't reorder itself between renders.
+func sourceKeysOrdered(m map[string]float64) []string {
+	var out []string
+	seen := make(map[string]bool, len(m))
+	for _, k := range knownSourceOrder {
+		if _, ok := m[k]; ok {
+			out = append(out, k)
+			seen[k] = true
+		}
+	}
+	for k := range m {
+		if !seen[k] {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// sourceLabel maps a TokenEvent.Source to its display name.
+func sourceLabel(src string) string {
+	switch src {
+	case "claude-code":
+		return "Claude Code"
+	case "codex":
+		return "Codex"
+	default:
+		return src
+	}
 }
 
 // latestEventName names the most recently fired event for the notice line.
@@ -851,8 +892,7 @@ func latestEventName(s model.GameState) string {
 	return ""
 }
 
-// pressures returns ⚠ attention items surfaced on the overview page. (A real
-// coding-streak counter is deferred to a later plan.)
+// pressures returns ⚠ attention items surfaced on the overview page.
 func pressures(m Model) []string {
 	s := m.state
 	var out []string

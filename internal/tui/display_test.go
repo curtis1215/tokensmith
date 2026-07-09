@@ -2,6 +2,7 @@ package tui
 
 import (
 	"math"
+	"strings"
 	"testing"
 
 	"tokensmith/internal/model"
@@ -69,15 +70,49 @@ func TestPulseTokenOnTokens(t *testing.T) {
 	m := testModel(t)
 	m.dispReady = true
 	m.disp.snap(truthDisplay(m))
-	m.lastTokens = 10
+	m.tokensThisTick = true
 	m.advanceDisplay()
-	if m.disp.PulseToken != 4 {
-		t.Fatalf("PulseToken=%d want 4", m.disp.PulseToken)
+	if m.disp.PulseToken != tokenPulseTicks {
+		t.Fatalf("PulseToken=%d want %d", m.disp.PulseToken, tokenPulseTicks)
 	}
-	m.lastTokens = 0
+	m.tokensThisTick = false
 	m.advanceDisplay()
-	if m.disp.PulseToken != 3 {
-		t.Fatalf("PulseToken should decay to 3, got %d", m.disp.PulseToken)
+	if m.disp.PulseToken != tokenPulseTicks-1 {
+		t.Fatalf("PulseToken should decay to %d, got %d", tokenPulseTicks-1, m.disp.PulseToken)
+	}
+}
+
+func TestRenderResourceBarShowsPerSourceRnD(t *testing.T) {
+	m := testModel(t)
+	m.lastTokenRnD = map[string]float64{"claude-code": 842, "codex": 15}
+	m.disp.PulseToken = 5
+	bar := renderResourceBar(m)
+	if !strings.Contains(bar, "Claude Code +842 R&D") {
+		t.Fatalf("expected Claude Code R&D segment, got:\n%s", bar)
+	}
+	if !strings.Contains(bar, "Codex +15 R&D") {
+		t.Fatalf("expected Codex R&D segment, got:\n%s", bar)
+	}
+}
+
+func TestRenderResourceBarShowsStreakBadge(t *testing.T) {
+	m := testModel(t)
+	m.lastTokenRnD = map[string]float64{"claude-code": 100}
+	m.disp.PulseToken = 5
+	m.streakDays = 3
+	bar := renderResourceBar(m)
+	if !strings.Contains(bar, "連續3天") || !strings.Contains(bar, "×1.18") {
+		t.Fatalf("expected streak badge, got:\n%s", bar)
+	}
+}
+
+func TestRenderResourceBarHidesTokensAfterPulseEnds(t *testing.T) {
+	m := testModel(t)
+	m.lastTokenRnD = map[string]float64{"claude-code": 100}
+	m.disp.PulseToken = 0 // pulse has fully decayed
+	bar := renderResourceBar(m)
+	if strings.Contains(bar, "Claude Code") {
+		t.Fatalf("token segment should be hidden once the pulse ends:\n%s", bar)
 	}
 }
 
