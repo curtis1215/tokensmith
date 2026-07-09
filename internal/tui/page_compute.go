@@ -2,39 +2,55 @@ package tui
 
 import (
 	"fmt"
-	"strings"
 
 	"tokensmith/internal/sim"
 )
 
 func renderCompute(m Model) string {
 	s := m.state
-	var b strings.Builder
 
-	// Effective pool capacities (self-built + rented, engineer/tech/star mults applied).
+	// 1. Causal Card ("池狀態")
 	trainCap := sim.EffectiveTraining(s, m.cfg)
 	trainUtil := 0.0
 	if s.HasTraining {
-		trainUtil = 1 // a job fully occupies the training pool in v0
+		trainUtil = 1.0
 	}
-	b.WriteString(fmt.Sprintf("訓練池  %s %.0f%%   有效算力 %.0f\n",
-		progressBar(trainUtil, 12), trainUtil*100, trainCap))
+	trainBarStr := fmt.Sprintf("訓練池: %s %.0f%% (有效算力 %.0f)",
+		Bar(trainUtil, 12), trainUtil*100, trainCap)
 
 	infCap := sim.EffectiveInference(s, m.cfg)
 	infUtil := 0.0
 	if infCap > 0 {
 		infUtil = s.Compute.InferenceLoad / infCap
 	}
-	warn := ""
+	infBarStr := fmt.Sprintf("推理池: %s %.0f%% (有效算力 %.0f)",
+		Bar(infUtil, 12), infUtil*100, infCap)
 	if infUtil >= 0.9 {
-		warn = " ⚠接近上限"
+		infBarStr = styleWarn.Render(infBarStr)
 	}
-	b.WriteString(fmt.Sprintf("推理池  %s %.0f%%   有效算力 %.0f%s\n",
-		progressBar(infUtil, 12), infUtil*100, infCap, warn))
 
-	// Process-node table: cursor, compute/rent, per-process rented counts, lock state.
-	b.WriteString(fmt.Sprintf("\n製程算力                                可用 R&D %s\n", human(s.Resources.RnD)))
-	b.WriteString("              算力  租金/秒*  訓練張  推理張  解鎖\n")
+	servable := sim.ServableUsers(s, m.cfg)
+	totalUsers := sim.TotalUsers(s)
+	
+	causalLines := []string{
+		trainBarStr,
+		infBarStr,
+		"",
+		KV("可撐用戶", fmt.Sprintf("~%s", human(servable))),
+		KV("現況用戶", human(totalUsers)),
+	}
+
+	if infCap == 0 {
+		causalLines = append(causalLines, styleAccent.Render("未配置推理 · grace（不因超載砍用戶）"))
+	} else if totalUsers > servable {
+		causalLines = append(causalLines, styleWarn.Render("超載 · 建議加推理"))
+	}
+
+	causalCard := Card("池狀態", VStack(causalLines...))
+
+	// 2. Process table card
+	var procLines []string
+	procLines = append(procLines, "              算力  租金/秒*  訓練張  推理張  解鎖")
 	for i, p := range m.cfg.Processes {
 		cursor := " "
 		if i == m.procCursor {
@@ -46,20 +62,39 @@ func renderCompute(m Model) string {
 		}
 		rentedT := s.Compute.RentedTraining[p.ID]
 		rentedI := s.Compute.RentedInference[p.ID]
-		b.WriteString(fmt.Sprintf("%s %-8s %4.0f  $%.4f   %5d   %5d   %s\n",
+		procLines = append(procLines, fmt.Sprintf("%s %-8s %4.0f  $%.4f   %5d   %5d   %s",
 			cursor, p.Name, p.Compute, p.RentPerSec, rentedT, rentedI, unlockState))
 	}
-	b.WriteString(helpStyle.Render(fmt.Sprintf("* 推理租金/張/秒；訓練池 ×%.3f\n", m.cfg.TrainRentMult)))
+	procTableStr := VStack(procLines...)
+	procTitle := fmt.Sprintf("製程算力 (可用 R&D: %s)", human(s.Resources.RnD))
+	procCard := Card(procTitle, VStack(procTableStr, "", helpStyle.Render(fmt.Sprintf("* 推理租金/張/秒；訓練池 ×%.3f", m.cfg.TrainRentMult))))
 
-	// Datacenter power / space.
+	// 3. Datacenter power & space
 	var usedPower, usedSlots float64
 	for _, sv := range s.Servers {
 		usedPower += sv.PowerKW
 		usedSlots += sv.Slots
 	}
-	b.WriteString(fmt.Sprintf("\n機房  電力 %.0f/%.0f kW · 空間 %.0f/%.0f\n",
-		usedPower, s.Datacenter.PowerCapacity, usedSlots, s.Datacenter.SlotCapacity))
+	
+	powerUtil := 0.0
+	if s.Datacenter.PowerCapacity > 0 {
+		powerUtil = usedPower / s.Datacenter.PowerCapacity
+	}
+	slotsUtil := 0.0
+	if s.Datacenter.SlotCapacity > 0 {
+		slotsUtil = usedSlots / s.Datacenter.SlotCapacity
+	}
 
-	b.WriteString(helpStyle.Render("\n[↑↓]選製程 [r/R]±訓練 [i/I]±推理 [b/B]建訓練/推理伺服器 [e]擴機房 [Tab]切頁"))
-	return b.String()
+	dcBody := VStack(
+		fmt.Sprintf("電力: %s %s/%s kW", Bar(powerUtil, 10), human(usedPower), human(s.Datacenter.PowerCapacity)),
+		fmt.Sprintf("空間: %s %s/%s", Bar(slotsUtil, 10), human(usedSlots), human(s.Datacenter.SlotCapacity)),
+	)
+	dcCard := Card("機房與電力", dcBody)
+
+	// Combine columns
+	leftCol := VStack(causalCard, dcCard)
+	rightCol := procCard
+	row := HRow(2, leftCol, rightCol)
+
+	return VStack(row, Footer("[↑↓]選製程 [r/R]±訓練 [i/I]±推理 [b/B]建訓練/推理伺服器 [e]擴機房"))
 }
