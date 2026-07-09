@@ -8,17 +8,20 @@ import (
 
 func TestDefaultV0Values(t *testing.T) {
 	c := Default()
-	if c.ResearcherRnDPerSec[model.Tier1] != 0.005 {
-		t.Errorf("Tier1 R&D/s = %v, want 0.005", c.ResearcherRnDPerSec[model.Tier1])
+	if c.ResearcherRnDPerSec[model.Tier1] != 0.005/RealSecCompression {
+		t.Errorf("Tier1 R&D/s = %v, want %v", c.ResearcherRnDPerSec[model.Tier1], 0.005/RealSecCompression)
 	}
-	if c.ResearcherRnDPerSec[model.Tier2] != 0.015 {
-		t.Errorf("Tier2 R&D/s = %v, want 0.015", c.ResearcherRnDPerSec[model.Tier2])
+	if c.ResearcherRnDPerSec[model.Tier2] != 0.015/RealSecCompression {
+		t.Errorf("Tier2 R&D/s = %v, want %v", c.ResearcherRnDPerSec[model.Tier2], 0.015/RealSecCompression)
 	}
-	if c.ResearcherRnDPerSec[model.Tier3] != 0.04 {
-		t.Errorf("Tier3 R&D/s = %v, want 0.04", c.ResearcherRnDPerSec[model.Tier3])
+	if c.ResearcherRnDPerSec[model.Tier3] != 0.04/RealSecCompression {
+		t.Errorf("Tier3 R&D/s = %v, want %v", c.ResearcherRnDPerSec[model.Tier3], 0.04/RealSecCompression)
 	}
 	if c.TokenInputWeight != 1 || c.TokenOutputWeight != 2 || c.TokenDivisor != 10 {
 		t.Errorf("token formula params wrong: %+v", c)
+	}
+	if c.StreakMult != 1.0 {
+		t.Errorf("StreakMult default = %v, want 1.0 (neutral)", c.StreakMult)
 	}
 	if c.SoftCapFull != 200000 || c.SoftCapMult != 0.3 || c.SoftCapWindowSec != 86400 {
 		t.Errorf("soft cap params wrong: %+v", c)
@@ -241,7 +244,7 @@ func TestDefaultStars(t *testing.T) {
 	for _, s := range c.Stars {
 		byID[s.ID] = s
 	}
-	if s, ok := byID["aria-chen"]; !ok || s.Effects.QualityMult[model.DimCapability] != 1.22 || s.Effects.RnDPerSec != 300 {
+	if s, ok := byID["aria-chen"]; !ok || s.Effects.QualityMult[model.DimCapability] != 1.22 || s.Effects.RnDPerSec != 300/RealSecCompression {
 		t.Errorf("aria-chen wrong: %+v ok=%v", s, ok)
 	}
 	if s, ok := byID["marcus-cole"]; !ok || s.Effects.UserGrowthMult != 1.30 {

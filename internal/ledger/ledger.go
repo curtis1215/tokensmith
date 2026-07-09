@@ -10,14 +10,36 @@ import (
 	"path/filepath"
 
 	"tokensmith/internal/ingest"
+	"tokensmith/internal/model"
 )
 
-// Ledger is the monotonically-growing harvest total plus durable cursors.
+// Ledger is the monotonically-growing per-source harvest totals plus durable
+// cursors. Sources is keyed by TokenEvent.Source ("claude-code" / "codex").
+// Older ledger.json files used flat cumIn/cumOut ints instead of Sources —
+// those legacy fields are simply absent from a freshly-loaded Ledger (zero
+// value), which the daemon treats as "start counting from here."
 type Ledger struct {
-	CumIn     int                  `json:"cumIn"`
-	CumOut    int                  `json:"cumOut"`
-	UpdatedAt int64                `json:"updatedAt"`
-	Cursors   []ingest.CursorState `json:"cursors,omitempty"`
+	Sources   map[string]model.SourceTotals `json:"sources"`
+	UpdatedAt int64                         `json:"updatedAt"`
+	Cursors   []ingest.CursorState          `json:"cursors,omitempty"`
+}
+
+// TotalIn sums InputTokens across every source.
+func (l Ledger) TotalIn() int {
+	var n int
+	for _, s := range l.Sources {
+		n += s.In
+	}
+	return n
+}
+
+// TotalOut sums OutputTokens across every source.
+func (l Ledger) TotalOut() int {
+	var n int
+	for _, s := range l.Sources {
+		n += s.Out
+	}
+	return n
 }
 
 // DefaultPath is the standard ledger location.

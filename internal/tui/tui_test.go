@@ -207,3 +207,10 @@ func TestViewportHoldsTallContent(t *testing.T) {
 		t.Fatalf("shell footer missing:\n%s", v)
 	}
 }
+
+func TestRealSecCompressionMatchesTickRate(t *testing.T) {
+	want := tickDT * float64(time.Second) / float64(tickInterval)
+	if balance.RealSecCompression != want {
+		t.Fatalf("balance.RealSecCompression = %v, want %v (tui tickDT/tickInterval changed without updating balance.RealSecCompression)", balance.RealSecCompression, want)
+	}
+}

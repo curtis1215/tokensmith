@@ -29,9 +29,12 @@ func TestNoModelPressureShown(t *testing.T) {
 func TestResourceBarShowsPerRealSecondRnDRate(t *testing.T) {
 	m := testModel(t) // fresh game seeds 2 T1 researchers
 	bar := renderResourceBar(m)
-	// 2 × 0.005/game-sec × 14400 game-sec/real-sec = 144/real-sec (not +0/s)
-	if strings.Contains(bar, "+0/s") || !strings.Contains(bar, "144") {
-		t.Fatalf("expected a non-zero per-real-second R&D rate:\n%s", bar)
+	// 2 × (0.005/14400 game-sec) × 14400 game-sec/real-sec = 0.01/real-sec exactly —
+	// small on purpose (root-cause fix: passive income no longer secretly
+	// inherits the 14400x sim-time compression). human() shows sub-1 values to
+	// 2dp so this doesn't misleadingly render as "+0/s".
+	if !strings.Contains(bar, "+0.01/s") {
+		t.Fatalf("expected the un-inflated per-real-second R&D rate:\n%s", bar)
 	}
 }
 

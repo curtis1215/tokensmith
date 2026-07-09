@@ -58,7 +58,6 @@ type Model struct {
 	state          model.GameState
 	cfg            balance.Config
 	poller         *ingest.Poller
-	lastTokens     int
 	savePath       string
 	ticksSinceSave int
 	page           Page
@@ -72,15 +71,24 @@ type Model struct {
 	ledgerPath     string
 	metaPath       string
 	daemonMode     bool // consume the daemon ledger instead of the built-in poller
-	consumedIn     int  // ledger tokens already applied
-	consumedOut    int
+	consumed       map[string]model.SourceTotals // per-source ledger tokens already applied
 	lastRealUnix   int64
 	metaMissing    bool
 	offlineSummary *Summary // shown as a banner until dismissed by any key
-	notice         string   // transient one-line banner, dismissed by any key
-	pendingRestart bool     // armed manual restart; a second X confirms it
-	width          int      // terminal width
-	height         int      // terminal height
+	// tokensThisTick is true only on the tick that just harvested new tokens
+	// (drives the pulse restart). lastTokenRnD is the per-source R&D delta from
+	// that tick, kept (not cleared) across the pulse-decay window so the status
+	// bar can keep showing it while it fades — see internal/tui/display.go.
+	tokensThisTick bool
+	lastTokenRnD   map[string]float64
+	// streakDays/lastActiveDate mirror store.Meta; kept in memory between saves
+	// so every tick can read the current streak multiplier cheaply.
+	streakDays     int
+	lastActiveDate string
+	notice         string // transient one-line banner, dismissed by any key
+	pendingRestart bool   // armed manual restart; a second X confirms it
+	width          int    // terminal width
+	height         int    // terminal height
 	vp             viewport.Model
 	disp           displayState
 	dispReady      bool // false until first snap after new game / restart
@@ -116,19 +124,20 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 	}
 	meta, metaOK, _ := store.LoadMeta(metaPath)
 	m := Model{
-		state:        state,
-		cfg:          balance.Default(),
-		poller:       ingest.NewDefaultPoller(),
-		savePath:     savePath,
-		ledgerPath:   ledgerPath,
-		metaPath:     metaPath,
-		consumedIn:   meta.ConsumedIn,
-		consumedOut:  meta.ConsumedOut,
-		lastRealUnix: meta.LastRealUnix,
-		metaMissing:  !metaOK,
-		width:        100,
-		height:       40,
-		vp:           viewport.New(80, 20),
+		state:          state,
+		cfg:            balance.Default(),
+		poller:         ingest.NewDefaultPoller(),
+		savePath:       savePath,
+		ledgerPath:     ledgerPath,
+		metaPath:       metaPath,
+		consumed:       meta.ConsumedSources,
+		lastRealUnix:   meta.LastRealUnix,
+		metaMissing:    !metaOK,
+		streakDays:     meta.StreakDays,
+		lastActiveDate: meta.LastActiveDate,
+		width:          100,
+		height:         40,
+		vp:             viewport.New(80, 20),
 	}
 	m.resize(m.width, m.height)
 	m.refreshViewport()
@@ -150,27 +159,86 @@ func (m Model) startup(now int64) Model {
 	if m.metaMissing {
 		// First-ever open: adopt the current total so we don't settle a phantom
 		// window of everything harvested before the player ever played.
-		m.consumedIn, m.consumedOut = l.CumIn, l.CumOut
+		m.consumed = copySourceTotals(l.Sources)
 		return m
 	}
-	offIn := l.CumIn - m.consumedIn
-	offOut := l.CumOut - m.consumedOut
+	prevIn, prevOut := sumSourceTotals(m.consumed)
+	offIn := l.TotalIn() - prevIn
+	offOut := l.TotalOut() - prevOut
 	elapsed := float64(now - m.lastRealUnix)
-	ns, sum := Settle(m.state, m.cfg, elapsed, offIn, offOut)
+	if offIn > 0 || offOut > 0 {
+		m.updateStreak(time.Unix(now, 0))
+	}
+	cfg := m.cfg
+	cfg.StreakMult = m.currentStreakMult()
+	ns, sum := Settle(m.state, cfg, elapsed, offIn, offOut)
 	m.state = ns
-	m.consumedIn, m.consumedOut = l.CumIn, l.CumOut
+	m.consumed = copySourceTotals(l.Sources)
 	if sum.RnDGained > 0 || sum.TrainingCompleted || sum.EventsFired > 0 || sum.EventsAutoResolved > 0 {
 		m.offlineSummary = &sum
 	}
 	return m
 }
 
-// saveMeta persists the consumed watermark and the current wall-clock time.
+// copySourceTotals deep-copies a per-source totals map so callers don't alias
+// a ledger snapshot that gets discarded.
+func copySourceTotals(src map[string]model.SourceTotals) map[string]model.SourceTotals {
+	out := make(map[string]model.SourceTotals, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
+}
+
+// sumSourceTotals adds up every source's In/Out.
+func sumSourceTotals(m map[string]model.SourceTotals) (in, out int) {
+	for _, t := range m {
+		in += t.In
+		out += t.Out
+	}
+	return
+}
+
+// currentStreakMult returns the token-R&D multiplier for m.streakDays, capped
+// at streakCapDays consecutive days.
+func (m Model) currentStreakMult() float64 {
+	days := m.streakDays
+	if days > streakCapDays {
+		days = streakCapDays
+	}
+	return 1 + streakBonusPerDay*float64(days)
+}
+
+// updateStreak advances the coding-streak counter from the real calendar
+// date. Call only when this tick actually harvested tokens (an idle tick
+// must not break or extend the streak).
+func (m *Model) updateStreak(now time.Time) {
+	today := now.Format("2006-01-02")
+	if today == m.lastActiveDate {
+		return
+	}
+	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
+	if m.lastActiveDate == yesterday {
+		m.streakDays++
+	} else {
+		m.streakDays = 1
+	}
+	m.lastActiveDate = today
+}
+
+const (
+	streakCapDays     = 10   // multiplier stops growing past this many consecutive days
+	streakBonusPerDay = 0.06 // +6%/day, so day 5 = ×1.3 and the day-10 cap = ×1.6
+)
+
+// saveMeta persists the consumed watermark, streak state, and the current
+// wall-clock time.
 func (m Model) saveMeta() {
 	_ = store.SaveMeta(m.metaPath, store.Meta{
-		ConsumedIn:   m.consumedIn,
-		ConsumedOut:  m.consumedOut,
-		LastRealUnix: time.Now().Unix(),
+		ConsumedSources: m.consumed,
+		LastRealUnix:    time.Now().Unix(),
+		LastActiveDate:  m.lastActiveDate,
+		StreakDays:      m.streakDays,
 	})
 }
 
@@ -191,13 +259,21 @@ func (m *Model) pollTokens() []model.TokenEvent {
 	if !ok {
 		return nil
 	}
-	di := l.CumIn - m.consumedIn
-	do := l.CumOut - m.consumedOut
-	if di <= 0 && do <= 0 {
+	var events []model.TokenEvent
+	for src, tot := range l.Sources {
+		prev := m.consumed[src]
+		di := tot.In - prev.In
+		do := tot.Out - prev.Out
+		if di <= 0 && do <= 0 {
+			continue
+		}
+		events = append(events, model.TokenEvent{Source: src, InputTokens: di, OutputTokens: do})
+	}
+	if len(events) == 0 {
 		return nil
 	}
-	m.consumedIn, m.consumedOut = l.CumIn, l.CumOut
-	return []model.TokenEvent{{InputTokens: di, OutputTokens: do}}
+	m.consumed = copySourceTotals(l.Sources)
+	return events
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -219,13 +295,28 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		m.resize(msg.Width, msg.Height)
 		return m, nil
 	case tickMsg:
+		now := time.Time(msg)
 		events := m.pollTokens()
-		m.lastTokens = 0
-		for _, e := range events {
-			m.lastTokens += e.InputTokens + e.OutputTokens
+		m.tokensThisTick = len(events) > 0
+		if m.tokensThisTick {
+			m.updateStreak(now)
+		}
+		cfgTick := m.cfg
+		cfgTick.StreakMult = m.currentStreakMult()
+		if m.tokensThisTick {
+			// ponytail: soft cap (SoftCapFull/SoftCapMult) is intentionally not
+			// reflected here — only matters at extreme burst volumes (~2M weighted
+			// tokens in ~6s) normal solo usage never reaches. If that ever becomes
+			// needed, have sim.Tick return the actual token R&D applied this tick.
+			pe := sim.PrestigeEffects(m.state.Prestige.UnlockedPrestige, cfgTick)
+			rnd := make(map[string]float64, len(events))
+			for _, e := range events {
+				rnd[e.Source] += sim.TokenRawRnD([]model.TokenEvent{e}, cfgTick) * cfgTick.StreakMult * pe.RnDMult
+			}
+			m.lastTokenRnD = rnd
 		}
 		prevFired := m.state.Events.FiredCount
-		m.state = sim.Tick(m.state, tickDT, events, m.cfg)
+		m.state = sim.Tick(m.state, tickDT, events, cfgTick)
 		if m.state.Events.FiredCount > prevFired {
 			m.setNotice("📰 產業事件：" + latestEventName(m.state))
 		}
@@ -702,6 +793,8 @@ func human(v float64) string {
 		return fmt.Sprintf("%.2fM", v/1e6)
 	case v >= 1e3:
 		return fmt.Sprintf("%.0fk", v/1e3)
+	case v > 0 && v < 1:
+		return fmt.Sprintf("%.2f", v)
 	default:
 		return fmt.Sprintf("%.0f", v)
 	}
@@ -745,10 +838,52 @@ func renderResourceBar(m Model) string {
 		cashStr, rndSeg,
 		trainUtil*100, infStr, human(val))
 
-	if m.lastTokens > 0 {
-		bar += fmt.Sprintf("   ⚡token +%d", m.lastTokens)
+	if m.disp.PulseToken > 0 && len(m.lastTokenRnD) > 0 {
+		parts := make([]string, 0, len(m.lastTokenRnD)+1)
+		for _, src := range sourceKeysOrdered(m.lastTokenRnD) {
+			parts = append(parts, fmt.Sprintf("⚡ %s +%s R&D", sourceLabel(src), human(m.lastTokenRnD[src])))
+		}
+		if m.streakDays > 0 {
+			parts = append(parts, fmt.Sprintf("🔥連續%d天 ×%.2f", m.streakDays, m.currentStreakMult()))
+		}
+		bar += "   " + strings.Join(parts, "   ")
 	}
 	return bar
+}
+
+// knownSourceOrder fixes the display order of the two known token sources;
+// any future/unknown source is appended after them in map-iteration order.
+var knownSourceOrder = []string{"claude-code", "codex"}
+
+// sourceKeysOrdered returns m's keys in a stable, deterministic order so the
+// status bar doesn't reorder itself between renders.
+func sourceKeysOrdered(m map[string]float64) []string {
+	var out []string
+	seen := make(map[string]bool, len(m))
+	for _, k := range knownSourceOrder {
+		if _, ok := m[k]; ok {
+			out = append(out, k)
+			seen[k] = true
+		}
+	}
+	for k := range m {
+		if !seen[k] {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// sourceLabel maps a TokenEvent.Source to its display name.
+func sourceLabel(src string) string {
+	switch src {
+	case "claude-code":
+		return "Claude Code"
+	case "codex":
+		return "Codex"
+	default:
+		return src
+	}
 }
 
 // latestEventName names the most recently fired event for the notice line.
@@ -762,8 +897,7 @@ func latestEventName(s model.GameState) string {
 	return ""
 }
 
-// pressures returns ⚠ attention items surfaced on the overview page. (A real
-// coding-streak counter is deferred to a later plan.)
+// pressures returns ⚠ attention items surfaced on the overview page.
 func pressures(m Model) []string {
 	s := m.state
 	var out []string

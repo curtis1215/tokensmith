@@ -6,6 +6,7 @@ import (
 
 	"tokensmith/internal/ingest"
 	"tokensmith/internal/ledger"
+	"tokensmith/internal/model"
 )
 
 // cursorMaxAgeSec bounds which files' cursors are persisted: a log untouched
@@ -33,13 +34,18 @@ func New(claudeDir, codexDir, ledgerPath string) *Harvester {
 	return &Harvester{poller: p, ledgerPath: ledgerPath, cur: cur}
 }
 
-// Step polls for new usage, folds it into the cumulative totals, and persists
-// the ledger stamped with now (unix seconds), keeping only recently-active
-// cursors so the file stays small.
+// Step polls for new usage, folds it into the cumulative per-source totals,
+// and persists the ledger stamped with now (unix seconds), keeping only
+// recently-active cursors so the file stays small.
 func (h *Harvester) Step(now int64) error {
 	for _, e := range h.poller.Poll() {
-		h.cur.CumIn += e.InputTokens
-		h.cur.CumOut += e.OutputTokens
+		if h.cur.Sources == nil {
+			h.cur.Sources = map[string]model.SourceTotals{}
+		}
+		st := h.cur.Sources[e.Source]
+		st.In += e.InputTokens
+		st.Out += e.OutputTokens
+		h.cur.Sources[e.Source] = st
 	}
 	h.cur.UpdatedAt = now
 	h.cur.Cursors = pruneCursors(h.poller.ExportCursors(), now)

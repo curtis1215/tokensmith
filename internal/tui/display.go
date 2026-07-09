@@ -10,6 +10,11 @@ import (
 // displayAlpha is the exponential approach factor per tick (α ≈ 0.3).
 const displayAlpha = 0.3
 
+// tokenPulseTicks is how many ticks the token flash stays lit (~3s at the
+// 250ms tick interval) before fading — long enough to actually notice,
+// unlike the old 4-tick (~1s) blink-and-miss window.
+const tokenPulseTicks = 12
+
 // displayState holds presentation-only values that trail sim truth for smooth
 // motion. It must never feed back into sim tick or Apply.
 type displayState struct {
@@ -125,8 +130,8 @@ func (m *Model) advanceDisplay() {
 	} else {
 		m.disp.approach(truth, displayAlpha)
 	}
-	if m.lastTokens > 0 {
-		m.disp.PulseToken = 4
+	if m.tokensThisTick {
+		m.disp.PulseToken = tokenPulseTicks
 	} else if m.disp.PulseToken > 0 {
 		m.disp.PulseToken--
 	}

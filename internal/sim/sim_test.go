@@ -13,30 +13,33 @@ func approx(a, b float64) bool { return math.Abs(a-b) < 1e-6 }
 func TestStaffRnDPerSec(t *testing.T) {
 	b := balance.Default()
 	r := model.Research{EfficiencyMult: 1.0}
-	r.Researchers[model.Tier1] = 2 // 2*0.005 = 0.01
+	r.Researchers[model.Tier1] = 2 // 2*0.005 = 0.01 (pre-compression-fix units)
 	r.Researchers[model.Tier2] = 1 // 1*0.015 = 0.015
-	got := staffRnDPerSec(r, b)    // 0.025/s
-	if !approx(got, 0.025) {
-		t.Fatalf("staffRnDPerSec = %v, want 0.025", got)
+	got := staffRnDPerSec(r, b)    // 0.025/s, scaled by RealSecCompression
+	want := 0.025 / balance.RealSecCompression
+	if !approx(got, want) {
+		t.Fatalf("staffRnDPerSec = %v, want %v", got, want)
 	}
 }
 
 func TestStaffRnDEfficiencyMult(t *testing.T) {
 	b := balance.Default()
 	r := model.Research{EfficiencyMult: 2.0}
-	r.Researchers[model.Tier2] = 1 // 0.015 * 2.0 = 0.03
-	if got := staffRnDPerSec(r, b); !approx(got, 0.03) {
-		t.Fatalf("staffRnDPerSec with mult = %v, want 0.03", got)
+	r.Researchers[model.Tier2] = 1 // 0.015 * 2.0 = 0.03, scaled by RealSecCompression
+	want := 0.03 / balance.RealSecCompression
+	if got := staffRnDPerSec(r, b); !approx(got, want) {
+		t.Fatalf("staffRnDPerSec with mult = %v, want %v", got, want)
 	}
 }
 
 func TestTickAddsStaffRnDAndAdvancesTime(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{Research: model.Research{EfficiencyMult: 1.0}}
-	s.Research.Researchers[model.Tier2] = 4 // 0.06/s
-	ns := Tick(s, 10, nil, b)               // 0.06/s * 10s = 0.6
-	if !approx(ns.Resources.RnD, 0.6) {
-		t.Fatalf("RnD = %v, want 0.6", ns.Resources.RnD)
+	s.Research.Researchers[model.Tier2] = 4 // 0.06/s pre-compression-fix
+	ns := Tick(s, 10, nil, b)               // 0.06/s * 10s = 0.6, scaled by RealSecCompression
+	want := 0.6 / balance.RealSecCompression
+	if !approx(ns.Resources.RnD, want) {
+		t.Fatalf("RnD = %v, want %v", ns.Resources.RnD, want)
 	}
 	if !approx(ns.GameTime, 10) {
 		t.Fatalf("GameTime = %v, want 10", ns.GameTime)
@@ -53,14 +56,14 @@ func TestTokenRawRnD(t *testing.T) {
 		{InputTokens: 1000, OutputTokens: 500}, // (1000 + 2*500)/10 = 200
 		{InputTokens: 0, OutputTokens: 1000},   // (0 + 2000)/10   = 200
 	}
-	if got := tokenRawRnD(events, b); !approx(got, 400) {
-		t.Fatalf("tokenRawRnD = %v, want 400", got)
+	if got := TokenRawRnD(events, b); !approx(got, 400) {
+		t.Fatalf("TokenRawRnD = %v, want 400", got)
 	}
 }
 
 func TestTokenRawRnDEmpty(t *testing.T) {
-	if got := tokenRawRnD(nil, balance.Default()); got != 0 {
-		t.Fatalf("tokenRawRnD(nil) = %v, want 0", got)
+	if got := TokenRawRnD(nil, balance.Default()); got != 0 {
+		t.Fatalf("TokenRawRnD(nil) = %v, want 0", got)
 	}
 }
 
@@ -72,6 +75,27 @@ func TestTickAddsTokenRnD(t *testing.T) {
 	ns := Tick(s, 1, events, b)
 	if !approx(ns.Resources.RnD, 200) {
 		t.Fatalf("RnD = %v, want 200", ns.Resources.RnD)
+	}
+}
+
+func TestTickStreakMultOnlyAffectsTokenRnD(t *testing.T) {
+	b := balance.Default()
+	b.StreakMult = 2.0
+	staffOnly := model.GameState{Research: model.Research{EfficiencyMult: 1.0}}
+	staffOnly.Research.Researchers[model.Tier2] = 4
+	base := balance.Default() // StreakMult = 1.0 (neutral)
+	nsStreak := Tick(staffOnly, 10, nil, b)
+	nsBase := Tick(staffOnly, 10, nil, base)
+	if !approx(nsStreak.Resources.RnD, nsBase.Resources.RnD) {
+		t.Fatalf("StreakMult must not affect staff-only R&D: streak=%v base=%v", nsStreak.Resources.RnD, nsBase.Resources.RnD)
+	}
+
+	tokenOnly := model.GameState{}
+	events := []model.TokenEvent{{OutputTokens: 1000}} // raw 200
+	nsTokenStreak := Tick(tokenOnly, 1, events, b)
+	nsTokenBase := Tick(tokenOnly, 1, events, base)
+	if !approx(nsTokenStreak.Resources.RnD, 2*nsTokenBase.Resources.RnD) {
+		t.Fatalf("StreakMult=2.0 should double token R&D: got %v, want %v", nsTokenStreak.Resources.RnD, 2*nsTokenBase.Resources.RnD)
 	}
 }
 
@@ -156,8 +180,8 @@ func TestOfflineFastForwardEquivalenceStaffOnly(t *testing.T) {
 		t.Fatalf("GameTime mismatch: oneShot=%v stepwise=%v",
 			oneShot.GameTime, stepwise.GameTime)
 	}
-	if !approx(oneShot.Resources.RnD, 14.25) { // (3*0.005 + 2*0.04)*1.5 = 0.1425/s * 100s = 14.25
-		t.Fatalf("expected RnD 14.25, got %v", oneShot.Resources.RnD)
+	if !approx(oneShot.Resources.RnD, 14.25/balance.RealSecCompression) { // (3*0.005 + 2*0.04)*1.5 = 0.1425/s * 100s = 14.25, scaled
+		t.Fatalf("expected RnD %v, got %v", 14.25/balance.RealSecCompression, oneShot.Resources.RnD)
 	}
 }
 

@@ -6,15 +6,22 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"tokensmith/internal/model"
 )
 
 // Meta is TUI-side runtime persistence kept beside the save: how much of the
-// harvest ledger has been consumed, and the wall-clock time of the last play
-// (used to settle offline progress). The sim itself never sees wall-clock.
+// harvest ledger has been consumed (per source), the coding-streak counter,
+// and the wall-clock time of the last play (used to settle offline
+// progress). The sim itself never sees wall-clock.
 type Meta struct {
-	ConsumedIn   int   `json:"consumedIn"`
-	ConsumedOut  int   `json:"consumedOut"`
-	LastRealUnix int64 `json:"lastRealUnix"`
+	ConsumedSources map[string]model.SourceTotals `json:"consumedSources"`
+	LastRealUnix    int64                          `json:"lastRealUnix"`
+	// LastActiveDate is "YYYY-MM-DD" in local time — the last calendar day any
+	// tokens were harvested. StreakDays counts consecutive such days; a
+	// skipped day resets it to 1 on the next active day.
+	LastActiveDate string `json:"lastActiveDate"`
+	StreakDays     int    `json:"streakDays"`
 }
 
 // DefaultMetaPath is the standard meta-file location.

@@ -14,8 +14,8 @@ func TestStarEffectsAggregate(t *testing.T) {
 	if !approx(se.QualityMult[model.DimCapability], 1.22) {
 		t.Errorf("cap mult = %v, want 1.22", se.QualityMult[model.DimCapability])
 	}
-	if !approx(se.RnDPerSec, 300) {
-		t.Errorf("RnDPerSec = %v, want 300", se.RnDPerSec)
+	if !approx(se.RnDPerSec, 300/balance.RealSecCompression) {
+		t.Errorf("RnDPerSec = %v, want %v", se.RnDPerSec, 300/balance.RealSecCompression)
 	}
 	if !approx(se.UserGrowthMult, 1.30) {
 		t.Errorf("UserGrowthMult = %v, want 1.30", se.UserGrowthMult)
