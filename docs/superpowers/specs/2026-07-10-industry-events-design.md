@@ -95,7 +95,7 @@ seed 來源：TUI new-game 路徑（sim 外）以 wall-clock 播種；sim 本身
 1. **到期清理**：移除 `ExpiresAt <= GameTime` 的 `Active`；`Deadline <= GameTime` 的 `Pending` 以 `DefaultChoice` 自動決議（套用選項效果、記 Log `Auto=true`）。
 2. **觸發擲骰**：當 `GameTime >= NextCheckAt`：
    - 收集「當前可觸發」事件：gate 通過（時間、估值門檻等）、且該事件不在 `Pending` / `Active` 中（**同事件不重複觸發**）。
-   - 權重可依 state 調整：事故權重 ∝ 上線模型安全低 × `IncidentMult` × `IncidentChanceMult`；泡沫論 gate `PeakValuation`；突破論文權重隨 R&D 投入升。
+   - 權重可依 state 調整：事故權重 ∝ 上線模型安全低 × `IncidentMult` × `IncidentChanceMult`；泡沫論 gate `PeakValuation`；突破論文權重隨 R&D 投入升（v0 以研究員人數（1+0.1×人數，上限 3×）作為 R&D 投入的 proxy）。
    - 加權挑一個或空手而回（命中率為 balance 參數）。
    - `NextCheckAt += 檢查間隔 ± jitter`（jitter 亦出自 RandState）。
 3. **生效**：
@@ -120,7 +120,7 @@ seed 來源：TUI new-game 路徑（sim 外）以 wall-clock 播種；sim 本身
 | 4 | `open-source-war` | 開源價格戰 | 隨機 | `RefPriceMult 0.8` 一段時間 | 跟進降價（改吃 `RefPriceMult 0.75` + `UserGrowthMult 1.2`）/ ★守高階 |
 | 5 | `rival-scandal` | 對手安全爭議 | 以 (1−對手安全) 加權挑目標 | 一次性該對手 `Quality[DimSafety]` −20% | 花錢搶客（花現金，`UserGrowthMult 1.3`）/ ★觀望（`1.1` 小加成） |
 | 6 | `breakthrough-paper` | 突破論文 | 權重隨 R&D 投入升；隨機挑分支（Target） | —（效果全在選項） | 押注加碼（花 R&D，該分支 `TechCostMult 0.5`）/ ★常規吸收（`0.7`） |
-| 7 | `model-incident` | 你的模型出事 | 權重 ∝ 上線模型安全低 × `IncidentMult` × `IncidentChanceMult` | 一次性上線模型用戶 −8%（企業段 −15%） | 公開道歉（花現金，流失補回一半、無後遺症）/ ★低調（`IncidentChanceMult 1.5` 一段時間） |
+| 7 | `model-incident` | 你的模型出事 | 權重 ∝ 上線模型安全低 × `IncidentMult` × `IncidentChanceMult` | 用戶流失於決策時套用（選項直接決定嚴重度：道歉=半額、低調=全額+後遺症；逾時自動以預設低調全額套用），取代 fire 時套用＋道歉補回的原設計，理由是免去逐模型流失記帳 | 公開道歉（花現金，半額流失、無後遺症）/ ★低調（全額流失 + `IncidentChanceMult 1.5` 一段時間） |
 | 8 | `regulation` | AI 監管新法 | 時間 gate（中後期） | 期間 `SafetyWeightMult 1.5` | 投資合規（花現金，你全模型 `Quality[DimSafety]` +10% 一次性）/ ★硬扛 |
 | 9 | `market-cycle` | 市場榮枯 | 隨機週期，骰方向 | `TAMMult 1.25` 或 `0.8`，較長時段 | 無選項（宏觀） |
 | 10 | `bubble-talk` | AI 泡沫論 | gate：`PeakValuation` 達標 | `ValuationMult 0.75` 一段時間 | 釋出實績穩信心（花現金，改吃 `0.9`）/ ★觀望 |
@@ -157,7 +157,7 @@ EventHitChance    float64 // 每次擲骰命中率
 EventLogCap       int     // 歷史保留條數
 ```
 
-v0 初標（待 playtest）：`EventCheckSec = 6 sim 小時 ± jitter`、`EventHitChance` 調到平均每天 1–2 起、`DeadlineSec = 24 sim 小時`、持續型 2–4 天、`EventLogCap = 20`。現金成本以當前規模比例計（如月營收的百分比，floor 保底），避免後期事件變成零感知。
+v0 節奏以真實手感標定而非原 sim 小時數值，因 TUI 時間壓縮（tickDT=3600 每 250ms → 線上 1 遊戲天 ≈ 6 真實秒）：擲骰間隔 5 遊戲天（≈30 真實秒）、決策期限 20 遊戲天（≈2 真實分）、持續效果 30–60 遊戲天；原文的「6 sim 小時／24 小時／2–4 天」作廢。`EventHitChance` 調到平均合理節奏、`EventLogCap = 20`。現金成本以當前規模比例計（如月營收的百分比，floor 保底），避免後期事件變成零感知。
 
 ## 6. TUI（`internal/tui`）
 
