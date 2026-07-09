@@ -112,15 +112,15 @@ func EstimateUserTarget(s model.GameState, modelIndex int, price float64, b bala
 	}
 	te := techEffects(s, b)
 	se := starEffects(s, b)
-	refPrice := b.SegmentRefPrice[m.Segment] * te.RefPriceMult
+	refPrice := EffectiveRefPrice(s, m.Segment, b)
 	demandMult := math.Pow(refPrice/price, b.PriceElasticity)
 	marketingMult := 1 + float64(s.Marketing)*b.MarketingBonus
 	return appeal * b.SegmentTargetScale[m.Segment] * demandMult * share *
 		marketingMult * te.UserGrowthMult * se.UserGrowthMult
 }
 
-// RefPrice returns the reference price of seg, incorporating tech tree multipliers.
-func RefPrice(s model.GameState, seg model.Segment, b balance.Config) float64 {
+// EffectiveRefPrice returns the reference price of seg, incorporating tech tree multipliers.
+func EffectiveRefPrice(s model.GameState, seg model.Segment, b balance.Config) float64 {
 	if int(seg) < 0 || int(seg) >= model.NumSegments {
 		return 0
 	}

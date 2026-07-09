@@ -2,6 +2,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -306,7 +307,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						index:     m.modelCursor,
 						name:      md.Name,
 						price:     md.Price,
-						refPrice:  sim.RefPrice(m.state, md.Segment, m.cfg),
+						refPrice:  sim.EffectiveRefPrice(m.state, md.Segment, m.cfg),
 						gen:       md.Gen,
 						segment:   md.Segment,
 						quality:   md.Quality,
@@ -409,7 +410,14 @@ func (m Model) updatePublishDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			ns, err := sim.Apply(m.state, d.command(), m.cfg)
 			if err != nil {
-				m.notice = "名稱必須為 1–24 字元且不能為空"
+				switch {
+				case errors.Is(err, sim.ErrInvalidName):
+					m.notice = "名稱需為 1–24 字"
+				case errors.Is(err, sim.ErrInvalidPrice):
+					m.notice = "定價必須大於 0"
+				default:
+					m.notice = "發佈失敗"
+				}
 				m.publish = &d
 				return m, nil
 			}

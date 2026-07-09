@@ -31,7 +31,7 @@ func newPublishDialog(m Model, index int) (publishDialog, bool) {
 	if !sim.IsDraft(md) {
 		return publishDialog{}, false
 	}
-	ref := sim.RefPrice(m.state, md.Segment, m.cfg)
+	ref := sim.EffectiveRefPrice(m.state, md.Segment, m.cfg)
 	price := md.Price
 	if price <= 0 {
 		price = ref
