@@ -32,7 +32,9 @@ Approved decisions（brainstorming）：
 | Tier3 研究員 | 0.04 /模擬秒 | 0.04 / 14400 /模擬秒 |
 | 明星（範例 300/400） | 300 / 400 /模擬秒 | 300/14400、400/14400 /模擬秒 |
 
-換算後 20 個 Tier2 研究員 ≈ 0.3 R&D/實際秒（離線一小時仍有約 1,080 R&D 進度），明星等比例縮小。`gameSecPerRealSec` 目前是 `tui` package 私有常數，需要 export（或在 `balance.Config` 建構時作為參數傳入）供 `balance.Default()` 或呼叫端使用——採用哪種視 plan 階段決定，設計層面只要求「新常數必須是舊常數的可推導縮放，不是憑空調的魔術數字」，方便未來 tickDT 調整時两邊連動。
+換算後 20 個 Tier2 研究員 ≈ 0.3 R&D/實際秒（離線一小時仍有約 1,080 R&D 進度），明星等比例縮小。`balance` package 新增匯出常數 `RealSecCompression = 14400.0`（附註明來源：`tui.tickDT(3600) × 4 ticks/sec`），`Default()` 內用它去除原始值，而不是散寫 `14400` 魔術數字。`balance` package 不 import `tui`（避免耦合），改成在 `tui` package（本來就 import `balance`）加一條測試斷言 `balance.RealSecCompression == tickDT*float64(time.Second)/float64(tickInterval)`，未來如果調 `tickDT`，測試會炸出兩邊沒同步。
+
+順帶一提：`internal/tui/tui.go:727` 現有的 `sim.RnDRatePerSec(s, m.cfg) * gameSecPerRealSec`（團隊頁「研發速度/秒」顯示）完全不用改——它本來就是把「每模擬秒產出」轉換成「每實際秒」給玩家看，新數值代入後自動顯示正確的縮小後速率。
 
 Token 端公式（`tokenRawRnD` / `applySoftCap`，`internal/sim/sim.go`）不變。
 
@@ -89,7 +91,9 @@ type Meta struct {
 
 倍率 `streakMult = 1 + 0.06 × min(StreakDays, 10)`（5 天 ×1.3 對齊原設計文件範例，10 天封頂 ×1.6）。
 
-`streakMult` 只作用在 token 換算出的 R&D，不影響研究員/明星那條，套用點在 `sim.Tick()` 現有的 `ns.Resources.RnD += (staffRnD + tokenRnD + starRnD) * pe.RnDMult` 那行，改成 `tokenRnD*streakMult` 那一項單獨吃倍率。`streakMult` 由 TUI 層算好（讀 wall-clock 日期），當一般 float64 參數傳入 `Tick()`——**`sim` package 本身不讀時間**，維持純函式、確定性、可測試的既有原則（跟現有離線結算在 TUI 層讀 wall-clock 是同一套模式）。
+`streakMult` 只作用在 token 換算出的 R&D，不影響研究員/明星那條，套用點在 `sim.Tick()` 現有的 `ns.Resources.RnD += (staffRnD + tokenRnD + starRnD) * pe.RnDMult` 那行，改成 `tokenRnD*streakMult` 那一項單獨吃倍率。
+
+**傳遞機制**：`streakMult` 走 `balance.Config` 新增的 `StreakMult float64` 欄位（`balance.Default()` 內預設 `1.0`），**不**改 `Tick()` 的函式簽名。原因：`sim` package 現有 ~70 個 `Tick(s, dt, events, b)` 呼叫點散落在一堆跟 token/streak 完全無關的測試（訓練、對手、使用者成長…），簽名多一個參數等於逼所有呼叫點跟著改；用 Config 欄位承載，這些呼叫點沿用 `balance.Default()` 就自動拿到中性值 `1.0`，一行都不用動。TUI 層算好 `streakMult`（讀 wall-clock 日期）後，複製一份 `m.cfg`、蓋掉 `StreakMult` 欄位再傳進 `Tick()`（`Config` 是值傳遞，複製成本可忽略）。`sim` package 本身仍然不讀時間，維持純函式、確定性、可測試的既有原則（跟現有離線結算在 TUI 層讀 wall-clock 是同一套模式）。
 
 離線結算（`Settle()`，`internal/tui/settle.go`）呼叫 `sim.Tick` 走同一個新簽名；離線期間的 streak 用「回來的當下日期」算一次，不逐日回溯模擬（YAGNI——離線結算本來就是整段快轉，逐日 streak 精算對這個小遊戲沒有實質意義）。
 
