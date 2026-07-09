@@ -72,15 +72,24 @@ type Model struct {
 	ledgerPath     string
 	metaPath       string
 	daemonMode     bool // consume the daemon ledger instead of the built-in poller
-	consumedIn     int  // ledger tokens already applied
-	consumedOut    int
+	consumed       map[string]model.SourceTotals // per-source ledger tokens already applied
 	lastRealUnix   int64
 	metaMissing    bool
 	offlineSummary *Summary // shown as a banner until dismissed by any key
-	notice         string   // transient one-line banner, dismissed by any key
-	pendingRestart bool     // armed manual restart; a second X confirms it
-	width          int      // terminal width
-	height         int      // terminal height
+	// tokensThisTick is true only on the tick that just harvested new tokens
+	// (drives the pulse restart). lastTokenRnD is the per-source R&D delta from
+	// that tick, kept (not cleared) across the pulse-decay window so the status
+	// bar can keep showing it while it fades — see internal/tui/display.go.
+	tokensThisTick bool
+	lastTokenRnD   map[string]float64
+	// streakDays/lastActiveDate mirror store.Meta; kept in memory between saves
+	// so every tick can read the current streak multiplier cheaply.
+	streakDays     int
+	lastActiveDate string
+	notice         string // transient one-line banner, dismissed by any key
+	pendingRestart bool   // armed manual restart; a second X confirms it
+	width          int    // terminal width
+	height         int    // terminal height
 	vp             viewport.Model
 	disp           displayState
 	dispReady      bool // false until first snap after new game / restart
@@ -115,27 +124,21 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 		state.Events.RandState = uint64(time.Now().UnixNano())
 	}
 	meta, metaOK, _ := store.LoadMeta(metaPath)
-	// Task 3 stores per-source watermarks; collapse to totals until Task 4
-	// rewires Model to a per-source map.
-	cin, cout := 0, 0
-	for _, s := range meta.ConsumedSources {
-		cin += s.In
-		cout += s.Out
-	}
 	m := Model{
-		state:        state,
-		cfg:          balance.Default(),
-		poller:       ingest.NewDefaultPoller(),
-		savePath:     savePath,
-		ledgerPath:   ledgerPath,
-		metaPath:     metaPath,
-		consumedIn:   cin,
-		consumedOut:  cout,
-		lastRealUnix: meta.LastRealUnix,
-		metaMissing:  !metaOK,
-		width:        100,
-		height:       40,
-		vp:           viewport.New(80, 20),
+		state:          state,
+		cfg:            balance.Default(),
+		poller:         ingest.NewDefaultPoller(),
+		savePath:       savePath,
+		ledgerPath:     ledgerPath,
+		metaPath:       metaPath,
+		consumed:       meta.ConsumedSources,
+		lastRealUnix:   meta.LastRealUnix,
+		metaMissing:    !metaOK,
+		streakDays:     meta.StreakDays,
+		lastActiveDate: meta.LastActiveDate,
+		width:          100,
+		height:         40,
+		vp:             viewport.New(80, 20),
 	}
 	m.resize(m.width, m.height)
 	m.refreshViewport()
@@ -157,29 +160,86 @@ func (m Model) startup(now int64) Model {
 	if m.metaMissing {
 		// First-ever open: adopt the current total so we don't settle a phantom
 		// window of everything harvested before the player ever played.
-		m.consumedIn, m.consumedOut = l.TotalIn(), l.TotalOut()
+		m.consumed = copySourceTotals(l.Sources)
 		return m
 	}
-	offIn := l.TotalIn() - m.consumedIn
-	offOut := l.TotalOut() - m.consumedOut
+	prevIn, prevOut := sumSourceTotals(m.consumed)
+	offIn := l.TotalIn() - prevIn
+	offOut := l.TotalOut() - prevOut
 	elapsed := float64(now - m.lastRealUnix)
-	ns, sum := Settle(m.state, m.cfg, elapsed, offIn, offOut)
+	if offIn > 0 || offOut > 0 {
+		m.updateStreak(time.Unix(now, 0))
+	}
+	cfg := m.cfg
+	cfg.StreakMult = m.currentStreakMult()
+	ns, sum := Settle(m.state, cfg, elapsed, offIn, offOut)
 	m.state = ns
-	m.consumedIn, m.consumedOut = l.TotalIn(), l.TotalOut()
+	m.consumed = copySourceTotals(l.Sources)
 	if sum.RnDGained > 0 || sum.TrainingCompleted || sum.EventsFired > 0 || sum.EventsAutoResolved > 0 {
 		m.offlineSummary = &sum
 	}
 	return m
 }
 
-// saveMeta persists the consumed watermark and the current wall-clock time.
+// copySourceTotals deep-copies a per-source totals map so callers don't alias
+// a ledger snapshot that gets discarded.
+func copySourceTotals(src map[string]model.SourceTotals) map[string]model.SourceTotals {
+	out := make(map[string]model.SourceTotals, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
+}
+
+// sumSourceTotals adds up every source's In/Out.
+func sumSourceTotals(m map[string]model.SourceTotals) (in, out int) {
+	for _, t := range m {
+		in += t.In
+		out += t.Out
+	}
+	return
+}
+
+// currentStreakMult returns the token-R&D multiplier for m.streakDays, capped
+// at streakCapDays consecutive days.
+func (m Model) currentStreakMult() float64 {
+	days := m.streakDays
+	if days > streakCapDays {
+		days = streakCapDays
+	}
+	return 1 + streakBonusPerDay*float64(days)
+}
+
+// updateStreak advances the coding-streak counter from the real calendar
+// date. Call only when this tick actually harvested tokens (an idle tick
+// must not break or extend the streak).
+func (m *Model) updateStreak(now time.Time) {
+	today := now.Format("2006-01-02")
+	if today == m.lastActiveDate {
+		return
+	}
+	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
+	if m.lastActiveDate == yesterday {
+		m.streakDays++
+	} else {
+		m.streakDays = 1
+	}
+	m.lastActiveDate = today
+}
+
+const (
+	streakCapDays     = 10   // multiplier stops growing past this many consecutive days
+	streakBonusPerDay = 0.06 // +6%/day, so day 5 = ×1.3 and the day-10 cap = ×1.6
+)
+
+// saveMeta persists the consumed watermark, streak state, and the current
+// wall-clock time.
 func (m Model) saveMeta() {
-	// Aggregate total until Task 4 persists per-source keys; Load sums them.
 	_ = store.SaveMeta(m.metaPath, store.Meta{
-		ConsumedSources: map[string]model.SourceTotals{
-			"_total": {In: m.consumedIn, Out: m.consumedOut},
-		},
-		LastRealUnix: time.Now().Unix(),
+		ConsumedSources: m.consumed,
+		LastRealUnix:    time.Now().Unix(),
+		LastActiveDate:  m.lastActiveDate,
+		StreakDays:      m.streakDays,
 	})
 }
 
@@ -200,13 +260,21 @@ func (m *Model) pollTokens() []model.TokenEvent {
 	if !ok {
 		return nil
 	}
-	di := l.TotalIn() - m.consumedIn
-	do := l.TotalOut() - m.consumedOut
-	if di <= 0 && do <= 0 {
+	var events []model.TokenEvent
+	for src, tot := range l.Sources {
+		prev := m.consumed[src]
+		di := tot.In - prev.In
+		do := tot.Out - prev.Out
+		if di <= 0 && do <= 0 {
+			continue
+		}
+		events = append(events, model.TokenEvent{Source: src, InputTokens: di, OutputTokens: do})
+	}
+	if len(events) == 0 {
 		return nil
 	}
-	m.consumedIn, m.consumedOut = l.TotalIn(), l.TotalOut()
-	return []model.TokenEvent{{InputTokens: di, OutputTokens: do}}
+	m.consumed = copySourceTotals(l.Sources)
+	return events
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -228,13 +296,23 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		m.resize(msg.Width, msg.Height)
 		return m, nil
 	case tickMsg:
+		now := time.Time(msg)
 		events := m.pollTokens()
-		m.lastTokens = 0
-		for _, e := range events {
-			m.lastTokens += e.InputTokens + e.OutputTokens
+		m.tokensThisTick = len(events) > 0
+		if m.tokensThisTick {
+			m.updateStreak(now)
+		}
+		cfgTick := m.cfg
+		cfgTick.StreakMult = m.currentStreakMult()
+		if m.tokensThisTick {
+			rnd := make(map[string]float64, len(events))
+			for _, e := range events {
+				rnd[e.Source] += sim.TokenRawRnD([]model.TokenEvent{e}, cfgTick) * cfgTick.StreakMult
+			}
+			m.lastTokenRnD = rnd
 		}
 		prevFired := m.state.Events.FiredCount
-		m.state = sim.Tick(m.state, tickDT, events, m.cfg)
+		m.state = sim.Tick(m.state, tickDT, events, cfgTick)
 		if m.state.Events.FiredCount > prevFired {
 			m.setNotice("📰 產業事件：" + latestEventName(m.state))
 		}
