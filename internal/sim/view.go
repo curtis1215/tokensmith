@@ -2,6 +2,7 @@ package sim
 
 import (
 	"math"
+	"sort"
 
 	"tokensmith/internal/balance"
 	"tokensmith/internal/model"
@@ -127,3 +128,129 @@ func EffectiveRefPrice(s model.GameState, seg model.Segment, b balance.Config) f
 	te := techEffects(s, b)
 	return b.SegmentRefPrice[seg] * te.RefPriceMult
 }
+
+// ShareRow is one entry for market/overview bars.
+type ShareRow struct {
+	Name  string
+	Share float64 // 0..1 of (player best + all competitors) appeal in segment
+	You   bool
+}
+
+// SegmentShareBars returns player + competitors sorted by share desc.
+func SegmentShareBars(ns model.GameState, b balance.Config, seg model.Segment) []ShareRow {
+	w := b.SegmentWeights[seg]
+	playerBestAppeal := 0.0
+	var bestModel *model.Model
+	for i := range ns.Models {
+		m := &ns.Models[i]
+		if m.Online && m.Segment == seg {
+			a := appealOf(m.Quality, w)
+			if a > playerBestAppeal {
+				playerBestAppeal = a
+				bestModel = m
+			}
+		}
+	}
+
+	playerName := "你"
+	if bestModel != nil {
+		playerName = bestModel.Name
+	}
+
+	type rivalRow struct {
+		name   string
+		appeal float64
+	}
+	var rivals []rivalRow
+	for _, c := range ns.Competitors {
+		rivals = append(rivals, rivalRow{
+			name:   c.Name,
+			appeal: appealOf(c.Quality, w),
+		})
+	}
+
+	totalAppeal := playerBestAppeal
+	for _, r := range rivals {
+		totalAppeal += r.appeal
+	}
+
+	var rows []ShareRow
+	if totalAppeal > 0 {
+		rows = append(rows, ShareRow{
+			Name:  playerName,
+			Share: playerBestAppeal / totalAppeal,
+			You:   true,
+		})
+		for _, r := range rivals {
+			rows = append(rows, ShareRow{
+				Name:  r.name,
+				Share: r.appeal / totalAppeal,
+				You:   false,
+			})
+		}
+	} else {
+		rows = append(rows, ShareRow{
+			Name:  playerName,
+			Share: 0.0,
+			You:   true,
+		})
+		for _, r := range rivals {
+			rows = append(rows, ShareRow{
+				Name:  r.name,
+				Share: 0.0,
+				You:   false,
+			})
+		}
+	}
+
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Share == rows[j].Share {
+			return rows[i].You
+		}
+		return rows[i].Share > rows[j].Share
+	})
+
+	return rows
+}
+
+// ThreatLevel: 0 low, 1 mid, 2 high — rival appeal vs player's best in seg.
+func ThreatLevel(ns model.GameState, b balance.Config, seg model.Segment, rival model.Competitor) int {
+	w := b.SegmentWeights[seg]
+	rivalAppeal := appealOf(rival.Quality, w)
+
+	playerBestAppeal := 0.0
+	for _, m := range ns.Models {
+		if m.Online && m.Segment == seg {
+			a := appealOf(m.Quality, w)
+			if a > playerBestAppeal {
+				playerBestAppeal = a
+			}
+		}
+	}
+
+	if playerBestAppeal == 0 {
+		if rivalAppeal > 0 {
+			return 2
+		}
+		return 0
+	}
+
+	if rivalAppeal > playerBestAppeal*1.1 {
+		return 2
+	}
+	if rivalAppeal >= playerBestAppeal*0.9 {
+		return 1
+	}
+	return 0
+}
+
+// ServableUsers is max users inference capacity can support; 0 capacity → 0
+// (caller displays grace copy when capacity==0).
+func ServableUsers(ns model.GameState, b balance.Config) float64 {
+	if b.InferenceLoadPerUser <= 0 {
+		return 0
+	}
+	cap := EffectiveInference(ns, b)
+	return cap / b.InferenceLoadPerUser
+}
+
