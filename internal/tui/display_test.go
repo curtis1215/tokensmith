@@ -3,6 +3,8 @@ package tui
 import (
 	"math"
 	"testing"
+
+	"tokensmith/internal/model"
 )
 
 func TestLerpApproaches(t *testing.T) {
@@ -76,5 +78,27 @@ func TestPulseTokenOnTokens(t *testing.T) {
 	m.advanceDisplay()
 	if m.disp.PulseToken != 3 {
 		t.Fatalf("PulseToken should decay to 3, got %d", m.disp.PulseToken)
+	}
+}
+
+func TestDisplayApproachesUsersAndUtils(t *testing.T) {
+	m := testModel(t)
+	m.state.Models = []model.Model{{Online: true, Users: 1000, Price: 12, Segment: 0}}
+	m.state.HasTraining = true
+	m.state.Compute.InferenceLoad = 50
+	m.state.Compute.RentedInference = map[string]int{"N7": 10}
+	truth := truthDisplay(m)
+	if truth.TotalUsers < 1000 {
+		t.Fatalf("truth TotalUsers=%v", truth.TotalUsers)
+	}
+	var d displayState
+	for i := 0; i < 40; i++ {
+		d.approach(truth, 0.3)
+	}
+	if d.TotalUsers < 990 {
+		t.Fatalf("TotalUsers approached=%v want ~%v", d.TotalUsers, truth.TotalUsers)
+	}
+	if d.TrainUtil < 0.99 {
+		t.Fatalf("TrainUtil=%v want ~1", d.TrainUtil)
 	}
 }

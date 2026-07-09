@@ -20,11 +20,15 @@ func renderMarket(m Model) string {
 		headerInfo := fmt.Sprintf("你的用戶: %s  ·  排名: #%d / %d  ·  市場規模: %s",
 			human(segmentUsers(s, seg)), rank, field, marketSizeLabel(m.cfg, seg))
 
-		// Bars from SegmentShareBars
+		// Bars from SegmentShareBars (consumer top rows use approached display shares)
 		bars := sim.SegmentShareBars(s, m.cfg, seg)
 		var shareLines []string
 		for i := 0; i < len(bars); i++ {
 			bRow := bars[i]
+			share := bRow.Share
+			if seg == model.SegConsumer && m.dispReady && i < len(m.disp.ConsumerShares) {
+				share = m.disp.ConsumerShares[i]
+			}
 			star := " "
 			if bRow.You {
 				star = "★"
@@ -34,7 +38,7 @@ func renderMarket(m Model) string {
 			if len([]rune(name)) > 10 {
 				namePadding = ""
 			}
-			shareLines = append(shareLines, fmt.Sprintf("%s %s%s %s %.0f%%", star, name, namePadding, Bar(bRow.Share, 10), bRow.Share*100))
+			shareLines = append(shareLines, fmt.Sprintf("%s %s%s %s %.0f%%", star, name, namePadding, Bar(share, 10), share*100))
 		}
 
 		cardBody := VStack(

@@ -63,8 +63,12 @@ func renderModels(m Model) string {
 		if !md.Online {
 			status = "離線"
 		}
+		users := md.Users
+		if m.dispReady && i < len(m.disp.ModelUsers) {
+			users = m.disp.ModelUsers[i]
+		}
 		b.WriteString(fmt.Sprintf("%s[%d] 「%s」 Gen%d · %s · 用戶 %s · $%.0f · %s\n",
-			cur, i, name, md.Gen, segmentName(md.Segment), human(md.Users), md.Price, status))
+			cur, i, name, md.Gen, segmentName(md.Segment), human(users), md.Price, status))
 	}
 	if !anyLive {
 		b.WriteString("  （無）\n")
@@ -103,18 +107,25 @@ func renderModelDetail(m Model, idx int) string {
 	// 2. Info Block
 	var infoLines []string
 	if md.Online {
+		users := md.Users
+		if m.dispReady && idx < len(m.disp.ModelUsers) {
+			users = m.disp.ModelUsers[idx]
+		}
 		est := sim.EstimateUserTarget(m.state, idx, md.Price, m.cfg)
-		monthly := md.Users * md.Price
-		loadContrib := md.Users * m.cfg.InferenceLoadPerUser
+		monthly := users * md.Price
+		loadContrib := users * m.cfg.InferenceLoadPerUser
 
 		infCap := sim.EffectiveInference(m.state, m.cfg)
 		util := 0.0
 		if infCap > 0 {
 			util = m.state.Compute.InferenceLoad / infCap
 		}
+		if m.dispReady {
+			util = m.disp.InfUtil
+		}
 
 		infoLines = append(infoLines,
-			KV("用戶數", fmt.Sprintf("%s / 預估上限 ~%s", human(md.Users), human(est))),
+			KV("用戶數", fmt.Sprintf("%s / 預估上限 ~%s", human(users), human(est))),
 			KV("月營收", fmt.Sprintf("$%s", human(monthly))),
 			KV("負載貢獻", fmt.Sprintf("%.2f 算力 (約占全公司推理 %.0f%%)", loadContrib, util*100)),
 		)

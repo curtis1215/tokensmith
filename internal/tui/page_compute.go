@@ -15,14 +15,17 @@ func renderCompute(m Model) string {
 	if s.HasTraining {
 		trainUtil = 1.0
 	}
-	trainBarStr := fmt.Sprintf("訓練池: %s %.0f%% (有效算力 %.0f)",
-		Bar(trainUtil, 12), trainUtil*100, trainCap)
-
 	infCap := sim.EffectiveInference(s, m.cfg)
 	infUtil := 0.0
 	if infCap > 0 {
 		infUtil = s.Compute.InferenceLoad / infCap
 	}
+	if m.dispReady {
+		trainUtil, infUtil = m.disp.TrainUtil, m.disp.InfUtil
+	}
+	trainBarStr := fmt.Sprintf("訓練池: %s %.0f%% (有效算力 %.0f)",
+		Bar(trainUtil, 12), trainUtil*100, trainCap)
+
 	infBarStr := fmt.Sprintf("推理池: %s %.0f%% (有效算力 %.0f)",
 		Bar(infUtil, 12), infUtil*100, infCap)
 	if infUtil >= 0.9 {
@@ -31,6 +34,9 @@ func renderCompute(m Model) string {
 
 	servable := sim.ServableUsers(s, m.cfg)
 	totalUsers := sim.TotalUsers(s)
+	if m.dispReady {
+		totalUsers = m.disp.TotalUsers
+	}
 
 	causalLines := []string{
 		trainBarStr,
