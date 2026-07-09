@@ -78,6 +78,8 @@ type Model struct {
 	notice         string   // transient one-line banner, dismissed by any key
 	pendingRestart bool     // armed manual restart; a second X confirms it
 	width          int      // terminal width
+	disp           displayState
+	dispReady      bool // false until first snap after new game / restart
 }
 
 // New returns the game model wired to the real save/ledger/meta locations,
@@ -207,8 +209,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Mechanism B: auto game-over + restart once debt passes the threshold.
 		if m.state.Resources.Cash < -m.cfg.BankruptcyDebtRatio*m.cfg.StartingCash {
 			m.state = sim.Restart(m.state, m.cfg)
-			m.notice = "💥 破產！公司已重整重來"
+			m.setNotice("💥 破產！公司已重整重來")
+			m.snapDisplay()
 		}
+		m.advanceDisplay()
 		m.ticksSinceSave++
 		if m.ticksSinceSave >= 40 {
 			m.ticksSinceSave = 0
@@ -229,7 +233,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notice = ""
 			if msg.String() == "X" {
 				m.state = sim.Restart(m.state, m.cfg)
-				m.notice = "🔄 已重來——祝這次順利"
+				m.setNotice("🔄 已重來——祝這次順利")
+				m.snapDisplay()
 			}
 			return m, nil
 		}
@@ -238,7 +243,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "X":
 			m.pendingRestart = true
-			m.notice = "確認重來？再按一次 X（其他鍵取消）"
+			m.setNotice("確認重來？再按一次 X（其他鍵取消）")
 			return m, nil
 		case "tab", "right":
 			m.page = (m.page + 1) % numPages
@@ -299,7 +304,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if d, ok := newPublishDialog(m, m.modelCursor); ok {
 					m.publish = &d
 				} else {
-					m.notice = "請選取待發佈草稿（先訓練模型）"
+					m.setNotice("請選取待發佈草稿（先訓練模型）")
 				}
 			}
 			return m, nil
@@ -324,6 +329,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "P":
 			if m.page == PageOverview || m.page == PageTech {
 				m.state = applyOK(m.state, model.PrestigeReset{}, m.cfg)
+				m.snapDisplay()
 			}
 			return m, nil
 		case "r", "R", "i", "I":
@@ -416,17 +422,17 @@ func (m Model) updatePublishDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if err != nil {
 				switch {
 				case errors.Is(err, sim.ErrInvalidName):
-					m.notice = "名稱需為 1–24 字"
+					m.setNotice("名稱需為 1–24 字")
 				case errors.Is(err, sim.ErrInvalidPrice):
-					m.notice = "定價必須大於 0"
+					m.setNotice("定價必須大於 0")
 				default:
-					m.notice = "發佈失敗"
+					m.setNotice("發佈失敗")
 				}
 				m.publish = &d
 				return m, nil
 			}
 			m.state = ns
-			m.notice = fmt.Sprintf("「%s」已上線", d.name)
+			m.setNotice(fmt.Sprintf("「%s」已上線", d.name))
 			m.publish = nil
 		}
 		return m, nil
@@ -460,20 +466,25 @@ func human(v float64) string {
 
 func renderResourceBar(m Model) string {
 	s := m.state
-	trainUtil := 0.0
+	// Prefer approached display values; fall back to truth before first snap.
+	cash, rnd, val := s.Resources.Cash, s.Resources.RnD, sim.Valuation(s, m.cfg)
+	trainUtil, infUtil := 0.0, 0.0
 	if s.HasTraining {
 		trainUtil = 1 // a job fully occupies the training pool in v0
 	}
-	infUtil := 0.0
 	if cap := sim.EffectiveInference(s, m.cfg); cap > 0 {
 		infUtil = s.Compute.InferenceLoad / cap
+	}
+	if m.dispReady {
+		cash, rnd, val = m.disp.Cash, m.disp.RnD, m.disp.Valuation
+		trainUtil, infUtil = m.disp.TrainUtil, m.disp.InfUtil
 	}
 	// Show the R&D rate per real second (what the player perceives), not per
 	// game-second — the latter is tiny and rounds to 0 in the display.
 	rndPerRealSec := sim.RnDRatePerSec(s, m.cfg) * gameSecPerRealSec
 
-	cashStr := fmt.Sprintf("💰 $%s", human(s.Resources.Cash))
-	if s.Resources.Cash < 0 {
+	cashStr := fmt.Sprintf("💰 $%s", human(cash))
+	if cash < 0 {
 		cashStr = styleWarn.Render(cashStr)
 	}
 
@@ -482,9 +493,14 @@ func renderResourceBar(m Model) string {
 		infStr = styleWarn.Render(infStr)
 	}
 
-	bar := fmt.Sprintf("%s   ⚡R&D %s (+%s/s)   🖥訓練%.0f%% %s   📈估值 $%s",
-		cashStr, human(s.Resources.RnD), human(rndPerRealSec),
-		trainUtil*100, infStr, human(sim.Valuation(s, m.cfg)))
+	rndSeg := fmt.Sprintf("%s (+%s/s)", human(rnd), human(rndPerRealSec))
+	if m.disp.PulseToken > 0 {
+		rndSeg = styleAccent.Render(rndSeg)
+	}
+
+	bar := fmt.Sprintf("%s   ⚡R&D %s   🖥訓練%.0f%% %s   📈估值 $%s",
+		cashStr, rndSeg,
+		trainUtil*100, infStr, human(val))
 
 	if m.lastTokens > 0 {
 		bar += fmt.Sprintf("   ⚡token +%d", m.lastTokens)
@@ -563,7 +579,13 @@ func (m Model) View() string {
 		rows = append(rows, offlineBanner(*m.offlineSummary))
 	}
 	if m.notice != "" {
-		rows = append(rows, styleAccent.Render(m.notice))
+		notice := m.notice
+		if m.disp.PulseNotice > 0 {
+			notice = styleAccent.Render(notice)
+		} else {
+			notice = styleMuted.Render(notice)
+		}
+		rows = append(rows, notice)
 	}
 	rows = append(rows, renderResourceBar(m))
 	rows = append(rows, renderTabBar(m.page))
