@@ -70,6 +70,8 @@ func Apply(s model.GameState, cmd model.Command, b balance.Config) (model.GameSt
 		return applySignStar(s, c, b)
 	case model.PublishModel:
 		return applyPublishModel(s, c)
+	case model.ResolveEvent:
+		return resolveChoice(s, c.PendingIndex, c.Choice, false, b)
 	default:
 		return s, ErrUnknownCommand
 	}

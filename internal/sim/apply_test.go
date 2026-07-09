@@ -545,3 +545,23 @@ func TestApplyPublishModelRejects(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyResolveEvent(t *testing.T) {
+	b := balance.Default()
+	s := eventTestState()
+	spec, _ := balance.EventByID(b.Events, balance.EvChipShortage)
+	s = fireEvent(s, spec, b)
+	ns, err := Apply(s, model.ResolveEvent{PendingIndex: 0, Choice: 1}, b)
+	if err != nil {
+		t.Fatalf("Apply(ResolveEvent): %v", err)
+	}
+	if len(ns.Events.Pending) != 0 || len(ns.Events.Log) != 1 {
+		t.Fatalf("resolution not applied: %+v", ns.Events)
+	}
+	if ns.Events.Log[0].Auto {
+		t.Fatal("player resolution must not be marked auto")
+	}
+	if _, err := Apply(s, model.ResolveEvent{PendingIndex: 9, Choice: 1}, b); err != ErrInvalidEventIndex {
+		t.Fatalf("bad index err = %v, want ErrInvalidEventIndex", err)
+	}
+}
