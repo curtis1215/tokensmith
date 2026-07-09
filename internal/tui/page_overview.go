@@ -103,17 +103,10 @@ func renderOverview(m Model) string {
 	var rows []string
 	rows = append(rows, row1, row2)
 
-	// 5. Pressures
+	// 5. Pressures (footer lives in the fixed shell)
 	if warns := pressures(m); len(warns) > 0 {
 		rows = append(rows, Card("注意", styleWarn.Render(VStack(warns...))))
 	}
-
-	// 6. Footer
-	hint := "[t]訓練 [X]重來"
-	if s.PeakValuation >= m.cfg.PrestigeUnlockValuation {
-		hint = "[t]訓練 [P]傳承重開 [X]重來"
-	}
-	rows = append(rows, Footer(hint))
 
 	return VStack(rows...)
 }

@@ -63,7 +63,6 @@ func renderTech(m Model) string {
 		}
 		rows = append(rows, Card(br.name, VStack(lines...)))
 	}
-	rows = append(rows, Footer("[↑↓]選節點 [Enter]解鎖"))
 	return VStack(rows...)
 }
 

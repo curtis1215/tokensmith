@@ -13,7 +13,7 @@ func renderModels(m Model) string {
 	if len(s.Models) == 0 {
 		body := "（無 — 按 t 訓練第一個模型）"
 		listCard := Card("模型列表", body)
-		return VStack(listCard, Footer("[t]訓練"))
+		return listCard
 	}
 
 	// 1. List card
@@ -74,9 +74,8 @@ func renderModels(m Model) string {
 	// 2. Detail card
 	detailCard := renderModelDetail(m, m.modelCursor)
 
-	// Combine into horizontal row plus footer
-	row := ResponsiveRow(m.width, 2, listCard, detailCard)
-	return VStack(row, Footer("[↑↓]選模型 [p]發佈 [t]訓練 [$]改價"))
+	// Combine into horizontal row (footer is fixed shell chrome)
+	return ResponsiveRow(m.width, 2, listCard, detailCard)
 }
 
 func renderModelDetail(m Model, idx int) string {

@@ -91,9 +91,7 @@ func renderCompute(m Model) string {
 	)
 	dcCard := Card("機房與電力", dcBody)
 
-	// Combine columns
+	// Combine columns (footer is fixed shell chrome)
 	leftCol := VStack(causalCard, dcCard)
-	row := ResponsiveRow(m.width, 2, leftCol, procCard)
-
-	return VStack(row, Footer("[↑↓]選製程 [r/R]±訓練 [i/I]±推理 [b/B]建訓練/推理伺服器 [e]擴機房"))
+	return ResponsiveRow(m.width, 2, leftCol, procCard)
 }

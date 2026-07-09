@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"tokensmith/internal/balance"
@@ -78,6 +79,8 @@ type Model struct {
 	notice         string   // transient one-line banner, dismissed by any key
 	pendingRestart bool     // armed manual restart; a second X confirms it
 	width          int      // terminal width
+	height         int      // terminal height
+	vp             viewport.Model
 	disp           displayState
 	dispReady      bool // false until first snap after new game / restart
 }
@@ -107,7 +110,7 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 		state = game.NewGame()
 	}
 	meta, metaOK, _ := store.LoadMeta(metaPath)
-	return Model{
+	m := Model{
 		state:        state,
 		cfg:          balance.Default(),
 		poller:       ingest.NewDefaultPoller(),
@@ -119,7 +122,12 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 		lastRealUnix: meta.LastRealUnix,
 		metaMissing:  !metaOK,
 		width:        100,
+		height:       40,
+		vp:           viewport.New(80, 20),
 	}
+	m.resize(m.width, m.height)
+	m.refreshViewport()
+	return m
 }
 
 // ledgerFresh reports whether the daemon updated the ledger recently enough to
@@ -188,6 +196,12 @@ func (m *Model) pollTokens() []model.TokenEvent {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	m2, cmd := m.handleUpdate(msg)
+	m2.refreshViewport()
+	return m2, cmd
+}
+
+func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 	if m.modelCursor >= len(m.state.Models) && len(m.state.Models) > 0 {
 		m.modelCursor = len(m.state.Models) - 1
 	}
@@ -197,7 +211,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
+		m.resize(msg.Width, msg.Height)
 		return m, nil
 	case tickMsg:
 		events := m.pollTokens()
@@ -247,12 +261,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "tab", "right":
 			m.page = (m.page + 1) % numPages
+			m.vp.GotoTop()
 			return m, nil
 		case "shift+tab", "left":
 			m.page = (m.page + numPages - 1) % numPages
+			m.vp.GotoTop()
 			return m, nil
 		case "1", "2", "3", "4", "5", "6":
 			m.page = Page(msg.String()[0] - '1')
+			m.vp.GotoTop()
 			return m, nil
 		case "up":
 			if m.page == PageTech && m.techCursor > 0 {
@@ -392,7 +409,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // updateDialog routes keys to the open training modal, applying StartTraining
 // on confirm and closing on either confirm or cancel.
-func (m Model) updateDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) updateDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
 	d, confirm, cancel := m.dialog.update(msg)
 	if cancel {
 		m.dialog = nil
@@ -407,7 +424,7 @@ func (m Model) updateDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) updatePublishDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) updatePublishDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
 	d, confirm, cancel := m.publish.update(msg)
 	if cancel {
 		m.publish = nil
@@ -439,6 +456,87 @@ func (m Model) updatePublishDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.publish = &d
 	return m, nil
+}
+
+// resize updates terminal dimensions and viewport content region size.
+func (m *Model) resize(w, h int) {
+	if w < 1 {
+		w = 1
+	}
+	if h < 1 {
+		h = 1
+	}
+	m.width, m.height = w, h
+	ch := h - m.chromeRows()
+	if ch < 3 {
+		ch = 3
+	}
+	cw := w - 4 // outer box margin
+	if cw < 20 {
+		cw = 20
+	}
+	m.vp.Width = cw
+	m.vp.Height = ch
+}
+
+// chromeRows estimates fixed shell lines (header/notice/bar/tabs/footer/border).
+func (m Model) chromeRows() int {
+	n := 2 // rounded border top+bottom
+	n++    // header
+	if m.offlineSummary != nil {
+		n++
+	}
+	if m.notice != "" {
+		n++
+	}
+	n++ // resource bar
+	n++ // tabs
+	n++ // footer
+	n += 2 // breathing room / padding
+	return n
+}
+
+// contentBody is the scrollable region: dialog or active page (no footer).
+func (m Model) contentBody() string {
+	if m.publish != nil {
+		return renderPublishDialog(*m.publish, m)
+	}
+	if m.dialog != nil {
+		return renderTrainDialog(*m.dialog, m)
+	}
+	return m.renderPage()
+}
+
+func (m *Model) refreshViewport() {
+	m.vp.SetContent(m.contentBody())
+}
+
+// pageKeys returns page-specific help text for the fixed shell footer.
+func pageKeys(m Model) string {
+	if m.publish != nil || m.dialog != nil {
+		return "" // dialogs embed their own help
+	}
+	switch m.page {
+	case PageModels:
+		if len(m.state.Models) == 0 {
+			return "[t]訓練"
+		}
+		return "[↑↓]選模型 [p]發佈 [t]訓練 [$]改價"
+	case PageMarket:
+		return "[↑↓]捲動"
+	case PageCompute:
+		return "[↑↓]選製程 [r/R]±訓練 [i/I]±推理 [b/B]建訓練/推理伺服器 [e]擴機房"
+	case PageTeam:
+		return "[h]雇研究員 [e]雇工程 [o]雇營運 [k]雇行銷 [s]簽明星"
+	case PageTech:
+		return "[↑↓]選節點 [Enter]解鎖"
+	default: // overview
+		hint := "[t]訓練 [X]重來"
+		if m.state.PeakValuation >= m.cfg.PrestigeUnlockValuation {
+			hint = "[t]訓練 [P]傳承重開 [X]重來"
+		}
+		return hint
+	}
 }
 
 // applyOK applies a command, returning the new state or the old one unchanged
@@ -571,12 +669,16 @@ func (m Model) renderPage() string {
 }
 
 func (m Model) View() string {
-	var rows []string
+	// Local content refresh keeps View usable from tests without Update, while
+	// preserving the stored YOffset for scroll.
+	vp := m.vp
+	vp.SetContent(m.contentBody())
+
+	var top []string
 	day := int(m.state.GameTime / 86400)
-	header := styleTitle.Render(fmt.Sprintf("Tokensmith  ·  Day %d", day))
-	rows = append(rows, header)
+	top = append(top, styleTitle.Render(fmt.Sprintf("Tokensmith  ·  Day %d", day)))
 	if m.offlineSummary != nil {
-		rows = append(rows, offlineBanner(*m.offlineSummary))
+		top = append(top, offlineBanner(*m.offlineSummary))
 	}
 	if m.notice != "" {
 		notice := m.notice
@@ -585,23 +687,14 @@ func (m Model) View() string {
 		} else {
 			notice = styleMuted.Render(notice)
 		}
-		rows = append(rows, notice)
+		top = append(top, notice)
 	}
-	rows = append(rows, renderResourceBar(m))
-	rows = append(rows, renderTabBar(m.page))
+	top = append(top, renderResourceBar(m))
+	top = append(top, renderTabBar(m.page))
 
-	page := m.renderPage()
-	if m.publish != nil {
-		page = renderPublishDialog(*m.publish, m)
-	} else if m.dialog != nil {
-		page = renderTrainDialog(*m.dialog, m)
-	}
-	rows = append(rows, page)
-
-	// Page-level footer is rendered by each page via Footer(...).
-	// Shell does not duplicate page keys.
-
-	return boxStyle.Render(VStack(rows...))
+	mid := vp.View()
+	bot := Footer(pageKeys(m))
+	return boxStyle.Render(VStack(append(top, mid, bot)...))
 }
 
 // offlineBanner summarises what happened while the game was closed.

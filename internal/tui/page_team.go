@@ -56,8 +56,7 @@ func renderTeam(m Model) string {
 	}
 	starsCard := Card("明星員工", VStack(starLines...))
 
-	row := ResponsiveRow(m.width, 2, rolesCard, starsCard)
-	return VStack(row, Footer("[h]雇研究員 [e]雇工程 [o]雇營運 [k]雇行銷 [s]簽明星"))
+	return ResponsiveRow(m.width, 2, rolesCard, starsCard)
 }
 
 func starBlurb(st model.Star) string {

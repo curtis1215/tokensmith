@@ -63,8 +63,7 @@ func renderMarket(m Model) string {
 	leftColumn := VStack(cards...)
 	rightColumn := rivalsCard
 
-	row := ResponsiveRow(m.width, 2, leftColumn, rightColumn)
-	return VStack(row, Footer("[Tab]切頁"))
+	return ResponsiveRow(m.width, 2, leftColumn, rightColumn)
 }
 
 func threatLabel(level int) string {
