@@ -22,7 +22,7 @@ func TestPrestigeEffectsAggregate(t *testing.T) {
 }
 
 func TestPatentsFor(t *testing.T) {
-	b := balance.Default() // PatentK 1e8
+	b := balance.Default()                   // PatentK 1e8
 	if got := patentsFor(1e9, b); got != 3 { // floor(sqrt(10))
 		t.Errorf("patentsFor(1e9) = %v, want 3", got)
 	}
@@ -36,7 +36,7 @@ func TestRestartUngatedBanksPatentsAndResets(t *testing.T) {
 	s := model.GameState{}
 	s.Models = []model.Model{{Online: true, Users: 100}}
 	s.Resources.Cash = -50000 // deep in debt, well below any prestige gate
-	s.PeakValuation = 1e10     // banks floor(sqrt(1e10/1e8)) = 10 patents
+	s.PeakValuation = 1e10    // banks floor(sqrt(1e10/1e8)) = 10 patents
 	s.Prestige.Patents = 3
 	ns := Restart(s, b)
 	if len(ns.Models) != 0 {

@@ -129,7 +129,7 @@ func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Co
 
 // infraEfficiency scales compute effectiveness with engineers.
 func infraEfficiency(ns model.GameState, b balance.Config) float64 {
-	return 1 + float64(ns.Engineers) * b.EngineerInfraBonus
+	return 1 + float64(ns.Engineers)*b.EngineerInfraBonus
 }
 
 // effectiveTraining is rented plus self-built training compute, scaled by engineer efficiency.
@@ -308,12 +308,16 @@ func advanceCompetitors(ns model.GameState, dt float64, b balance.Config) model.
 // unchanged.
 //
 // Large-dt stability: the old Euler form
-//   users -= users * rate * deficit * dt
+//
+//	users -= users * rate * deficit * dt
+//
 // with TUI tickDT=3600 and rate=0.01 wipes users to 0 on any meaningful
 // overload (rate*dt=36). Next tick they regrow toward market target, then wipe
 // again → visible 5k/9k/0k thrash after the Gen1 scale-up. Instead we
 // exponentially approach the load that capacity can support:
-//   newLoad = capacity + (load-capacity)*exp(-rate*dt*ops)
+//
+//	newLoad = capacity + (load-capacity)*exp(-rate*dt*ops)
+//
 // then scale every online model's users by newLoad/load. For small dt this
 // matches the linear Euler to first order; for hour ticks it settles at the
 // servable user count instead of oscillating through zero.

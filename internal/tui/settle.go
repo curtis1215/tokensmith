@@ -16,8 +16,8 @@ type Summary struct {
 }
 
 const (
-	settleChunkSec = 3600.0        // advance in ≤1h steps to bound Euler error
-	settleMaxSec   = 7 * 86400.0   // cap absurd offline windows at 7 days
+	settleChunkSec = 3600.0      // advance in ≤1h steps to bound Euler error
+	settleMaxSec   = 7 * 86400.0 // cap absurd offline windows at 7 days
 )
 
 // Settle advances the pure sim by elapsedSec (clamped to [0, 7d]) in ≤1h chunks,
