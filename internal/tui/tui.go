@@ -254,6 +254,13 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		m.offlineSummary = nil // any key dismisses the transient banners
 		m.notice = ""
+
+		// Scroll routing (no dialog): PgUp/Dn always; ↑↓/j/k only on browse pages.
+		// Team keeps `k` for hire-marketing, so k does not scroll there.
+		if scrolled, next := m.tryScroll(msg); scrolled {
+			return next, nil
+		}
+
 		switch msg.String() {
 		case "X":
 			m.pendingRestart = true
@@ -509,6 +516,44 @@ func (m Model) contentBody() string {
 
 func (m *Model) refreshViewport() {
 	m.vp.SetContent(m.contentBody())
+}
+
+// pageUsesListCursor reports pages where ↑↓ move a selection cursor.
+func (m Model) pageUsesListCursor() bool {
+	switch m.page {
+	case PageModels, PageTech, PageCompute:
+		return true
+	default:
+		return false
+	}
+}
+
+// tryScroll handles viewport scroll keys. Returns (true, m) if the key was
+// consumed as a scroll action. Dialog callers must not invoke this.
+func (m Model) tryScroll(msg tea.KeyMsg) (bool, Model) {
+	switch msg.String() {
+	case "pgdown", "ctrl+d":
+		m.vp.HalfViewDown()
+		return true, m
+	case "pgup", "ctrl+u":
+		m.vp.HalfViewUp()
+		return true, m
+	case "j", "down":
+		if !m.pageUsesListCursor() {
+			m.vp.LineDown(1)
+			return true, m
+		}
+	case "k", "up":
+		// Preserve Team `k` = hire marketing; only pure browse pages scroll with k/up.
+		if !m.pageUsesListCursor() {
+			if msg.String() == "k" && m.page == PageTeam {
+				return false, m
+			}
+			m.vp.LineUp(1)
+			return true, m
+		}
+	}
+	return false, m
 }
 
 // pageKeys returns page-specific help text for the fixed shell footer.
