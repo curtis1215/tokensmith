@@ -79,7 +79,7 @@ func renderModels(m Model) string {
 	detailCard := renderModelDetail(m, m.modelCursor)
 
 	// Combine into horizontal row (footer is fixed shell chrome)
-	return ResponsiveRow(m.width, 2, listCard, detailCard)
+	return ResponsiveRow(m.contentWidth(), 2, listCard, detailCard)
 }
 
 func renderModelDetail(m Model, idx int) string {

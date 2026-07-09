@@ -147,14 +147,14 @@ func TestViewShellHasTabsAndFooterPattern(t *testing.T) {
 }
 
 func TestModelResponsiveLayout(t *testing.T) {
-	// 1. Narrow width (< 80)
+	// 1. Narrow width (< 80) — resize so contentWidth/vp track terminal size
 	mNarrow := testModel(t)
-	mNarrow.width = 50
+	mNarrow.resize(50, 40)
 	viewNarrow := mNarrow.View()
 
 	// 2. Wide width (>= 80)
 	mWide := testModel(t)
-	mWide.width = 120
+	mWide.resize(120, 40)
 	viewWide := mWide.View()
 
 	// They should both contain essential elements

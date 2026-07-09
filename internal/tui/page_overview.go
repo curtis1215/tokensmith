@@ -109,9 +109,10 @@ func renderOverview(m Model) string {
 	)
 	powerMilestoneCard := Card("里程碑 & 算力", powerMilestoneBody)
 
-	// Combine into rows
-	row1 := ResponsiveRow(m.width, 2, companyCard, trainCard)
-	row2 := ResponsiveRow(m.width, 2, shareCard, powerMilestoneCard)
+	// Combine into rows (layout to viewport content width, not full terminal)
+	cw := m.contentWidth()
+	row1 := ResponsiveRow(cw, 2, companyCard, trainCard)
+	row2 := ResponsiveRow(cw, 2, shareCard, powerMilestoneCard)
 
 	var rows []string
 	rows = append(rows, row1, row2)

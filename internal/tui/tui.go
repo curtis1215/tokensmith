@@ -486,6 +486,29 @@ func (m *Model) resize(w, h int) {
 	m.vp.Height = ch
 }
 
+// contentWidth is the width available for page body layout inside the viewport.
+// Page renderers must use this (not m.width) for ResponsiveRow and line fitting;
+// resize() sets vp.Width to terminal width minus outer box chrome.
+func (m Model) contentWidth() int {
+	if m.vp.Width > 0 {
+		return m.vp.Width
+	}
+	cw := m.width - 4
+	if cw < 20 {
+		return 20
+	}
+	return cw
+}
+
+// cardInnerWidth is the max display width for text inside a Card (box border + pad).
+func (m Model) cardInnerWidth() int {
+	inner := m.contentWidth() - cardFrameWidth
+	if inner < 20 {
+		return 20
+	}
+	return inner
+}
+
 // chromeRows estimates fixed shell lines (header/notice/bar/tabs/footer/border).
 func (m Model) chromeRows() int {
 	n := 2 // rounded border top+bottom

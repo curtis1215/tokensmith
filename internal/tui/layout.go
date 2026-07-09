@@ -12,6 +12,9 @@ func Card(title, body string) string {
 	return boxStyle.Render(inner)
 }
 
+// cardFrameWidth is horizontal chrome of boxStyle: border + padding on each side.
+const cardFrameWidth = 4
+
 const minDashWidth = 80
 
 // ResponsiveRow joins parts horizontally with a gap if width >= minDashWidth and the horizontal row width does not exceed the available width.
@@ -78,7 +81,12 @@ func Bar(frac float64, width int) string {
 }
 
 // Footer renders a unified page-level footer.
+// When pageKeys is empty (dialog open), omit shell [Tab]/[q] so help matches
+// dialog-only key handling.
 func Footer(pageKeys string) string {
+	if pageKeys == "" {
+		return helpStyle.Render("[Esc]取消  [Enter]確認")
+	}
 	return helpStyle.Render(pageKeys + "  [Tab]切頁 [q]離開")
 }
 
@@ -89,6 +97,24 @@ func Truncate(s string, maxRunes int) string {
 		return s
 	}
 	return string(r[:maxRunes])
+}
+
+// TruncateWidth truncates s to at most max display cells (ANSI/CJK-aware via lipgloss).
+func TruncateWidth(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= max {
+		return s
+	}
+	r := []rune(s)
+	for len(r) > 0 {
+		r = r[:len(r)-1]
+		if lipgloss.Width(string(r)) <= max {
+			return string(r)
+		}
+	}
+	return ""
 }
 
 // progressBar renders a fixed-width ▓/░ bar for frac in [0,1].

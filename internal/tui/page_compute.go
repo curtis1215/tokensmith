@@ -99,5 +99,5 @@ func renderCompute(m Model) string {
 
 	// Combine columns (footer is fixed shell chrome)
 	leftCol := VStack(causalCard, dcCard)
-	return ResponsiveRow(m.width, 2, leftCol, procCard)
+	return ResponsiveRow(m.contentWidth(), 2, leftCol, procCard)
 }

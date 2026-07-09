@@ -11,6 +11,7 @@ var branchNames = [model.NumBranches]string{"演算法", "硬體基建", "商業
 
 func renderTech(m Model) string {
 	s := m.state
+	inner := m.cardInnerWidth()
 
 	// Group nodes by branch
 	type groupedBranch struct {
@@ -30,7 +31,7 @@ func renderTech(m Model) string {
 	}
 
 	var rows []string
-	rows = append(rows, fmt.Sprintf("科技樹  可用 R&D %s", human(s.Resources.RnD)))
+	rows = append(rows, TruncateWidth(fmt.Sprintf("科技樹  可用 R&D %s", human(s.Resources.RnD)), m.contentWidth()))
 	for _, br := range branches {
 		if len(br.nodes) == 0 {
 			continue
@@ -58,8 +59,9 @@ func renderTech(m Model) string {
 			}
 
 			nameWithID := fmt.Sprintf("%s (%s)", meta.Name, node.ID)
-			lines = append(lines, fmt.Sprintf("%s %-25s %-16s | %s",
-				cursor, nameWithID, stateStr, meta.Effect))
+			line := fmt.Sprintf("%s %-25s %-16s | %s",
+				cursor, nameWithID, stateStr, meta.Effect)
+			lines = append(lines, TruncateWidth(line, inner))
 		}
 		rows = append(rows, Card(br.name, VStack(lines...)))
 	}

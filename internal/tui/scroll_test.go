@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"tokensmith/internal/model"
 )
@@ -123,5 +124,36 @@ func TestTeamKStillHiresNotScroll(t *testing.T) {
 	}
 	if g.vp.YOffset != beforeOff {
 		t.Fatalf("team k must not scroll")
+	}
+}
+
+// TestPageBodyFitsViewportWidth guards the blocker where pages laid out with
+// full terminal m.width while the viewport is only w-4, clipping cards at 80 cols.
+func TestPageBodyFitsViewportWidth(t *testing.T) {
+	m := testModel(t)
+	m.resize(80, 40)
+	// Seed content that historically produced wide team/tech lines.
+	m.state.Models = []model.Model{
+		{Online: false, Gen: 1, Name: "DraftA", Segment: model.SegConsumer},
+		{Online: true, Gen: 2, Name: "LiveModel", Segment: model.SegConsumer, Users: 12345, Price: 12},
+	}
+	// Representative pages: overview + tech (review report), plus team (long star blurbs).
+	pages := []Page{PageOverview, PageTech, PageTeam, PageModels, PageMarket, PageCompute}
+	for _, page := range pages {
+		m.page = page
+		body := m.contentBody()
+		maxW := 0
+		var widest string
+		for _, line := range strings.Split(body, "\n") {
+			w := lipgloss.Width(line)
+			if w > maxW {
+				maxW = w
+				widest = line
+			}
+		}
+		if maxW > m.vp.Width {
+			t.Errorf("page %s (%d): body max width %d exceeds vp.Width %d; widest=%q",
+				pageNames[page], page, maxW, m.vp.Width, widest)
+		}
 	}
 }
