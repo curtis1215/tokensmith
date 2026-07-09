@@ -137,11 +137,25 @@ func TestDefaultInferenceValues(t *testing.T) {
 func TestDefaultServerAndInfra(t *testing.T) {
 	c := Default()
 	// Self-build repoints onto the Processes catalog (plan-13); Chips is gone.
-	if c.ChassisCost != 5000 {
+	if c.ChassisCost != 1000 {
 		t.Errorf("server params wrong: %+v", c)
 	}
-	if c.ElectricityPerKWSec != 0.001 || c.PowerCostPerKW != 400 || c.SlotCost != 30000 {
+	if c.ElectricityPerKWSec != 0.0002 || c.PowerCostPerKW != 400 || c.SlotCost != 4000 {
 		t.Errorf("infra costs wrong: %+v", c)
+	}
+}
+
+// TestSelfBuildCheaperThanRent locks in the buy-vs-rent invariant: a self-built
+// chip's only ongoing cost is electricity, which must be below its rent so that
+// paying capex to self-build actually pays back over time (spec §1 "rent OR buy
+// = a real choice").
+func TestSelfBuildCheaperThanRent(t *testing.T) {
+	c := Default()
+	for _, p := range c.Processes {
+		elec := p.PowerKW * c.ElectricityPerKWSec
+		if elec >= p.RentPerSec {
+			t.Errorf("%s: self-build electricity %v must be < inference rent %v", p.ID, elec, p.RentPerSec)
+		}
 	}
 }
 

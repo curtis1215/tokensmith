@@ -144,10 +144,14 @@ func Default() Config {
 	c.InferenceRentPerGPUSec = 0.006
 	c.InferenceLoadPerUser = 0.0001
 	c.ServiceChurnRate = 0.01
-	c.ChassisCost = 5000
-	c.ElectricityPerKWSec = 0.001
+	// Self-build economics (plan-13 tuning): electricity per chip is kept below
+	// its rent so buying capex pays back over time; chassis/slot per single-chip
+	// server are lowered (old 8-chip bundling amortised them) so self-build is a
+	// real alternative to renting rather than strictly dominated.
+	c.ChassisCost = 1000
+	c.ElectricityPerKWSec = 0.0002
 	c.PowerCostPerKW = 400
-	c.SlotCost = 30000
+	c.SlotCost = 4000
 	c.ResearcherHireCost = [model.NumTiers]float64{0, 5000, 15000, 40000}
 	c.ResearcherSalaryPerSec = [model.NumTiers]float64{0, 0.001, 0.002, 0.005}
 	c.EngineerHireCost = 8000
