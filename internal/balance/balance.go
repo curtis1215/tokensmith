@@ -74,11 +74,11 @@ type Config struct {
 	EngineerSalaryPerSec   float64
 	OpsSalaryPerSec        float64
 	MarketingSalaryPerSec  float64
-	EngineerInfraBonus     float64          // per engineer: compute efficiency
-	OpsChurnReduction      float64          // per ops: service-churn mitigation
-	MarketingBonus         float64          // per marketing: user-target boost
-	CompetitorBaseQuality  float64          // quality floor rivals track before the player has a model
-	CompetitorCatchupRate  float64          // per-second rubber-band rate toward Skill×frontier
+	EngineerInfraBonus     float64 // per engineer: compute efficiency
+	OpsChurnReduction      float64 // per ops: service-churn mitigation
+	MarketingBonus         float64 // per marketing: user-target boost
+	CompetitorBaseQuality  float64 // quality floor rivals track before the player has a model
+	CompetitorCatchupRate  float64 // per-second rubber-band rate toward Skill×frontier
 	// CompetitorMaxLead caps how far a rival may target above the player's
 	// frontier once the player has a model (e.g. 1.08 = +8%). Prevents
 	// Skill>1 names (OpenAI 1.2×) from reading as "already Gen2" during the
@@ -108,6 +108,12 @@ type Config struct {
 	// -(BankruptcyDebtRatio * StartingCash).
 	BankruptcyDebtRatio float64
 	Stars               []model.Star // star-employee roster (plan-12)
+	// Industry events (industry-events plan).
+	Events           []EventSpec
+	EventCheckSec    float64 // mean game-seconds between trigger rolls
+	EventHitChance   float64 // probability a roll fires an event
+	EventCooldownSec float64 // per-event quiet window after it resolves
+	EventLogCap      int     // history entries kept in EventsState.Log
 }
 
 // Default returns the v0 calibration (spec §12).
@@ -190,6 +196,11 @@ func Default() Config {
 	c.Processes = DefaultProcesses()
 	c.TrainRentMult = 1.667
 	c.RevenueMult = 2
+	c.Events = DefaultEvents()
+	c.EventCheckSec = 5 * 86400 // 5 game-days ≈ 30 real-sec online
+	c.EventHitChance = 0.35     // → mean one event per ~85 real-sec online
+	c.EventCooldownSec = 60 * 86400
+	c.EventLogCap = 20
 	return c
 }
 
