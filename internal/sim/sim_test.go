@@ -624,9 +624,16 @@ func TestValuation(t *testing.T) {
 	m.Users = 1000
 	s := model.GameState{Models: []model.Model{m}}
 	s.Resources.Cash = 50000
-	// monthlyRev 1000*12=12000; *120 = 1.44M; users 1000*10=10000; cash 50000 → 1.5M
-	if !approx(Valuation(s, b), 1_500_000) {
-		t.Fatalf("valuation = %v, want 1500000", Valuation(s, b))
+	// monthlyRev 1000*12=12000, ×RevenueMult(2)=24000; *120 = 2.88M; users 1000*10=10000; cash 50000 → 2.94M
+	if !approx(Valuation(s, b), 2_940_000) {
+		t.Fatalf("valuation = %v, want 2940000", Valuation(s, b))
+	}
+
+	// Valuation must scale with RevenueMult: doubling it should raise valuation.
+	bHigh := b
+	bHigh.RevenueMult = b.RevenueMult * 2
+	if !(Valuation(s, bHigh) > Valuation(s, b)) {
+		t.Fatalf("valuation should increase with higher RevenueMult: base=%v high=%v", Valuation(s, b), Valuation(s, bHigh))
 	}
 }
 

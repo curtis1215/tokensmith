@@ -168,14 +168,13 @@ func applyBuildServer(s model.GameState, c model.BuildServer, b balance.Config) 
 	if !ProcessUnlocked(s, b, c.Process) {
 		return s, ErrProcessLocked
 	}
-	n := 1.0
 	server := model.Server{
 		Pool:    c.Pool,
-		Compute: p.Compute * n,
-		PowerKW: p.PowerKW * n,
+		Compute: p.Compute,
+		PowerKW: p.PowerKW,
 		Slots:   1,
 	}
-	capex := p.BuyPrice*n + b.ChassisCost
+	capex := p.BuyPrice + b.ChassisCost
 	if s.Resources.Cash < capex {
 		return s, ErrInsufficientCash
 	}

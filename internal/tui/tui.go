@@ -270,13 +270,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "r", "R", "i", "I":
 			if m.page == PageCompute {
+				key := msg.String()
 				p := m.cfg.Processes[m.procCursor]
 				pool := model.PoolInference
-				if msg.String() == "r" || msg.String() == "R" {
+				if key == "r" || key == "R" {
 					pool = model.PoolTraining
 				}
 				d := 1
-				if msg.String() == "R" || msg.String() == "I" {
+				if key == "R" || key == "I" {
 					d = -1
 				}
 				m.state = applyOK(m.state, model.RentCompute{Process: p.ID, Pool: pool, Delta: d}, m.cfg)

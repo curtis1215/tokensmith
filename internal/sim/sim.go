@@ -72,7 +72,7 @@ func Valuation(ns model.GameState, b balance.Config) float64 {
 	var monthlyRev, users float64
 	for _, m := range ns.Models {
 		if m.Online {
-			monthlyRev += m.Users * m.Price
+			monthlyRev += m.Users * m.Price * b.RevenueMult
 			users += m.Users
 		}
 	}
