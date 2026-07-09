@@ -12,10 +12,16 @@ func renderOverview(m Model) string {
 	s := m.state
 	rank, field := sim.MarketRank(s, m.cfg, model.SegConsumer)
 
-	// 1. Company card
+	// 1. Company card (users/valuation use approached display values when ready)
+	val := sim.Valuation(s, m.cfg)
+	totalUsers := sim.TotalUsers(s)
+	if m.dispReady {
+		val = m.disp.Valuation
+		totalUsers = m.disp.TotalUsers
+	}
 	companyBody := VStack(
-		KV("估值", "$"+human(sim.Valuation(s, m.cfg))),
-		KV("總用戶", human(sim.TotalUsers(s))),
+		KV("估值", "$"+human(val)),
+		KV("總用戶", human(totalUsers)),
 		KV("排名", fmt.Sprintf("#%d / %d", rank, field)),
 		KV("月營收", "$"+human(sim.MonthlyRevenue(s))),
 	)
@@ -45,7 +51,7 @@ func renderOverview(m Model) string {
 	}
 	trainCard := Card("訓練 / 發佈", trainBody)
 
-	// 3. Share card
+	// 3. Share card (consumer top shares use approached values when available)
 	var shareLines []string
 	bars := sim.SegmentShareBars(s, m.cfg, model.SegConsumer)
 	limit := 5
@@ -54,6 +60,10 @@ func renderOverview(m Model) string {
 	}
 	for i := 0; i < limit; i++ {
 		bRow := bars[i]
+		share := bRow.Share
+		if m.dispReady && i < len(m.disp.ConsumerShares) {
+			share = m.disp.ConsumerShares[i]
+		}
 		star := " "
 		if bRow.You {
 			star = "★"
@@ -63,7 +73,7 @@ func renderOverview(m Model) string {
 		if len([]rune(name)) > 10 {
 			namePadding = ""
 		}
-		shareLines = append(shareLines, fmt.Sprintf("%s %s%s %s %.0f%%", star, name, namePadding, Bar(bRow.Share, 10), bRow.Share*100))
+		shareLines = append(shareLines, fmt.Sprintf("%s %s%s %s %.0f%%", star, name, namePadding, Bar(share, 10), share*100))
 	}
 	shareCard := Card("市佔 (消費者)", VStack(shareLines...))
 
@@ -75,6 +85,9 @@ func renderOverview(m Model) string {
 	infUtil := 0.0
 	if cap := sim.EffectiveInference(s, m.cfg); cap > 0 {
 		infUtil = s.Compute.InferenceLoad / cap
+	}
+	if m.dispReady {
+		trainUtil, infUtil = m.disp.TrainUtil, m.disp.InfUtil
 	}
 
 	infBar := fmt.Sprintf("推理 %s %.0f%%", Bar(infUtil, 10), infUtil*100)
@@ -96,24 +109,18 @@ func renderOverview(m Model) string {
 	)
 	powerMilestoneCard := Card("里程碑 & 算力", powerMilestoneBody)
 
-	// Combine into rows
-	row1 := ResponsiveRow(m.width, 2, companyCard, trainCard)
-	row2 := ResponsiveRow(m.width, 2, shareCard, powerMilestoneCard)
+	// Combine into rows (layout to viewport content width, not full terminal)
+	cw := m.contentWidth()
+	row1 := ResponsiveRow(cw, 2, companyCard, trainCard)
+	row2 := ResponsiveRow(cw, 2, shareCard, powerMilestoneCard)
 
 	var rows []string
 	rows = append(rows, row1, row2)
 
-	// 5. Pressures
+	// 5. Pressures (footer lives in the fixed shell)
 	if warns := pressures(m); len(warns) > 0 {
 		rows = append(rows, Card("注意", styleWarn.Render(VStack(warns...))))
 	}
-
-	// 6. Footer
-	hint := "[t]訓練 [X]重來"
-	if s.PeakValuation >= m.cfg.PrestigeUnlockValuation {
-		hint = "[t]訓練 [P]傳承重開 [X]重來"
-	}
-	rows = append(rows, Footer(hint))
 
 	return VStack(rows...)
 }

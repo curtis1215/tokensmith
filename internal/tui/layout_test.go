@@ -28,6 +28,28 @@ func TestFooterIncludesGlobalKeys(t *testing.T) {
 	}
 }
 
+func TestFooterDialogHidesShellKeys(t *testing.T) {
+	f := Footer("")
+	if strings.Contains(f, "[Tab]") || strings.Contains(f, "[q]") {
+		t.Fatalf("dialog footer should not advertise shell keys: %q", f)
+	}
+	if !strings.Contains(f, "[Esc]") {
+		t.Fatalf("dialog footer should mention Esc: %q", f)
+	}
+}
+
+func TestTruncateWidth(t *testing.T) {
+	if TruncateWidth("abcdef", 3) != "abc" {
+		t.Fatalf("got %q", TruncateWidth("abcdef", 3))
+	}
+	if TruncateWidth("你好世界", 4) != "你好" { // CJK: 2 cells each
+		t.Fatalf("got %q want 你好", TruncateWidth("你好世界", 4))
+	}
+	if TruncateWidth("short", 100) != "short" {
+		t.Fatal("no-op TruncateWidth failed")
+	}
+}
+
 func TestHRow(t *testing.T) {
 	s := HRow(2, "A", "B", "C")
 	if !strings.Contains(s, "A") || !strings.Contains(s, "B") || !strings.Contains(s, "C") {

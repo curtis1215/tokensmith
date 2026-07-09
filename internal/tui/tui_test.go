@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -146,14 +147,14 @@ func TestViewShellHasTabsAndFooterPattern(t *testing.T) {
 }
 
 func TestModelResponsiveLayout(t *testing.T) {
-	// 1. Narrow width (< 80)
+	// 1. Narrow width (< 80) — resize so contentWidth/vp track terminal size
 	mNarrow := testModel(t)
-	mNarrow.width = 50
+	mNarrow.resize(50, 40)
 	viewNarrow := mNarrow.View()
 
 	// 2. Wide width (>= 80)
 	mWide := testModel(t)
-	mWide.width = 120
+	mWide.resize(120, 40)
 	viewWide := mWide.View()
 
 	// They should both contain essential elements
@@ -164,5 +165,45 @@ func TestModelResponsiveLayout(t *testing.T) {
 	// Verify that viewNarrow is different from viewWide
 	if viewNarrow == viewWide {
 		t.Fatalf("narrow and wide views should not be identical")
+	}
+}
+
+func TestChromeRowsPositiveAndContentHeight(t *testing.T) {
+	m := testModel(t)
+	ch := m.chromeRows()
+	if ch < 5 {
+		t.Fatalf("chromeRows=%d, want >= 5", ch)
+	}
+	m.resize(100, 40)
+	if m.vp.Height < 3 {
+		t.Fatalf("vp.Height=%d, want >= 3", m.vp.Height)
+	}
+	if m.height != 40 || m.width != 100 {
+		t.Fatalf("size=%dx%d", m.width, m.height)
+	}
+}
+
+func TestViewportHoldsTallContent(t *testing.T) {
+	m := testModel(t)
+	m.resize(80, 24)
+	// Tall synthetic body via SetContent
+	var lines []string
+	for i := 0; i < 60; i++ {
+		lines = append(lines, fmt.Sprintf("line-%02d", i))
+	}
+	m.vp.SetContent(strings.Join(lines, "\n"))
+	if m.vp.TotalLineCount() < 60 {
+		t.Fatalf("TotalLineCount=%d", m.vp.TotalLineCount())
+	}
+	m.vp.PageDown()
+	if m.vp.YOffset <= 0 {
+		t.Fatalf("after PageDown YOffset=%d, want > 0", m.vp.YOffset)
+	}
+	v := m.View()
+	if !strings.Contains(v, "Tokensmith") {
+		t.Fatalf("shell chrome missing after scroll:\n%s", v)
+	}
+	if !strings.Contains(v, "[Tab]切頁") {
+		t.Fatalf("shell footer missing:\n%s", v)
 	}
 }

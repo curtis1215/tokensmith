@@ -40,7 +40,8 @@ func renderTeam(m Model) string {
 	)
 	rolesCard := Card("團隊四職能", rolesBody)
 
-	// 2. Stars Card
+	// 2. Stars Card — truncate long status/blurb lines to fit viewport content width
+	inner := m.cardInnerWidth()
 	var starLines []string
 	for _, st := range m.cfg.Stars {
 		status := ""
@@ -51,13 +52,12 @@ func renderTeam(m Model) string {
 		}
 
 		blurb := starBlurb(st)
-		starLines = append(starLines, fmt.Sprintf("%-15s %-25s (%s)",
-			st.Name, status, blurb))
+		line := fmt.Sprintf("%-15s %-25s (%s)", st.Name, status, blurb)
+		starLines = append(starLines, TruncateWidth(line, inner))
 	}
 	starsCard := Card("明星員工", VStack(starLines...))
 
-	row := ResponsiveRow(m.width, 2, rolesCard, starsCard)
-	return VStack(row, Footer("[h]雇研究員 [e]雇工程 [o]雇營運 [k]雇行銷 [s]簽明星"))
+	return ResponsiveRow(m.contentWidth(), 2, rolesCard, starsCard)
 }
 
 func starBlurb(st model.Star) string {
