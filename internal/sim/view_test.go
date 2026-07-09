@@ -65,3 +65,34 @@ func TestNextMilestone(t *testing.T) {
 		t.Errorf("got target=%v prog=%v ok=%v, want 1e6/0.5/true", target, prog, ok)
 	}
 }
+
+func TestEstimateUserTargetPriceElasticity(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{
+		Models: []model.Model{{
+			Online: false, Segment: model.SegConsumer,
+			Quality: [model.NumQualityDims]float64{25, 0, 0, 0},
+		}},
+	}
+	low := EstimateUserTarget(s, 0, 6, b)
+	ref := EstimateUserTarget(s, 0, 12, b)
+	high := EstimateUserTarget(s, 0, 24, b)
+	if !(low > ref && ref > high && high > 0) {
+		t.Fatalf("expected low>ref>high>0; got %v %v %v", low, ref, high)
+	}
+}
+
+func TestIsDraft(t *testing.T) {
+	draft := model.Model{Online: false, Users: 0}
+	live := model.Model{Online: true, Users: 0}
+	used := model.Model{Online: false, Users: 10}
+	if !IsDraft(draft) {
+		t.Error("draft should be draft")
+	}
+	if IsDraft(live) {
+		t.Error("live should not be draft")
+	}
+	if IsDraft(used) {
+		t.Error("used should not be draft")
+	}
+}

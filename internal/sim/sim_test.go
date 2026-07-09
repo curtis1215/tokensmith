@@ -267,9 +267,10 @@ func TestTickUserGrowthTowardTarget(t *testing.T) {
 	b := balance.Default()
 	// appeal = 50 * 0.4 = 20; price = ref → demandMult 1; target = 20*1000 = 20000.
 	s := model.GameState{Models: []model.Model{onlineModel(50, b.RefPrice)}}
-	ns := Tick(s, 1, nil, b) // Users += (20000-0)*0.001*1 = 20
-	if !approx(ns.Models[0].Users, 20) {
-		t.Fatalf("Users = %v, want 20", ns.Models[0].Users)
+	ns := Tick(s, 1, nil, b)
+	want := 20000.0 * (1.0 - math.Exp(-b.UserGrowthRate*1))
+	if !approx(ns.Models[0].Users, want) {
+		t.Fatalf("Users = %v, want %v", ns.Models[0].Users, want)
 	}
 	// input not mutated
 	if s.Models[0].Users != 0 {
@@ -296,7 +297,7 @@ func TestTickPriceElasticityReducesTarget(t *testing.T) {
 	s := model.GameState{Models: []model.Model{onlineModel(50, 2*b.RefPrice)}}
 	ns := Tick(s, 1, nil, b)
 	wantTarget := 20.0 * b.UserTargetPerAppeal * math.Pow(0.5, b.PriceElasticity) // appeal 20
-	wantUsers := wantTarget * b.UserGrowthRate * 1
+	wantUsers := wantTarget * (1.0 - math.Exp(-b.UserGrowthRate*1))
 	if !approx(ns.Models[0].Users, wantUsers) {
 		t.Fatalf("Users = %v, want %v", ns.Models[0].Users, wantUsers)
 	}
@@ -419,9 +420,10 @@ func TestTickCompetitorHalvesUserTarget(t *testing.T) {
 		Models:      []model.Model{onlineModel(50, b.RefPrice)},
 		Competitors: []model.Competitor{rival(50)}, // GrowthPerSec 0 → stays 20
 	}
-	ns := Tick(s, 1, nil, b) // target = 20*1000*1*0.5 = 10000; users = 10000*0.001 = 10
-	if !approx(ns.Models[0].Users, 10) {
-		t.Fatalf("Users = %v, want 10 (halved by equal competitor)", ns.Models[0].Users)
+	ns := Tick(s, 1, nil, b)
+	want := 10000.0 * (1.0 - math.Exp(-b.UserGrowthRate*1))
+	if !approx(ns.Models[0].Users, want) {
+		t.Fatalf("Users = %v, want %v (halved by equal competitor)", ns.Models[0].Users, want)
 	}
 }
 
@@ -473,7 +475,7 @@ func TestSegmentRefPriceNeutralAtReference(t *testing.T) {
 	// appeal = 40 (efficiency 100 * developer weight 0.4); target = 40*800*1*1 = 32000.
 	dev := segModel(model.SegDeveloper, model.DimEfficiency, 100, b.SegmentRefPrice[model.SegDeveloper])
 	ns := Tick(model.GameState{Models: []model.Model{dev}}, 1, nil, b)
-	want := 40.0 * b.SegmentTargetScale[model.SegDeveloper] * b.UserGrowthRate // *1 tick
+	want := 40.0 * b.SegmentTargetScale[model.SegDeveloper] * (1.0 - math.Exp(-b.UserGrowthRate*1))
 	if !approx(ns.Models[0].Users, want) {
 		t.Fatalf("developer users = %v, want %v", ns.Models[0].Users, want)
 	}
@@ -826,5 +828,40 @@ func TestUserGrowthClampedAtLargeDt(t *testing.T) {
 	}
 	if u > 20000.0001 {
 		t.Fatalf("users overshot target (unstable Euler step): %v > 20000", u)
+	}
+}
+
+func TestTickUserGrowthExponentialNotInstant(t *testing.T) {
+	b := balance.Default()
+	// Force known rate for the assertion regardless of balance defaults during this task.
+	b.UserGrowthRate = 3.5e-5
+	b.SegmentTargetScale[model.SegConsumer] = 20000
+	m := onlineModel(25, b.SegmentRefPrice[model.SegConsumer]) // appeal 10 if weights 0.4
+	m.Users = 0
+	// No competitors → share 1 → target = 10 * 20000 = 200000
+	s := model.GameState{Models: []model.Model{m}}
+	ns := Tick(s, 3600, nil, b) // one sim hour
+	// remaining = exp(-3.5e-5*3600)=exp(-0.126)≈0.881 → users≈0.119*target
+	if ns.Models[0].Users <= 0 {
+		t.Fatal("expected some users after 1h")
+	}
+	if ns.Models[0].Users > 0.25*200000 {
+		t.Fatalf("1h users=%v; want < 25%% of target (not instant fill)", ns.Models[0].Users)
+	}
+}
+
+func TestTickUserGrowthEightHoursNear63Percent(t *testing.T) {
+	b := balance.Default()
+	b.UserGrowthRate = 3.5e-5
+	b.SegmentTargetScale[model.SegConsumer] = 20000
+	m := onlineModel(25, b.SegmentRefPrice[model.SegConsumer])
+	s := model.GameState{Models: []model.Model{m}}
+	const target = 200000.0
+	for i := 0; i < 8; i++ {
+		s = Tick(s, 3600, nil, b)
+	}
+	u := s.Models[0].Users
+	if u < 0.50*target || u > 0.75*target {
+		t.Fatalf("after 8h users=%v; want ~63%% of %v (50–75%%)", u, target)
 	}
 }

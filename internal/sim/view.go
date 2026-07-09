@@ -1,6 +1,8 @@
 package sim
 
 import (
+	"math"
+
 	"tokensmith/internal/balance"
 	"tokensmith/internal/model"
 )
@@ -77,4 +79,42 @@ func NextMilestone(ns model.GameState, b balance.Config) (target, progress float
 		progress = 1
 	}
 	return target, progress, true
+}
+
+// IsDraft reports whether m is a publishable draft (v1: offline and never used).
+func IsDraft(m model.Model) bool {
+	return !m.Online && m.Users == 0
+}
+
+// EstimateUserTarget is the equilibrium user count advanceUsers would approach
+// for models[modelIndex] if it were online at the given price. Returns 0 if
+// index invalid. Pure.
+func EstimateUserTarget(s model.GameState, modelIndex int, price float64, b balance.Config) float64 {
+	if modelIndex < 0 || modelIndex >= len(s.Models) {
+		return 0
+	}
+	m := s.Models[modelIndex]
+	if int(m.Segment) < 0 || int(m.Segment) >= model.NumSegments {
+		return 0
+	}
+	if price <= 0 {
+		return 0
+	}
+	w := b.SegmentWeights[m.Segment]
+	appeal := appealOf(m.Quality, w)
+	rivalAppeal := 0.0
+	for _, c := range s.Competitors {
+		rivalAppeal += appealOf(c.Quality, w)
+	}
+	share := 1.0
+	if appeal+rivalAppeal > 0 {
+		share = appeal / (appeal + rivalAppeal)
+	}
+	te := techEffects(s, b)
+	se := starEffects(s, b)
+	refPrice := b.SegmentRefPrice[m.Segment] * te.RefPriceMult
+	demandMult := math.Pow(refPrice/price, b.PriceElasticity)
+	marketingMult := 1 + float64(s.Marketing)*b.MarketingBonus
+	return appeal * b.SegmentTargetScale[m.Segment] * demandMult * share *
+		marketingMult * te.UserGrowthMult * se.UserGrowthMult
 }
