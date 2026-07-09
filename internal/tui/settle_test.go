@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"tokensmith/internal/balance"
@@ -46,5 +47,36 @@ func TestSettleClampsElapsed(t *testing.T) {
 	_, sum2 := Settle(s, b, 999*86400, 0, 0)
 	if sum2.SecondsSettled != settleMaxSec {
 		t.Fatalf("huge elapsed should clamp to max, got %v", sum2.SecondsSettled)
+	}
+}
+
+func TestSettleCountsEvents(t *testing.T) {
+	b := balance.Default()
+	b.EventHitChance = 1.0
+	b.EventCheckSec = 3600 // one roll per settle chunk
+	var s model.GameState
+	s.Resources.Cash = 1e6
+	s.Events.RandState = 42
+	s.Events.NextCheckAt = 1 // pre-scheduled so rolls happen immediately
+	ns, sum := Settle(s, b, 6*3600, 0, 0)
+	if sum.EventsFired == 0 {
+		t.Fatalf("expected events during 6h settle, got %+v", sum)
+	}
+	if ns.Events.FiredCount != sum.EventsFired {
+		t.Fatalf("summary %d != state counter %d", sum.EventsFired, ns.Events.FiredCount)
+	}
+}
+
+func TestNewAtSeedsRandState(t *testing.T) {
+	m := testModel(t)
+	if m.state.Events.RandState == 0 {
+		t.Fatal("a fresh game must get a nonzero RNG seed")
+	}
+}
+
+func TestOfflineBannerAutoResolvedOnly(t *testing.T) {
+	out := offlineBanner(Summary{EventsAutoResolved: 2, SecondsSettled: 3600})
+	if !strings.Contains(out, "自動決議") {
+		t.Fatalf("expected auto-resolve line when EventsFired==0, got %q", out)
 	}
 }

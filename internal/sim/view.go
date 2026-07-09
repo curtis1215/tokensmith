@@ -101,7 +101,11 @@ func EstimateUserTarget(s model.GameState, modelIndex int, price float64, b bala
 	if price <= 0 {
 		return 0
 	}
+	te := techEffects(s, b)
+	se := starEffects(s, b)
+	ee := eventEffects(s, b)
 	w := b.SegmentWeights[m.Segment]
+	w[model.DimSafety] *= ee.SafetyWeightMult
 	appeal := appealOf(m.Quality, w)
 	rivalAppeal := 0.0
 	for _, c := range s.Competitors {
@@ -111,13 +115,12 @@ func EstimateUserTarget(s model.GameState, modelIndex int, price float64, b bala
 	if appeal+rivalAppeal > 0 {
 		share = appeal / (appeal + rivalAppeal)
 	}
-	te := techEffects(s, b)
-	se := starEffects(s, b)
 	refPrice := EffectiveRefPrice(s, m.Segment, b)
 	demandMult := math.Pow(refPrice/price, b.PriceElasticity)
 	marketingMult := 1 + float64(s.Marketing)*b.MarketingBonus
 	return appeal * b.SegmentTargetScale[m.Segment] * demandMult * share *
-		marketingMult * te.UserGrowthMult * se.UserGrowthMult
+		marketingMult * te.UserGrowthMult * se.UserGrowthMult *
+		ee.UserGrowthMult * ee.TAMMult
 }
 
 // EffectiveRefPrice returns the reference price of seg, incorporating tech tree multipliers.
@@ -126,7 +129,7 @@ func EffectiveRefPrice(s model.GameState, seg model.Segment, b balance.Config) f
 		return 0
 	}
 	te := techEffects(s, b)
-	return b.SegmentRefPrice[seg] * te.RefPriceMult
+	return b.SegmentRefPrice[seg] * te.RefPriceMult * eventEffects(s, b).RefPriceMult
 }
 
 // ShareRow is one entry for market/overview bars.

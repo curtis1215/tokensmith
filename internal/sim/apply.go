@@ -38,6 +38,8 @@ var (
 	ErrAlreadyHired        = errors.New("sim: star already hired")
 	ErrNotDraft            = errors.New("sim: model is not a publishable draft")
 	ErrInvalidName         = errors.New("sim: model name must be 1–24 characters")
+	ErrInvalidEventIndex   = errors.New("sim: invalid pending-event index")
+	ErrInvalidEventChoice  = errors.New("sim: invalid event choice")
 )
 
 // Apply validates and applies a single player command, returning the new
@@ -68,6 +70,8 @@ func Apply(s model.GameState, cmd model.Command, b balance.Config) (model.GameSt
 		return applySignStar(s, c, b)
 	case model.PublishModel:
 		return applyPublishModel(s, c)
+	case model.ResolveEvent:
+		return resolveChoice(s, c.PendingIndex, c.Choice, false, b)
 	default:
 		return s, ErrUnknownCommand
 	}
@@ -180,7 +184,7 @@ func applyBuildServer(s model.GameState, c model.BuildServer, b balance.Config) 
 		PowerKW: p.PowerKW,
 		Slots:   1,
 	}
-	capex := p.BuyPrice + b.ChassisCost
+	capex := (p.BuyPrice + b.ChassisCost) * eventEffects(s, b).BuildCostMult
 	if s.Resources.Cash < capex {
 		return s, ErrInsufficientCash
 	}
@@ -294,11 +298,12 @@ func applyUnlockTech(s model.GameState, c model.UnlockTech, b balance.Config) (m
 			return s, ErrPrereqNotMet
 		}
 	}
-	if s.Resources.RnD < node.Cost {
+	cost := node.Cost * eventTechCostMult(s, node.Branch)
+	if s.Resources.RnD < cost {
 		return s, ErrInsufficientRnD
 	}
 	ns := s
-	ns.Resources.RnD -= node.Cost
+	ns.Resources.RnD -= cost
 	ns.UnlockedTech = append(append([]string(nil), s.UnlockedTech...), node.ID)
 	return ns, nil
 }
@@ -335,7 +340,9 @@ func applyPrestigeReset(s model.GameState, b balance.Config) (model.GameState, e
 	}
 	p := s.Prestige
 	p.Patents += patentsFor(s.PeakValuation, b)
-	return freshRun(p, b), nil
+	ns := freshRun(p, b)
+	ns.Events.RandState = s.Events.RandState
+	return ns, nil
 }
 
 func findStar(stars []model.Star, id string) (model.Star, bool) {

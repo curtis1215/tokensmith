@@ -64,6 +64,7 @@ type Model struct {
 	page           Page
 	dialog         *trainDialog   // non-nil while the training modal is open
 	publish        *publishDialog // non-nil while the publish/price modal is open
+	event          *eventDialog   // non-nil while the event-choice modal is open
 	techCursor     int            // selected tech node on the tech page
 	procCursor     int            // selected process node on the compute page
 	modelCursor    int            // selected index into state.Models on models page
@@ -108,6 +109,10 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 		state = game.NewGame()
 	} else if !ok {
 		state = game.NewGame()
+	}
+	if state.Events.RandState == 0 {
+		// New game or pre-events save: seed once, outside the pure sim.
+		state.Events.RandState = uint64(time.Now().UnixNano())
 	}
 	meta, metaOK, _ := store.LoadMeta(metaPath)
 	m := Model{
@@ -154,7 +159,7 @@ func (m Model) startup(now int64) Model {
 	ns, sum := Settle(m.state, m.cfg, elapsed, offIn, offOut)
 	m.state = ns
 	m.consumedIn, m.consumedOut = l.CumIn, l.CumOut
-	if sum.RnDGained > 0 || sum.TrainingCompleted {
+	if sum.RnDGained > 0 || sum.TrainingCompleted || sum.EventsFired > 0 || sum.EventsAutoResolved > 0 {
 		m.offlineSummary = &sum
 	}
 	return m
@@ -219,7 +224,11 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		for _, e := range events {
 			m.lastTokens += e.InputTokens + e.OutputTokens
 		}
+		prevFired := m.state.Events.FiredCount
 		m.state = sim.Tick(m.state, tickDT, events, m.cfg)
+		if m.state.Events.FiredCount > prevFired {
+			m.setNotice("📰 產業事件：" + latestEventName(m.state))
+		}
 		// Mechanism B: auto game-over + restart once debt passes the threshold.
 		if m.state.Resources.Cash < -m.cfg.BankruptcyDebtRatio*m.cfg.StartingCash {
 			m.state = sim.Restart(m.state, m.cfg)
@@ -235,6 +244,9 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		return m, tick()
 	case tea.KeyMsg:
+		if m.event != nil {
+			return m.updateEventDialog(msg)
+		}
 		if m.publish != nil {
 			return m.updatePublishDialog(msg)
 		}
@@ -381,7 +393,13 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return m, nil
 		case "e":
-			if m.page == PageCompute {
+			if m.page == PageOverview {
+				if d, ok := newEventDialog(m); ok {
+					m.event = &d
+				} else {
+					m.setNotice("目前沒有待決事件")
+				}
+			} else if m.page == PageCompute {
 				m.state = applyOK(m.state, model.ExpandDatacenter{PowerDelta: 100, SlotDelta: 5}, m.cfg)
 			} else if m.page == PageTeam {
 				m.state = applyOK(m.state, model.HireStaff{Role: model.RoleEngineer, Count: 1}, m.cfg)
@@ -465,6 +483,38 @@ func (m Model) updatePublishDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) updateEventDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
+	d, confirm, cancel := m.event.update(msg)
+	if cancel {
+		m.event = nil
+		return m, nil
+	}
+	if confirm {
+		ns, err := sim.Apply(m.state, model.ResolveEvent{PendingIndex: 0, Choice: d.cursor}, m.cfg)
+		switch {
+		case err == nil:
+			m.state = ns
+		case errors.Is(err, sim.ErrInsufficientCash):
+			m.setNotice("現金不足，付不起這個選項")
+			m.event = &d
+			return m, nil
+		case errors.Is(err, sim.ErrInsufficientRnD):
+			m.setNotice("R&D 不足，付不起這個選項")
+			m.event = &d
+			return m, nil
+		default:
+			// e.g. pending was auto-resolved while the dialog was open
+			m.setNotice("該事件已逾時自動決議")
+			m.event = nil
+			return m, nil
+		}
+		m.event = nil
+		return m, nil
+	}
+	m.event = &d
+	return m, nil
+}
+
 // resize updates terminal dimensions and viewport content region size.
 func (m *Model) resize(w, h int) {
 	if w < 1 {
@@ -528,6 +578,9 @@ func (m Model) chromeRows() int {
 
 // contentBody is the scrollable region: dialog or active page (no footer).
 func (m Model) contentBody() string {
+	if m.event != nil {
+		return renderEventDialog(*m.event, m)
+	}
 	if m.publish != nil {
 		return renderPublishDialog(*m.publish, m)
 	}
@@ -581,7 +634,7 @@ func (m Model) tryScroll(msg tea.KeyMsg) (bool, Model) {
 
 // pageKeys returns page-specific help text for the fixed shell footer.
 func pageKeys(m Model) string {
-	if m.publish != nil || m.dialog != nil {
+	if m.publish != nil || m.dialog != nil || m.event != nil {
 		return "" // dialogs embed their own help
 	}
 	switch m.page {
@@ -602,6 +655,9 @@ func pageKeys(m Model) string {
 		hint := "[t]訓練 [X]重來"
 		if m.state.PeakValuation >= m.cfg.PrestigeUnlockValuation {
 			hint = "[t]訓練 [P]傳承重開 [X]重來"
+		}
+		if len(m.state.Events.Pending) > 0 {
+			hint = "[e]事件決策 " + hint
 		}
 		return hint
 	}
@@ -672,6 +728,17 @@ func renderResourceBar(m Model) string {
 		bar += fmt.Sprintf("   ⚡token +%d", m.lastTokens)
 	}
 	return bar
+}
+
+// latestEventName names the most recently fired event for the notice line.
+func latestEventName(s model.GameState) string {
+	if n := len(s.Events.Pending); n > 0 {
+		return eventLabel(s.Events.Pending[n-1].EventID).Name + "（總覽頁按 e 決策）"
+	}
+	if n := len(s.Events.Log); n > 0 {
+		return eventLabel(s.Events.Log[n-1].EventID).Name
+	}
+	return ""
 }
 
 // pressures returns ⚠ attention items surfaced on the overview page. (A real
@@ -771,6 +838,14 @@ func offlineBanner(s Summary) string {
 		s.SecondsSettled/3600, s.TokensIn+s.TokensOut, human(s.RnDGained))
 	if s.TrainingCompleted {
 		msg += " · 訓練完成 ✓"
+	}
+	if s.EventsFired > 0 {
+		msg += fmt.Sprintf(" · 產業事件 %d 起", s.EventsFired)
+		if s.EventsAutoResolved > 0 {
+			msg += fmt.Sprintf("（%d 起已自動決議）", s.EventsAutoResolved)
+		}
+	} else if s.EventsAutoResolved > 0 {
+		msg += fmt.Sprintf(" · %d 起待決事件已自動決議", s.EventsAutoResolved)
 	}
 	return tabActiveStyle.Render(msg) + helpStyle.Render("  （按任意鍵關閉）")
 }

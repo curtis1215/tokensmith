@@ -55,7 +55,9 @@ func patentsFor(peak float64, b balance.Config) float64 {
 func Restart(s model.GameState, b balance.Config) model.GameState {
 	p := s.Prestige
 	p.Patents += patentsFor(s.PeakValuation, b)
-	return freshRun(p, b)
+	ns := freshRun(p, b)
+	ns.Events.RandState = s.Events.RandState
+	return ns
 }
 
 // freshRun produces a new run's starting state, preserving prestige.

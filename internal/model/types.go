@@ -60,6 +60,7 @@ type GameState struct {
 	HasTraining       bool
 	Training          TrainingJob
 	HiredStars        []string
+	Events            EventsState
 }
 
 // QualityDim indexes Model.Quality.
