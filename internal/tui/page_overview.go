@@ -116,6 +116,7 @@ func renderOverview(m Model) string {
 
 	var rows []string
 	rows = append(rows, row1, row2)
+	rows = append(rows, renderEventsCard(m))
 
 	// 5. Pressures (footer lives in the fixed shell)
 	if warns := pressures(m); len(warns) > 0 {
@@ -123,6 +124,39 @@ func renderOverview(m Model) string {
 	}
 
 	return VStack(rows...)
+}
+
+// renderEventsCard is the 產業動態 card: pending decisions first (highlighted
+// with their remaining decision window), then recent history, max 4 lines.
+func renderEventsCard(m Model) string {
+	ev := m.state.Events
+	var lines []string
+	for _, p := range ev.Pending {
+		meta := eventLabel(p.EventID)
+		days := (p.Deadline - m.state.GameTime) / 86400
+		if days < 0 {
+			days = 0
+		}
+		lines = append(lines, styleWarn.Render(
+			fmt.Sprintf("⏳ %s — [e]決策（剩 %.0f 天）", meta.Name, days)))
+	}
+	for i := len(ev.Log) - 1; i >= 0 && len(lines) < 4; i-- {
+		rec := ev.Log[i]
+		meta := eventLabel(rec.EventID)
+		result := ""
+		if meta.Choices[0] != "" && rec.Choice >= 0 && rec.Choice < 2 {
+			result = " · " + meta.Choices[rec.Choice]
+		}
+		if rec.Auto {
+			result += "（自動）"
+		}
+		day := int(rec.At / 86400)
+		lines = append(lines, fmt.Sprintf("· D%d %s%s", day, meta.Name, result))
+	}
+	if len(lines) == 0 {
+		lines = append(lines, styleMuted.Render("風平浪靜——尚無產業事件"))
+	}
+	return Card("產業動態", VStack(lines...))
 }
 
 func segmentName(seg model.Segment) string {
