@@ -11,25 +11,60 @@ var branchNames = [model.NumBranches]string{"演算法", "硬體基建", "商業
 
 func renderTech(m Model) string {
 	s := m.state
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("科技樹  可用 R&D %s\n\n", human(s.Resources.RnD)))
-	for i, node := range m.cfg.TechNodes {
-		cursor := " "
-		if i == m.techCursor {
-			cursor = "▸"
-		}
-		state := fmt.Sprintf("%s R&D", human(node.Cost))
-		switch {
-		case techUnlocked(s, node.ID):
-			state = "✓ 已解鎖"
-		case !prereqsMet(s, node.Prereqs):
-			state = "🔒 需 " + strings.Join(node.Prereqs, ",")
-		}
-		b.WriteString(fmt.Sprintf("%s [%s] %-18s %s\n",
-			cursor, branchNames[node.Branch], node.ID, state))
+
+	// Group nodes by branch
+	type groupedBranch struct {
+		name  string
+		nodes []int // indices into m.cfg.TechNodes
 	}
-	b.WriteString(helpStyle.Render("\n[↑↓]選節點 [Enter]解鎖 [Tab]切頁"))
-	return b.String()
+	
+	branches := make([]groupedBranch, model.NumBranches)
+	for b := 0; b < model.NumBranches; b++ {
+		branches[b] = groupedBranch{
+			name: branchNames[b],
+		}
+	}
+	
+	for i, node := range m.cfg.TechNodes {
+		branches[node.Branch].nodes = append(branches[node.Branch].nodes, i)
+	}
+
+	var rows []string
+	rows = append(rows, fmt.Sprintf("科技樹  可用 R&D %s", human(s.Resources.RnD)))
+	for _, br := range branches {
+		if len(br.nodes) == 0 {
+			continue
+		}
+		var lines []string
+		for _, idx := range br.nodes {
+			node := m.cfg.TechNodes[idx]
+			cursor := " "
+			if idx == m.techCursor {
+				cursor = "▸"
+			}
+			
+			meta := techLabel(node.ID)
+			
+			stateStr := fmt.Sprintf("%s R&D", human(node.Cost))
+			switch {
+			case techUnlocked(s, node.ID):
+				stateStr = "✓ 已解鎖"
+			case !prereqsMet(s, node.Prereqs):
+				var prereqNames []string
+				for _, p := range node.Prereqs {
+					prereqNames = append(prereqNames, techLabel(p).Name)
+				}
+				stateStr = "🔒 需 " + strings.Join(prereqNames, ",")
+			}
+			
+			nameWithID := fmt.Sprintf("%s (%s)", meta.Name, node.ID)
+			lines = append(lines, fmt.Sprintf("%s %-25s %-16s | %s",
+				cursor, nameWithID, stateStr, meta.Effect))
+		}
+		rows = append(rows, Card(br.name, VStack(lines...)))
+	}
+	rows = append(rows, Footer("[↑↓]選節點 [Enter]解鎖"))
+	return VStack(rows...)
 }
 
 func techUnlocked(s model.GameState, id string) bool {
