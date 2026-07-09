@@ -62,6 +62,7 @@ type Model struct {
 	ticksSinceSave int
 	page           Page
 	dialog         *trainDialog // non-nil while the training modal is open
+	publish        *publishDialog // non-nil while the publish/price modal is open
 	techCursor     int          // selected tech node on the tech page
 	procCursor     int          // selected process node on the compute page
 	modelCursor    int          // selected index into state.Models on models page
@@ -211,6 +212,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tick()
 	case tea.KeyMsg:
+		if m.publish != nil {
+			return m.updatePublishDialog(msg)
+		}
 		if m.dialog != nil {
 			return m.updateDialog(msg)
 		}
@@ -275,6 +279,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.page == PageModels || m.page == PageOverview {
 				d := newTrainDialog(m)
 				m.dialog = &d
+			}
+			return m, nil
+		case "p":
+			if m.page == PageModels {
+				if d, ok := newPublishDialog(m, m.modelCursor); ok {
+					m.publish = &d
+				} else {
+					m.notice = "請選取待發佈草稿（先訓練模型）"
+				}
+			}
+			return m, nil
+		case "$":
+			if m.page == PageModels && m.modelCursor >= 0 && m.modelCursor < len(m.state.Models) {
+				md := m.state.Models[m.modelCursor]
+				if md.Online {
+					d := publishDialog{
+						index:     m.modelCursor,
+						name:      md.Name,
+						price:     md.Price,
+						refPrice:  m.cfg.SegmentRefPrice[md.Segment],
+						gen:       md.Gen,
+						segment:   md.Segment,
+						quality:   md.Quality,
+						priceOnly: true,
+					}
+					m.publish = &d
+				}
 			}
 			return m, nil
 		case "P":
@@ -354,6 +385,26 @@ func (m Model) updateDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.dialog = &d
+	return m, nil
+}
+
+func (m Model) updatePublishDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	d, confirm, cancel := m.publish.update(msg)
+	if cancel {
+		m.publish = nil
+		return m, nil
+	}
+	if confirm {
+		if d.priceOnly {
+			m.state = applyOK(m.state, model.SetPrice{ModelIndex: d.index, Price: d.price}, m.cfg)
+		} else if ns, err := sim.Apply(m.state, d.command(), m.cfg); err == nil {
+			m.state = ns
+			m.notice = fmt.Sprintf("「%s」已上線", d.name)
+		}
+		m.publish = nil
+		return m, nil
+	}
+	m.publish = &d
 	return m, nil
 }
 
@@ -443,6 +494,15 @@ func pressures(m Model) []string {
 	if sim.EffectiveTraining(s, m.cfg) == 0 {
 		out = append(out, "⚠ 無訓練算力——到算力頁按 r 租用才能訓練")
 	}
+	draftN := 0
+	for _, md := range s.Models {
+		if sim.IsDraft(md) {
+			draftN++
+		}
+	}
+	if draftN > 0 {
+		out = append(out, fmt.Sprintf("待發佈模型 %d 個 — 模型頁按 p", draftN))
+	}
 	return out
 }
 
@@ -478,7 +538,9 @@ func (m Model) renderPage() string {
 func (m Model) View() string {
 	sep := strings.Repeat("─", 66)
 	page := m.renderPage()
-	if m.dialog != nil {
+	if m.publish != nil {
+		page = renderPublishDialog(*m.publish, m)
+	} else if m.dialog != nil {
 		page = renderTrainDialog(*m.dialog, m)
 	}
 	rows := []string{titleStyle.Render("Tokensmith")}
