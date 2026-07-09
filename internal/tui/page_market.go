@@ -11,22 +11,71 @@ import (
 
 func renderMarket(m Model) string {
 	s := m.state
-	var b strings.Builder
-	b.WriteString("三區隔市場\n")
+	var cards []string
 	segs := []model.Segment{model.SegConsumer, model.SegEnterprise, model.SegDeveloper}
 	for _, seg := range segs {
 		rank, field := sim.MarketRank(s, m.cfg, seg)
-		b.WriteString(fmt.Sprintf("  %-6s 你的用戶 %s · 排名 #%d / %d · 市場規模 %s\n",
-			segmentName(seg), human(segmentUsers(s, seg)), rank, field, marketSizeLabel(m.cfg, seg)))
+		
+		// Users, rank, scale
+		headerInfo := fmt.Sprintf("你的用戶: %s  ·  排名: #%d / %d  ·  市場規模: %s",
+			human(segmentUsers(s, seg)), rank, field, marketSizeLabel(m.cfg, seg))
+			
+		// Bars from SegmentShareBars
+		bars := sim.SegmentShareBars(s, m.cfg, seg)
+		var shareLines []string
+		for i := 0; i < len(bars); i++ {
+			bRow := bars[i]
+			star := " "
+			if bRow.You {
+				star = "★"
+			}
+			name := Truncate(bRow.Name, 10)
+			namePadding := strings.Repeat(" ", 10-len([]rune(name)))
+			if len([]rune(name)) > 10 {
+				namePadding = ""
+			}
+			shareLines = append(shareLines, fmt.Sprintf("%s %s%s %s %.0f%%", star, name, namePadding, Bar(bRow.Share, 10), bRow.Share*100))
+		}
+		
+		cardBody := VStack(
+			headerInfo,
+			"",
+			VStack(shareLines...),
+		)
+		cards = append(cards, Card(segmentName(seg)+"市場", cardBody))
 	}
 
-	b.WriteString("\n對手檔案（能力 / 專長維度）\n")
+	var rivalLines []string
 	for _, c := range s.Competitors {
-		b.WriteString(fmt.Sprintf("  %-10s 能力 %.0f · 專長 %s\n",
-			c.Name, c.Quality[model.DimCapability], topSkillDim(c)))
+		capVal := c.Quality[model.DimCapability]
+		capFrac := capVal / 100.0
+		if capFrac > 1 {
+			capFrac = 1
+		}
+		level := sim.ThreatLevel(s, m.cfg, model.SegConsumer, c)
+		label := threatLabel(level)
+		
+		rivalLines = append(rivalLines, fmt.Sprintf("%-10s 能力 %s (%.0f) · 專長 %-4s · 威脅 %s",
+			c.Name, Bar(capFrac, 10), capVal, topSkillDim(c), label))
 	}
-	b.WriteString(helpStyle.Render("\n[Tab]切頁"))
-	return b.String()
+	rivalsCard := Card("對手檔案", VStack(rivalLines...))
+
+	leftColumn := VStack(cards...)
+	rightColumn := rivalsCard
+	
+	row := HRow(2, leftColumn, rightColumn)
+	return VStack(row, Footer("[Tab]切頁"))
+}
+
+func threatLabel(level int) string {
+	switch level {
+	case 2:
+		return styleWarn.Render("高")
+	case 1:
+		return styleAccent.Render("中")
+	default:
+		return "低"
+	}
 }
 
 // segmentUsers sums the player's online-model users in a segment.
