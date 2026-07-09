@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -133,3 +134,16 @@ func TestQuitSavesState(t *testing.T) {
 	}
 	_ = os.Remove(path)
 }
+
+
+
+func TestViewShellHasTabsAndFooterPattern(t *testing.T) {
+	m := testModel(t)
+	v := m.View()
+	for _, want := range []string{"Tokensmith", "總覽", "模型", "Day"} {
+		if !strings.Contains(v, want) {
+			t.Fatalf("missing %q in view", want)
+		}
+	}
+}
+

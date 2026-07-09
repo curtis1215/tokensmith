@@ -35,11 +35,11 @@ func TestResourceBarShowsPerRealSecondRnDRate(t *testing.T) {
 	}
 }
 
-func TestResourceBarShowsDay(t *testing.T) {
+func TestViewShowsDay(t *testing.T) {
 	m := testModel(t)
 	m.state.GameTime = 3 * 86400
-	if !strings.Contains(renderResourceBar(m), "Day 3") {
-		t.Fatalf("resource bar should show Day 3")
+	if !strings.Contains(m.View(), "Day 3") {
+		t.Fatalf("View should show Day 3")
 	}
 }
 

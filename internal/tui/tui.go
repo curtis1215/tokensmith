@@ -10,7 +10,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"tokensmith/internal/balance"
 	"tokensmith/internal/game"
@@ -471,10 +470,21 @@ func renderResourceBar(m Model) string {
 	// Show the R&D rate per real second (what the player perceives), not per
 	// game-second — the latter is tiny and rounds to 0 in the display.
 	rndPerRealSec := sim.RnDRatePerSec(s, m.cfg) * gameSecPerRealSec
-	bar := fmt.Sprintf("Day %d   💰 $%s   ⚡R&D %s (+%s/s)   🖥訓練%.0f%% 推理%.0f%%   📈估值 $%s",
-		int(s.GameTime/86400), human(s.Resources.Cash), human(s.Resources.RnD),
-		human(rndPerRealSec), trainUtil*100, infUtil*100,
-		human(sim.Valuation(s, m.cfg)))
+
+	cashStr := fmt.Sprintf("💰 $%s", human(s.Resources.Cash))
+	if s.Resources.Cash < 0 {
+		cashStr = styleWarn.Render(cashStr)
+	}
+
+	infStr := fmt.Sprintf("推理%.0f%%", infUtil*100)
+	if infUtil >= 0.9 {
+		infStr = styleWarn.Render(infStr)
+	}
+
+	bar := fmt.Sprintf("%s   ⚡R&D %s (+%s/s)   🖥訓練%.0f%% %s   📈估值 $%s",
+		cashStr, human(s.Resources.RnD), human(rndPerRealSec),
+		trainUtil*100, infStr, human(sim.Valuation(s, m.cfg)))
+
 	if m.lastTokens > 0 {
 		bar += fmt.Sprintf("   ⚡token +%d", m.lastTokens)
 	}
@@ -544,28 +554,31 @@ func (m Model) renderPage() string {
 }
 
 func (m Model) View() string {
-	sep := strings.Repeat("─", 66)
+	var rows []string
+	day := int(m.state.GameTime / 86400)
+	header := styleTitle.Render(fmt.Sprintf("Tokensmith  ·  Day %d", day))
+	rows = append(rows, header)
+	if m.offlineSummary != nil {
+		rows = append(rows, offlineBanner(*m.offlineSummary))
+	}
+	if m.notice != "" {
+		rows = append(rows, styleAccent.Render(m.notice))
+	}
+	rows = append(rows, renderResourceBar(m))
+	rows = append(rows, renderTabBar(m.page))
+
 	page := m.renderPage()
 	if m.publish != nil {
 		page = renderPublishDialog(*m.publish, m)
 	} else if m.dialog != nil {
 		page = renderTrainDialog(*m.dialog, m)
 	}
-	rows := []string{titleStyle.Render("Tokensmith")}
-	if m.offlineSummary != nil {
-		rows = append(rows, offlineBanner(*m.offlineSummary))
-	}
-	if m.notice != "" {
-		rows = append(rows, tabActiveStyle.Render(m.notice))
-	}
-	rows = append(rows, lipgloss.JoinVertical(lipgloss.Left,
-		renderResourceBar(m),
-		sep,
-		renderTabBar(m.page),
-		sep,
-		page,
-	))
-	return boxStyle.Render(lipgloss.JoinVertical(lipgloss.Left, rows...))
+	rows = append(rows, page)
+
+	// Page-level footer is rendered by each page via Footer(...).
+	// Shell does not duplicate page keys.
+
+	return boxStyle.Render(VStack(rows...))
 }
 
 // offlineBanner summarises what happened while the game was closed.
