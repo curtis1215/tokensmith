@@ -87,6 +87,23 @@ func TestEventDialogConfirmResolves(t *testing.T) {
 	}
 }
 
+func TestEventDialogStalePendingShowsNotice(t *testing.T) {
+	m := pendingChipShortage(testModel(t))
+	m.page = PageOverview
+	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	m = nm.(Model)
+	// Simulate auto-resolve while the dialog was open.
+	m.state.Events.Pending = nil
+	nm, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got := nm.(Model)
+	if got.event != nil {
+		t.Fatal("dialog must close when the pending event is gone")
+	}
+	if got.notice == "" {
+		t.Fatal("expected notice for stale/auto-resolved event")
+	}
+}
+
 func TestEventDialogEscLeavesPending(t *testing.T) {
 	m := pendingChipShortage(testModel(t))
 	m.page = PageOverview

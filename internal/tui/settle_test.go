@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"tokensmith/internal/balance"
@@ -70,5 +71,12 @@ func TestNewAtSeedsRandState(t *testing.T) {
 	m := testModel(t)
 	if m.state.Events.RandState == 0 {
 		t.Fatal("a fresh game must get a nonzero RNG seed")
+	}
+}
+
+func TestOfflineBannerAutoResolvedOnly(t *testing.T) {
+	out := offlineBanner(Summary{EventsAutoResolved: 2, SecondsSettled: 3600})
+	if !strings.Contains(out, "自動決議") {
+		t.Fatalf("expected auto-resolve line when EventsFired==0, got %q", out)
 	}
 }

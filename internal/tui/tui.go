@@ -159,7 +159,7 @@ func (m Model) startup(now int64) Model {
 	ns, sum := Settle(m.state, m.cfg, elapsed, offIn, offOut)
 	m.state = ns
 	m.consumedIn, m.consumedOut = l.CumIn, l.CumOut
-	if sum.RnDGained > 0 || sum.TrainingCompleted || sum.EventsFired > 0 {
+	if sum.RnDGained > 0 || sum.TrainingCompleted || sum.EventsFired > 0 || sum.EventsAutoResolved > 0 {
 		m.offlineSummary = &sum
 	}
 	return m
@@ -502,6 +502,11 @@ func (m Model) updateEventDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.setNotice("R&D 不足，付不起這個選項")
 			m.event = &d
 			return m, nil
+		default:
+			// e.g. pending was auto-resolved while the dialog was open
+			m.setNotice("該事件已逾時自動決議")
+			m.event = nil
+			return m, nil
 		}
 		m.event = nil
 		return m, nil
@@ -839,6 +844,8 @@ func offlineBanner(s Summary) string {
 		if s.EventsAutoResolved > 0 {
 			msg += fmt.Sprintf("（%d 起已自動決議）", s.EventsAutoResolved)
 		}
+	} else if s.EventsAutoResolved > 0 {
+		msg += fmt.Sprintf(" · %d 起待決事件已自動決議", s.EventsAutoResolved)
 	}
 	return tabActiveStyle.Render(msg) + helpStyle.Render("  （按任意鍵關閉）")
 }
