@@ -106,8 +106,8 @@ func renderPublishDialog(d publishDialog, m Model) string {
 		title = "修改定價"
 	}
 	b.WriteString(fmt.Sprintf(
-		"%s\n  Gen%d · %s · 能力 %.0f / 成本 %.0f / 安全 %.0f / 速度 %.0f\n\n",
-		title, d.gen, segmentName(d.segment),
+		"Gen%d · %s · 能力 %.0f / 成本 %.0f / 安全 %.0f / 速度 %.0f\n\n",
+		d.gen, segmentName(d.segment),
 		d.quality[0], d.quality[1], d.quality[2], d.quality[3],
 	))
 	if d.priceOnly {
@@ -123,5 +123,5 @@ func renderPublishDialog(d publishDialog, m Model) string {
 	} else {
 		b.WriteString(helpStyle.Render("[←→]調價 [Shift+←→]±5  輸入名稱  [Enter]發佈 [Esc]取消"))
 	}
-	return boxStyle.Render(b.String())
+	return Card(title, b.String())
 }
