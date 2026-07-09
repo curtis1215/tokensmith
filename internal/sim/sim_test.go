@@ -331,17 +331,51 @@ func TestTickAdvancesCompetitors(t *testing.T) {
 
 func TestCompetitorTracksPlayerNoRunaway(t *testing.T) {
 	b := balance.Default()
+	// Speed up catch-up so the test can reach steady state; gameplay Default is
+	// intentionally much slower (Gen1 farm window).
+	b.CompetitorCatchupRate = 0.00001
 	c := model.Competitor{Name: "Rival"}
 	c.Quality[model.DimCapability] = 10
-	c.Skill[model.DimCapability] = 1.1 // aims 10% above the player's frontier
-	pm := onlineModel(60, b.RefPrice)  // frontier cap 60 → target 66
+	c.Skill[model.DimCapability] = 1.1 // aims 10% above; MaxLead 1.08 soft-caps to 1.08×
+	pm := onlineModel(60, b.RefPrice)  // frontier 60 → lead-capped target 64.8
 	s := model.GameState{Models: []model.Model{pm}, Competitors: []model.Competitor{c}}
 	for i := 0; i < 2000; i++ {
 		s = Tick(s, 3600, nil, b)
 	}
 	got := s.Competitors[0].Quality[model.DimCapability]
-	if got < 60 || got > 67 {
-		t.Fatalf("competitor should converge near target 66 (not run away), got %v", got)
+	// Long horizon still converges near the (capped) target, not a runaway curve.
+	if got < 60 || got > 66 {
+		t.Fatalf("competitor should converge near lead-capped target ~64.8, got %v", got)
+	}
+}
+
+// Gen1 farm window: after ~2 real weeks with only a Gen1-cap model online, top
+// rivals must stay well below "almost Gen2" quality so the player can bank R&D.
+func TestCompetitorCatchupRespectsGen1FarmWindow(t *testing.T) {
+	b := balance.Default()
+	// OpenAI-like: skill 1.2 would raw-target 30 on a Gen1-focused frontier of 25.
+	c := model.Competitor{Name: "OpenAI"}
+	c.Quality[model.DimCapability] = 10
+	c.Skill[model.DimCapability] = 1.2
+	pm := onlineModel(25, b.RefPrice) // Gen1 capability-focused ceiling
+	s := model.GameState{Models: []model.Model{pm}, Competitors: []model.Competitor{c}}
+	const twoWeeks = 14 * 86400
+	for left := float64(twoWeeks); left > 0; {
+		step := 3600.0
+		if step > left {
+			step = left
+		}
+		s = Tick(s, step, nil, b)
+		left -= step
+	}
+	got := s.Competitors[0].Quality[model.DimCapability]
+	// Lead cap 1.08×25 = 27, but slow rate should leave rivals far below that
+	// after only two weeks (historically they hit ~19–25 and felt like Gen2).
+	if got >= 18 {
+		t.Fatalf("after 14d Gen1-only, rival cap=%v; want < 18 (farm window)", got)
+	}
+	if got <= 10 {
+		t.Fatalf("rival should still inch up from 10, got %v", got)
 	}
 }
 

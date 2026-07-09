@@ -79,7 +79,12 @@ type Config struct {
 	MarketingBonus         float64          // per marketing: user-target boost
 	CompetitorBaseQuality  float64          // quality floor rivals track before the player has a model
 	CompetitorCatchupRate  float64          // per-second rubber-band rate toward Skill×frontier
-	TechNodes              []model.TechNode // tech-tree catalog (plan-09)
+	// CompetitorMaxLead caps how far a rival may target above the player's
+	// frontier once the player has a model (e.g. 1.08 = +8%). Prevents
+	// Skill>1 names (OpenAI 1.2×) from reading as "already Gen2" during the
+	// Gen1 R&D grind. Unused while the player has no online model.
+	CompetitorMaxLead float64
+	TechNodes         []model.TechNode // tech-tree catalog (plan-09)
 	// Valuation & milestones (plan-10).
 	ValuationMilestones []float64
 	RevenueMultiple     float64 // monthly revenue → valuation multiple
@@ -164,7 +169,11 @@ func Default() Config {
 	c.OpsChurnReduction = 0.1
 	c.MarketingBonus = 0.03
 	c.CompetitorBaseQuality = 8
-	c.CompetitorCatchupRate = 0.0000005 // slow idle-paced catch-up (~0.18% of gap/tick)
+	// ~0.69% of remaining gap per real day. Old 5e-7 (~4.3%/day) let top rivals
+	// climb Gen1→~Gen1-cap within ~2 weeks — faster than the player can farm
+	// model-gen-2 R&D. Half-life of the gap is now ~3 months.
+	c.CompetitorCatchupRate = 0.00000008
+	c.CompetitorMaxLead = 1.08
 	c.TechNodes = DefaultTechNodes()
 	c.ValuationMilestones = []float64{1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12}
 	c.RevenueMultiple = 120

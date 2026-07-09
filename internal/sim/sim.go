@@ -264,6 +264,10 @@ func playerFrontier(ns model.GameState) [model.NumQualityDims]float64 {
 // advanceCompetitors rubber-bands each competitor's quality toward
 // Skill×max(playerFrontier, base), so rivals track the player's progress
 // instead of running away on a fixed curve. Pure: clones Competitors.
+//
+// When the player has an online model, targets are also soft-capped at
+// CompetitorMaxLead×frontier so Skill>1 rivals cannot jump a full generation
+// ahead during the Gen1→Gen2 R&D farm window.
 func advanceCompetitors(ns model.GameState, dt float64, b balance.Config) model.GameState {
 	if len(ns.Competitors) == 0 {
 		return ns
@@ -283,6 +287,14 @@ func advanceCompetitors(ns model.GameState, dt float64, b balance.Config) model.
 				ref = b.CompetitorBaseQuality
 			}
 			target := comps[i].Skill[d] * ref
+			// Soft-cap lead only once the player has established a frontier on
+			// this dim — pre-product rivals still settle near Skill×base.
+			if frontier[d] > 0 && b.CompetitorMaxLead > 0 {
+				leadCap := frontier[d] * b.CompetitorMaxLead
+				if target > leadCap {
+					target = leadCap
+				}
+			}
 			comps[i].Quality[d] += (target - comps[i].Quality[d]) * factor
 		}
 	}
