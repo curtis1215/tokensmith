@@ -9,11 +9,26 @@ import (
 
 var branchNames = [model.NumBranches]string{"演算法", "硬體基建", "商業營運", "對齊安全"}
 
+// techVisualOrder returns TechNodes indices in the order shown on the tech page
+// (branch 0→NumBranches-1, catalog order within each branch). ↑↓ must walk this
+// order — not the flat catalog index — or the cursor jumps between cards.
+func techVisualOrder(nodes []model.TechNode) []int {
+	order := make([]int, 0, len(nodes))
+	for b := 0; b < model.NumBranches; b++ {
+		for i, n := range nodes {
+			if n.Branch == model.TechBranch(b) {
+				order = append(order, i)
+			}
+		}
+	}
+	return order
+}
+
 func renderTech(m Model) string {
 	s := m.state
 	inner := m.cardInnerWidth()
 
-	// Group nodes by branch
+	// Group nodes by branch (same order as techVisualOrder)
 	type groupedBranch struct {
 		name  string
 		nodes []int // indices into m.cfg.TechNodes

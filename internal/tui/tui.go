@@ -291,8 +291,12 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			m.vp.GotoTop()
 			return m, nil
 		case "up":
-			if m.page == PageTech && m.techCursor > 0 {
-				m.techCursor--
+			if m.page == PageTech && len(m.cfg.TechNodes) > 0 {
+				vis := techVisualOrder(m.cfg.TechNodes)
+				idx := indexOf(vis, m.techCursor)
+				if idx > 0 {
+					m.techCursor = vis[idx-1]
+				}
 			}
 			if m.page == PageCompute && m.procCursor > 0 {
 				m.procCursor--
@@ -306,8 +310,12 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return m, nil
 		case "down":
-			if m.page == PageTech && m.techCursor < len(m.cfg.TechNodes)-1 {
-				m.techCursor++
+			if m.page == PageTech && len(m.cfg.TechNodes) > 0 {
+				vis := techVisualOrder(m.cfg.TechNodes)
+				idx := indexOf(vis, m.techCursor)
+				if idx >= 0 && idx < len(vis)-1 {
+					m.techCursor = vis[idx+1]
+				}
 			}
 			if m.page == PageCompute && m.procCursor < len(m.cfg.Processes)-1 {
 				m.procCursor++
@@ -322,7 +330,20 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			return m, nil
 		case "enter":
 			if m.page == PageTech && m.techCursor >= 0 && m.techCursor < len(m.cfg.TechNodes) {
-				m.state = applyOK(m.state, model.UnlockTech{NodeID: m.cfg.TechNodes[m.techCursor].ID}, m.cfg)
+				node := m.cfg.TechNodes[m.techCursor]
+				ns, err := sim.Apply(m.state, model.UnlockTech{NodeID: node.ID}, m.cfg)
+				switch {
+				case err == nil:
+					m.state = ns
+				case errors.Is(err, sim.ErrInsufficientRnD):
+					m.setNotice("R&D 不足")
+				case errors.Is(err, sim.ErrAlreadyUnlocked):
+					m.setNotice("已解鎖")
+				case errors.Is(err, sim.ErrPrereqNotMet):
+					m.setNotice("前置科技未滿足")
+				default:
+					m.setNotice("無法解鎖")
+				}
 			}
 			return m, nil
 		case "q", "ctrl+c":
