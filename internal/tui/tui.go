@@ -64,6 +64,7 @@ type Model struct {
 	dialog         *trainDialog // non-nil while the training modal is open
 	techCursor     int          // selected tech node on the tech page
 	procCursor     int          // selected process node on the compute page
+	modelCursor    int          // selected index into state.Models on models page
 	// Harvest-daemon integration (§10.2).
 	ledgerPath     string
 	metaPath       string
@@ -182,6 +183,13 @@ func (m *Model) pollTokens() []model.TokenEvent {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.modelCursor >= len(m.state.Models) && len(m.state.Models) > 0 {
+		m.modelCursor = len(m.state.Models) - 1
+	}
+	if len(m.state.Models) == 0 {
+		m.modelCursor = 0
+	}
+
 	switch msg := msg.(type) {
 	case tickMsg:
 		events := m.pollTokens()
@@ -239,6 +247,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.page == PageCompute && m.procCursor > 0 {
 				m.procCursor--
 			}
+			if m.page == PageModels && m.modelCursor > 0 {
+				m.modelCursor--
+			}
 			return m, nil
 		case "down":
 			if m.page == PageTech && m.techCursor < len(m.cfg.TechNodes)-1 {
@@ -246,6 +257,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if m.page == PageCompute && m.procCursor < len(m.cfg.Processes)-1 {
 				m.procCursor++
+			}
+			if m.page == PageModels && m.modelCursor < len(m.state.Models)-1 {
+				m.modelCursor++
 			}
 			return m, nil
 		case "enter":
