@@ -512,3 +512,145 @@ func TestAdvanceEventsDeterministic(t *testing.T) {
 		t.Fatalf("same seed must give identical event streams: %+v vs %+v", a.Events, c.Events)
 	}
 }
+
+// activeMod is a test helper installing one modifier that never expires.
+func activeMod(s model.GameState, set func(e *model.EventEffects)) model.GameState {
+	e := model.NeutralEventEffects()
+	set(&e)
+	s.Events.Active = append(s.Events.Active,
+		model.ActiveModifier{EventID: "test", ExpiresAt: 1e18, Target: -1, Effects: e})
+	return s
+}
+
+func TestTickRunsEventStep(t *testing.T) {
+	b := balance.Default()
+	s := eventTestState()
+	ns := Tick(s, 3600, nil, b)
+	if ns.Events.NextCheckAt == 0 {
+		t.Fatal("Tick must run advanceEvents (NextCheckAt scheduled)")
+	}
+}
+
+func TestPowerCostMultRaisesElectricity(t *testing.T) {
+	b := balance.Default()
+	base := eventTestState()
+	base.Models = nil // isolate: no revenue/serving noise
+	base.Servers = []model.Server{{Pool: model.PoolInference, Compute: 1, PowerKW: 10, Slots: 1}}
+	plain := Tick(base, 3600, nil, b)
+	spiked := Tick(activeMod(base, func(e *model.EventEffects) { e.PowerCostMult = 2.0 }), 3600, nil, b)
+	extraBurn := plain.Resources.Cash - spiked.Resources.Cash
+	want := 10 * b.ElectricityPerKWSec * 3600 // one extra 1× of the power bill
+	if diff := extraBurn - want; diff > 1e-6 || diff < -1e-6 {
+		t.Fatalf("extra burn = %v, want %v", extraBurn, want)
+	}
+}
+
+func TestValuationMultApplied(t *testing.T) {
+	b := balance.Default()
+	s := eventTestState()
+	v1 := Valuation(s, b)
+	v2 := Valuation(activeMod(s, func(e *model.EventEffects) { e.ValuationMult = 0.75 }), b)
+	if diff := v2 - 0.75*v1; diff > 1e-6 || diff < -1e-6 {
+		t.Fatalf("valuation = %v, want %v", v2, 0.75*v1)
+	}
+}
+
+func TestBuildCostMultRaisesCapex(t *testing.T) {
+	b := balance.Default()
+	s := eventTestState()
+	s.Datacenter = model.Datacenter{PowerCapacity: 1000, SlotCapacity: 100}
+	cmd := model.BuildServer{Process: "N7", Pool: model.PoolTraining}
+	plain, err := Apply(s, cmd, b)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	dear, err := Apply(activeMod(s, func(e *model.EventEffects) { e.BuildCostMult = 1.18 }), cmd, b)
+	if err != nil {
+		t.Fatalf("build with modifier: %v", err)
+	}
+	plainCost := s.Resources.Cash - plain.Resources.Cash
+	dearCost := s.Resources.Cash - dear.Resources.Cash
+	if diff := dearCost - 1.18*plainCost; diff > 1e-6 || diff < -1e-6 {
+		t.Fatalf("capex = %v, want %v", dearCost, 1.18*plainCost)
+	}
+}
+
+func TestTechCostMultDiscountsTargetBranchOnly(t *testing.T) {
+	b := balance.Default()
+	s := eventTestState()
+	s.Resources.RnD = 1e9
+	e := model.NeutralEventEffects()
+	e.TechCostMult = 0.5
+	s.Events.Active = append(s.Events.Active, model.ActiveModifier{
+		EventID: "paper", ExpiresAt: 1e18, Target: int(model.BranchBusiness), Effects: e})
+	// biz-growth-1 (BranchBusiness, cost 6000) should be half price.
+	ns, err := Apply(s, model.UnlockTech{NodeID: "biz-growth-1"}, b)
+	if err != nil {
+		t.Fatalf("unlock: %v", err)
+	}
+	if spent := s.Resources.RnD - ns.Resources.RnD; spent != 3000 {
+		t.Fatalf("discounted cost = %v, want 3000", spent)
+	}
+	// infra-eff-1 (BranchInfra, cost 8000) is untargeted → full price.
+	ns2, err := Apply(s, model.UnlockTech{NodeID: "infra-eff-1"}, b)
+	if err != nil {
+		t.Fatalf("unlock: %v", err)
+	}
+	if spent := s.Resources.RnD - ns2.Resources.RnD; spent != 8000 {
+		t.Fatalf("untargeted cost = %v, want 8000", spent)
+	}
+}
+
+func TestUserGrowthAndTAMMultRaiseTarget(t *testing.T) {
+	b := balance.Default()
+	s := eventTestState()
+	plain := Tick(s, 3600, nil, b)
+	boosted := Tick(activeMod(s, func(e *model.EventEffects) {
+		e.UserGrowthMult = 1.5
+		e.TAMMult = 1.25
+	}), 3600, nil, b)
+	if boosted.Models[0].Users <= plain.Models[0].Users {
+		t.Fatalf("growth modifiers must raise users: %v vs %v",
+			boosted.Models[0].Users, plain.Models[0].Users)
+	}
+}
+
+func TestEffectiveRefPriceIncludesEventMult(t *testing.T) {
+	b := balance.Default()
+	s := eventTestState()
+	p1 := EffectiveRefPrice(s, model.SegConsumer, b)
+	p2 := EffectiveRefPrice(activeMod(s, func(e *model.EventEffects) { e.RefPriceMult = 0.8 }), model.SegConsumer, b)
+	if diff := p2 - 0.8*p1; diff > 1e-9 || diff < -1e-9 {
+		t.Fatalf("ref price = %v, want %v", p2, 0.8*p1)
+	}
+}
+
+func TestTickDeterministicWithEvents(t *testing.T) {
+	b := balance.Default()
+	b.EventHitChance = 1.0
+	run := func() model.GameState {
+		s := eventTestState()
+		for i := 0; i < 300; i++ {
+			s = Tick(s, 3600, nil, b)
+		}
+		return s
+	}
+	a, c := run(), run()
+	if a.Events.RandState != c.Events.RandState || a.Events.FiredCount != c.Events.FiredCount ||
+		a.Resources.Cash != c.Resources.Cash || a.GameTime != c.GameTime {
+		t.Fatal("Tick with events must be fully deterministic")
+	}
+}
+
+func TestRestartPreservesRandState(t *testing.T) {
+	b := balance.Default()
+	s := eventTestState()
+	s.Events.RandState = 999
+	ns := Restart(s, b)
+	if ns.Events.RandState != 999 {
+		t.Fatalf("Restart RandState = %d, want 999", ns.Events.RandState)
+	}
+	if len(ns.Events.Pending) != 0 || len(ns.Events.Active) != 0 || len(ns.Events.Log) != 0 {
+		t.Fatal("Restart must clear event history/pending/active")
+	}
+}

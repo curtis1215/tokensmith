@@ -184,7 +184,7 @@ func applyBuildServer(s model.GameState, c model.BuildServer, b balance.Config) 
 		PowerKW: p.PowerKW,
 		Slots:   1,
 	}
-	capex := p.BuyPrice + b.ChassisCost
+	capex := (p.BuyPrice + b.ChassisCost) * eventEffects(s, b).BuildCostMult
 	if s.Resources.Cash < capex {
 		return s, ErrInsufficientCash
 	}
@@ -298,11 +298,12 @@ func applyUnlockTech(s model.GameState, c model.UnlockTech, b balance.Config) (m
 			return s, ErrPrereqNotMet
 		}
 	}
-	if s.Resources.RnD < node.Cost {
+	cost := node.Cost * eventTechCostMult(s, node.Branch)
+	if s.Resources.RnD < cost {
 		return s, ErrInsufficientRnD
 	}
 	ns := s
-	ns.Resources.RnD -= node.Cost
+	ns.Resources.RnD -= cost
 	ns.UnlockedTech = append(append([]string(nil), s.UnlockedTech...), node.ID)
 	return ns, nil
 }
@@ -339,7 +340,9 @@ func applyPrestigeReset(s model.GameState, b balance.Config) (model.GameState, e
 	}
 	p := s.Prestige
 	p.Patents += patentsFor(s.PeakValuation, b)
-	return freshRun(p, b), nil
+	ns := freshRun(p, b)
+	ns.Events.RandState = s.Events.RandState
+	return ns, nil
 }
 
 func findStar(stars []model.Star, id string) (model.Star, bool) {

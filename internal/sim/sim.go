@@ -1,5 +1,7 @@
 // Package sim is the pure, deterministic simulation core.
-// No wall-clock, no randomness, no I/O — time advances only via dt.
+// No wall-clock, no I/O, and no non-deterministic randomness — all event
+// randomness flows through GameState.Events.RandState (splitmix64); time
+// advances only via dt. Same state + same inputs → same result.
 package sim
 
 import (
@@ -80,7 +82,8 @@ func Valuation(ns model.GameState, b balance.Config) float64 {
 	for _, sv := range ns.Servers {
 		assets += sv.Compute * b.ServerAssetValue
 	}
-	return monthlyRev*b.RevenueMultiple + users*b.UserValue + assets
+	return (monthlyRev*b.RevenueMultiple + users*b.UserValue + assets) *
+		eventEffects(ns, b).ValuationMult
 }
 
 // Tick advances the simulation by dt seconds and returns the new state.
@@ -88,6 +91,8 @@ func Valuation(ns model.GameState, b balance.Config) float64 {
 func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Config) model.GameState {
 	ns := s
 	ns.GameTime += dt
+	ns = advanceEvents(ns, b)
+	ee := eventEffects(ns, b)
 
 	// Advance the soft-cap window; reset cumulative when the window elapses.
 	ns.WindowElapsed += dt
@@ -110,7 +115,7 @@ func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Co
 	for _, sv := range ns.Servers {
 		serverPower += sv.PowerKW
 	}
-	ns.Resources.Cash -= serverPower * b.ElectricityPerKWSec * dt
+	ns.Resources.Cash -= serverPower * b.ElectricityPerKWSec * ee.PowerCostMult * dt
 	ns.Resources.Cash -= (totalSalaryPerSec(ns, b) + starSalaryPerSec(ns, b)) * dt
 	ns = advanceTraining(ns, dt, b)
 	ns = advanceCompetitors(ns, dt, b)
@@ -204,6 +209,7 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 	}
 	pe := prestigeEffects(ns.Prestige.UnlockedPrestige, b)
 	se := starEffects(ns, b)
+	ee := eventEffects(ns, b)
 	models := append([]model.Model(nil), ns.Models...)
 	for i := range models {
 		m := &models[i]
@@ -218,13 +224,14 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 		ns.Resources.Cash += m.Users * m.Price * dt / b.MonthSec * pe.CashMult * b.RevenueMult
 
 		w := b.SegmentWeights[m.Segment]
+		w[model.DimSafety] *= ee.SafetyWeightMult // arrays copy by value; safe
 		appeal := appealOf(m.Quality, w)
 		rivalAppeal := 0.0
 		for _, c := range ns.Competitors {
 			rivalAppeal += appealOf(c.Quality, w)
 		}
 		te := techEffects(ns, b)
-		refPrice := b.SegmentRefPrice[m.Segment] * te.RefPriceMult
+		refPrice := b.SegmentRefPrice[m.Segment] * te.RefPriceMult * ee.RefPriceMult
 		var demandMult float64
 		if m.Price > 0 {
 			demandMult = math.Pow(refPrice/m.Price, b.PriceElasticity)
@@ -234,7 +241,9 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 			share = appeal / (appeal + rivalAppeal)
 		}
 		marketingMult := 1 + float64(ns.Marketing)*b.MarketingBonus
-		target := appeal * b.SegmentTargetScale[m.Segment] * demandMult * share * marketingMult * te.UserGrowthMult * se.UserGrowthMult
+		target := appeal * b.SegmentTargetScale[m.Segment] * demandMult * share *
+			marketingMult * te.UserGrowthMult * se.UserGrowthMult *
+			ee.UserGrowthMult * ee.TAMMult
 		decay := math.Exp(-b.UserGrowthRate * dt)
 		m.Users = target + (m.Users-target)*decay
 		if m.Users < 0 {
