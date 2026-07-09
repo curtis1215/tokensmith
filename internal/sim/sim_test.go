@@ -257,6 +257,12 @@ func TestTickRentZeroWhenNoCapacity(t *testing.T) {
 	}
 }
 
+func pinLegacyBalance(b *balance.Config) {
+	b.UserGrowthRate = 0.001
+	b.UserTargetPerAppeal = 1000
+	b.SegmentTargetScale = [model.NumSegments]float64{1000, 500, 800}
+}
+
 func onlineModel(cap, price float64) model.Model {
 	m := model.Model{Online: true, Price: price}
 	m.Quality[model.DimCapability] = cap
@@ -265,6 +271,7 @@ func onlineModel(cap, price float64) model.Model {
 
 func TestTickUserGrowthTowardTarget(t *testing.T) {
 	b := balance.Default()
+	pinLegacyBalance(&b)
 	// appeal = 50 * 0.4 = 20; price = ref → demandMult 1; target = 20*1000 = 20000.
 	s := model.GameState{Models: []model.Model{onlineModel(50, b.RefPrice)}}
 	ns := Tick(s, 1, nil, b)
@@ -293,6 +300,7 @@ func TestTickSkipsOutOfRangeSegment(t *testing.T) {
 
 func TestTickPriceElasticityReducesTarget(t *testing.T) {
 	b := balance.Default()
+	pinLegacyBalance(&b)
 	// double the reference price → demandMult = (1/2)^1.5.
 	s := model.GameState{Models: []model.Model{onlineModel(50, 2*b.RefPrice)}}
 	ns := Tick(s, 1, nil, b)
@@ -305,6 +313,7 @@ func TestTickPriceElasticityReducesTarget(t *testing.T) {
 
 func TestTickHighPriceChurns(t *testing.T) {
 	b := balance.Default()
+	pinLegacyBalance(&b)
 	m := onlineModel(50, 2*b.RefPrice) // target well below 30000
 	m.Users = 30000
 	s := model.GameState{Models: []model.Model{m}}
@@ -415,6 +424,7 @@ func rival(cap float64) model.Competitor {
 
 func TestTickCompetitorHalvesUserTarget(t *testing.T) {
 	b := balance.Default()
+	pinLegacyBalance(&b)
 	// your model appeal 20 (cap 50 * 0.4). equal competitor appeal 20 → share 0.5.
 	s := model.GameState{
 		Models:      []model.Model{onlineModel(50, b.RefPrice)},
@@ -429,6 +439,7 @@ func TestTickCompetitorHalvesUserTarget(t *testing.T) {
 
 func TestTickStrongCompetitorChurnsUsers(t *testing.T) {
 	b := balance.Default()
+	pinLegacyBalance(&b)
 	m := onlineModel(50, b.RefPrice) // appeal 20
 	m.Users = 5000
 	s := model.GameState{
@@ -818,6 +829,7 @@ func TestStarGrowthBoostsUsers(t *testing.T) {
 
 func TestUserGrowthClampedAtLargeDt(t *testing.T) {
 	b := balance.Default()
+	pinLegacyBalance(&b)
 	// appeal 20, no rivals/tech/marketing → target = 20*1000 = 20000.
 	// growthFactor = UserGrowthRate(0.001) * dt(3600) = 3.6, must clamp to 1.
 	s := model.GameState{Models: []model.Model{onlineModel(50, b.RefPrice)}}
