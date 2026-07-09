@@ -382,3 +382,133 @@ func TestResolveInvalidIndexAndChoice(t *testing.T) {
 		t.Fatalf("bad choice: err = %v, want ErrInvalidEventChoice", err)
 	}
 }
+
+// onlyEvent returns a Default config whose catalog contains just the named
+// event, with deterministic pacing for tests.
+func onlyEvent(id string) balance.Config {
+	b := balance.Default()
+	spec, ok := balance.EventByID(b.Events, id)
+	if !ok {
+		panic("unknown test event " + id)
+	}
+	b.Events = []balance.EventSpec{spec}
+	b.EventHitChance = 1.0 // every check fires (when eligible)
+	return b
+}
+
+func TestAdvanceEventsSchedulesFirstCheckWithoutFiring(t *testing.T) {
+	b := onlyEvent(balance.EvChipShortage)
+	s := eventTestState()
+	s.GameTime = 1000
+	ns := advanceEvents(s, b)
+	if ns.Events.FiredCount != 0 {
+		t.Fatal("first call must only schedule, not fire")
+	}
+	if ns.Events.NextCheckAt != 1000+b.EventCheckSec {
+		t.Fatalf("NextCheckAt = %v, want %v", ns.Events.NextCheckAt, 1000+b.EventCheckSec)
+	}
+}
+
+func TestAdvanceEventsFiresWhenDue(t *testing.T) {
+	b := onlyEvent(balance.EvChipShortage)
+	s := eventTestState()
+	s = advanceEvents(s, b) // schedule
+	s.GameTime = s.Events.NextCheckAt + 1
+	ns := advanceEvents(s, b)
+	if ns.Events.FiredCount != 1 {
+		t.Fatalf("FiredCount = %d, want 1", ns.Events.FiredCount)
+	}
+	if ns.Events.NextCheckAt <= s.GameTime {
+		t.Fatal("next check must be rescheduled into the future")
+	}
+}
+
+func TestAdvanceEventsNoRefireWhilePendingOrActive(t *testing.T) {
+	b := onlyEvent(balance.EvChipShortage)
+	s := eventTestState()
+	s = advanceEvents(s, b)
+	s.GameTime = s.Events.NextCheckAt + 1
+	s = advanceEvents(s, b) // fires once → pending + active
+	for i := 0; i < 5; i++ {
+		s.GameTime = s.Events.NextCheckAt + 1
+		s = advanceEvents(s, b)
+	}
+	if s.Events.FiredCount != 1 {
+		t.Fatalf("FiredCount = %d, want 1 (no refire while pending/active)", s.Events.FiredCount)
+	}
+}
+
+func TestAdvanceEventsAutoResolvesPastDeadline(t *testing.T) {
+	b := onlyEvent(balance.EvChipShortage)
+	s := eventTestState()
+	spec := b.Events[0]
+	s = fireEvent(s, spec, b)
+	s.GameTime = s.Events.Pending[0].Deadline + 1
+	// Keep NextCheckAt in the future so this call only auto-resolves.
+	s.Events.NextCheckAt = s.GameTime + b.EventCheckSec
+	ns := advanceEvents(s, b)
+	if len(ns.Events.Pending) != 0 {
+		t.Fatal("overdue pending must auto-resolve")
+	}
+	if ns.Events.AutoCount != 1 || len(ns.Events.Log) != 1 || !ns.Events.Log[0].Auto {
+		t.Fatalf("auto-resolution not recorded: %+v", ns.Events)
+	}
+	if len(ns.Events.Active) != 1 {
+		t.Fatal("default choice (轉租度過) keeps the modifier")
+	}
+}
+
+func TestAdvanceEventsExpiresModifiers(t *testing.T) {
+	b := balance.Default()
+	s := eventTestState()
+	m := model.NeutralEventEffects()
+	m.PowerCostMult = 1.3
+	s.Events.Active = []model.ActiveModifier{{EventID: "x", ExpiresAt: 100, Target: -1, Effects: m}}
+	s.GameTime = 101
+	s.Events.NextCheckAt = 1e12 // keep the trigger roll out of this test
+	ns := advanceEvents(s, b)
+	if len(ns.Events.Active) != 0 {
+		t.Fatal("expired modifier must be removed")
+	}
+}
+
+func TestAdvanceEventsRespectsValuationGate(t *testing.T) {
+	b := onlyEvent(balance.EvBubbleTalk)
+	s := eventTestState()
+	s.PeakValuation = 1e6 // below the 5e8 gate
+	s = advanceEvents(s, b)
+	for i := 0; i < 5; i++ {
+		s.GameTime = s.Events.NextCheckAt + 1
+		s = advanceEvents(s, b)
+	}
+	if s.Events.FiredCount != 0 {
+		t.Fatal("bubble-talk must not fire below its valuation gate")
+	}
+}
+
+func TestIncidentWeightZeroWithoutOnlineModels(t *testing.T) {
+	b := balance.Default()
+	var s model.GameState // no models at all
+	spec, _ := balance.EventByID(b.Events, balance.EvIncident)
+	if w := eventWeight(s, spec, b); w != 0 {
+		t.Fatalf("incident weight = %v, want 0 with no online models", w)
+	}
+}
+
+func TestAdvanceEventsDeterministic(t *testing.T) {
+	b := balance.Default()
+	b.EventHitChance = 1.0
+	run := func() model.GameState {
+		s := eventTestState()
+		for i := 0; i < 200; i++ {
+			s.GameTime += b.EventCheckSec / 2
+			s = advanceEvents(s, b)
+		}
+		return s
+	}
+	a, c := run(), run()
+	if a.Events.FiredCount != c.Events.FiredCount || a.Events.RandState != c.Events.RandState ||
+		len(a.Events.Log) != len(c.Events.Log) {
+		t.Fatalf("same seed must give identical event streams: %+v vs %+v", a.Events, c.Events)
+	}
+}

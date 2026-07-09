@@ -354,3 +354,167 @@ func removePending(pending []model.PendingEvent, i int) []model.PendingEvent {
 	out = append(out, pending[:i]...)
 	return append(out, pending[i+1:]...)
 }
+
+// advanceEvents is the per-tick event step: expire modifiers, auto-resolve
+// overdue pending choices to their free default, then roll for a new trigger
+// when the check timer is due. Called by Tick after GameTime advances. Pure.
+func advanceEvents(ns model.GameState, b balance.Config) model.GameState {
+	now := ns.GameTime
+	// 1. Expire sustained modifiers.
+	if len(ns.Events.Active) > 0 {
+		kept := make([]model.ActiveModifier, 0, len(ns.Events.Active))
+		for _, m := range ns.Events.Active {
+			if m.ExpiresAt > now {
+				kept = append(kept, m)
+			}
+		}
+		ns.Events.Active = kept
+	}
+	// 2. Auto-resolve overdue pending events with their free default choice.
+	for i := 0; i < len(ns.Events.Pending); {
+		p := ns.Events.Pending[i]
+		if p.Deadline > now {
+			i++
+			continue
+		}
+		spec, ok := balance.EventByID(b.Events, p.EventID)
+		if !ok { // catalog drift: drop silently
+			ns.Events.Pending = removePending(ns.Events.Pending, i)
+			continue
+		}
+		var err error
+		ns, err = resolveChoice(ns, i, spec.DefaultChoice, true, b)
+		if err != nil { // defensive: the default choice is free and always valid
+			i++
+		}
+	}
+	// 3. Trigger roll(s) — loop covers large offline chunks crossing a check.
+	if b.EventCheckSec <= 0 {
+		return ns
+	}
+	if ns.Events.NextCheckAt == 0 {
+		// Fresh run or pre-events save: schedule the first roll, no fire.
+		ns.Events.NextCheckAt = now + b.EventCheckSec
+		return ns
+	}
+	for ns.Events.NextCheckAt <= now {
+		var hit, jitter float64
+		ns.Events.RandState, hit = nextRand(ns.Events.RandState)
+		ns.Events.RandState, jitter = nextRand(ns.Events.RandState)
+		ns.Events.NextCheckAt += b.EventCheckSec * (0.75 + 0.5*jitter)
+		if hit >= b.EventHitChance {
+			continue
+		}
+		specs, weights, total := eligibleEvents(ns, b)
+		if total <= 0 {
+			continue
+		}
+		var pick float64
+		ns.Events.RandState, pick = nextRand(ns.Events.RandState)
+		x := pick * total
+		for k, w := range weights {
+			x -= w
+			if x <= 0 {
+				ns = fireEvent(ns, specs[k], b)
+				break
+			}
+		}
+	}
+	return ns
+}
+
+// eligibleEvents returns the specs currently allowed to fire with their
+// state-adjusted weights: gates passed, not pending, not active, and past
+// the per-event cooldown since its last history record.
+func eligibleEvents(ns model.GameState, b balance.Config) (specs []balance.EventSpec, weights []float64, total float64) {
+	now := ns.GameTime
+	for _, spec := range b.Events {
+		if now < spec.MinGameTime || ns.PeakValuation < spec.MinValuation {
+			continue
+		}
+		if hasPending(ns, spec.ID) || hasActive(ns, spec.ID) || inCooldown(ns, spec.ID, b.EventCooldownSec) {
+			continue
+		}
+		w := eventWeight(ns, spec, b)
+		if w <= 0 {
+			continue
+		}
+		specs = append(specs, spec)
+		weights = append(weights, w)
+		total += w
+	}
+	return specs, weights, total
+}
+
+func hasPending(ns model.GameState, id string) bool {
+	for _, p := range ns.Events.Pending {
+		if p.EventID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func hasActive(ns model.GameState, id string) bool {
+	for _, m := range ns.Events.Active {
+		if m.EventID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func inCooldown(ns model.GameState, id string, cooldown float64) bool {
+	for _, rec := range ns.Events.Log {
+		if rec.EventID == id && ns.GameTime-rec.At < cooldown {
+			return true
+		}
+	}
+	return false
+}
+
+// avgOnlineSafety is the mean safety quality across online models (0 if none).
+func avgOnlineSafety(ns model.GameState) float64 {
+	var sum float64
+	var n int
+	for _, m := range ns.Models {
+		if m.Online {
+			sum += m.Quality[model.DimSafety]
+			n++
+		}
+	}
+	if n == 0 {
+		return 0
+	}
+	return sum / float64(n)
+}
+
+// eventWeight is the state-adjusted trigger weight of one event (design §3.2):
+// incident chance scales with low model safety × alignment tech × lingering
+// aftermath; paper chance scales with research headcount.
+func eventWeight(ns model.GameState, spec balance.EventSpec, b balance.Config) float64 {
+	switch spec.ID {
+	case balance.EvIncident:
+		avg := avgOnlineSafety(ns)
+		if avg <= 0 {
+			return 0 // nothing online → nothing to break
+		}
+		f := 1 - avg/balance.EvIncidentSafetyRef
+		if f <= 0 {
+			return 0 // safe enough: incidents effectively off
+		}
+		return spec.Weight * f * techEffects(ns, b).IncidentMult * eventEffects(ns, b).IncidentChanceMult
+	case balance.EvPaper:
+		n := 0
+		for tier := model.Tier1; tier <= model.Tier3; tier++ {
+			n += ns.Research.Researchers[tier]
+		}
+		m := 1 + float64(n)*0.1
+		if m > 3 {
+			m = 3
+		}
+		return spec.Weight * m
+	default:
+		return spec.Weight
+	}
+}
