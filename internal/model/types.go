@@ -102,11 +102,11 @@ type TrainingJob struct {
 	WorkRemaining float64 // GPU-seconds of training work left
 }
 
-// Compute holds compute capacity (plan-02: training pool only).
+// Compute holds per-process rented compute counts (plan-13: process nodes).
 type Compute struct {
-	TrainingCapacity  float64 // rented training GPUs
-	InferenceCapacity float64 // rented inference GPUs
-	InferenceLoad     float64 // current inference load (computed each tick)
+	RentedTraining  map[string]int `json:"rentedTraining,omitempty"`  // process ID → chips rented into training
+	RentedInference map[string]int `json:"rentedInference,omitempty"` // process ID → chips rented into inference
+	InferenceLoad   float64        // current inference load (computed each tick)
 }
 
 // Command is a validated player action applied via sim.Apply.
@@ -121,13 +121,6 @@ type StartTraining struct {
 }
 
 func (StartTraining) commandMarker() {}
-
-// RentTrainingCompute adjusts rented training capacity by Delta (may be negative).
-type RentTrainingCompute struct {
-	Delta float64
-}
-
-func (RentTrainingCompute) commandMarker() {}
 
 // SetPrice changes the monthly price of the model at ModelIndex.
 type SetPrice struct {
@@ -147,13 +140,6 @@ type Competitor struct {
 	Skill   [NumQualityDims]float64
 }
 
-// RentInferenceCompute adjusts rented inference capacity by Delta.
-type RentInferenceCompute struct {
-	Delta float64
-}
-
-func (RentInferenceCompute) commandMarker() {}
-
 // ComputePool identifies which compute pool a chip/server feeds.
 type ComputePool int
 
@@ -162,14 +148,15 @@ const (
 	PoolInference                    // 1
 )
 
-// Chip is a catalog entry; owned compute is held as Servers.
-type Chip struct {
-	Name    string
+// RentCompute adjusts rented chip count for Process in Pool by Delta (may be
+// negative; floors at 0).
+type RentCompute struct {
+	Process string
 	Pool    ComputePool
-	Compute float64 // compute per chip
-	PowerKW float64 // power draw per chip
-	Price   float64 // price per chip
+	Delta   int
 }
+
+func (RentCompute) commandMarker() {}
 
 // Server is self-built compute: a bundle of chips feeding one pool.
 type Server struct {
@@ -185,9 +172,11 @@ type Datacenter struct {
 	SlotCapacity  float64
 }
 
-// BuildServer builds one server from the named chip in the datacenter.
+// BuildServer builds one server from the named process into Pool in the
+// datacenter.
 type BuildServer struct {
-	ChipName string
+	Process string
+	Pool    ComputePool
 }
 
 func (BuildServer) commandMarker() {}

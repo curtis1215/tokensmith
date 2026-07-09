@@ -164,7 +164,7 @@ func TestOfflineFastForwardEquivalenceStaffOnly(t *testing.T) {
 func TestTickTrainingProgress(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{HasTraining: true}
-	s.Compute.TrainingCapacity = 2
+	s.Compute.RentedTraining = map[string]int{"N7": 2}
 	s.Training = model.TrainingJob{Gen: 1, WorkRemaining: 1800}
 	ns := Tick(s, 100, nil, b) // 2 GPU * 100s = 200 work done
 	if !approx(ns.Training.WorkRemaining, 1600) {
@@ -178,7 +178,7 @@ func TestTickTrainingProgress(t *testing.T) {
 func TestTickTrainingCompletes(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{HasTraining: true}
-	s.Compute.TrainingCapacity = 10
+	s.Compute.RentedTraining = map[string]int{"N7": 10}
 	s.Training = model.TrainingJob{
 		Gen:           2, // GenQualityCap[2] = 45
 		Alloc:         [model.NumQualityDims]float64{0.4, 0.2, 0.2, 0.2},
@@ -209,13 +209,15 @@ func TestTickTrainingCompletes(t *testing.T) {
 }
 
 func TestTickDeductsTrainingRent(t *testing.T) {
-	b := balance.Default() // TrainRentPerGPUSec = 0.01
+	b := balance.Default()
+	n7, _ := balance.ProcessByID(b.Processes, "N7")
 	s := model.GameState{}
-	s.Compute.TrainingCapacity = 4
+	s.Compute.RentedTraining = map[string]int{"N7": 4}
 	s.Resources.Cash = 100
-	ns := Tick(s, 10, nil, b) // 4 * 0.01 * 10 = 0.4
-	if !approx(ns.Resources.Cash, 99.6) {
-		t.Fatalf("Cash = %v, want 99.6", ns.Resources.Cash)
+	ns := Tick(s, 10, nil, b) // 4 * N7.RentPerSec * TrainRentMult * 10
+	want := 100 - 4*n7.RentPerSec*b.TrainRentMult*10
+	if !approx(ns.Resources.Cash, want) {
+		t.Fatalf("Cash = %v, want %v", ns.Resources.Cash, want)
 	}
 }
 
@@ -291,8 +293,8 @@ func TestTickSubscriptionRevenue(t *testing.T) {
 	m.Users = 1000
 	s := model.GameState{Models: []model.Model{m}}
 	ns := Tick(s, 100, nil, b)
-	// revenue uses pre-growth users: 1000 * 12 * 100 / MonthSec
-	want := 1000.0 * 12.0 * 100.0 / b.MonthSec
+	// revenue uses pre-growth users: 1000 * 12 * 100 / MonthSec * RevenueMult
+	want := 1000.0 * 12.0 * 100.0 / b.MonthSec * b.RevenueMult
 	if !approx(ns.Resources.Cash, want) {
 		t.Fatalf("Cash = %v, want %v", ns.Resources.Cash, want)
 	}
@@ -419,11 +421,12 @@ func TestSegmentRefPriceNeutralAtReference(t *testing.T) {
 
 func TestTickDeductsInferenceRent(t *testing.T) {
 	b := balance.Default()
+	n7, _ := balance.ProcessByID(b.Processes, "N7")
 	s := model.GameState{}
-	s.Compute.InferenceCapacity = 5
+	s.Compute.RentedInference = map[string]int{"N7": 5}
 	s.Resources.Cash = 100
-	ns := Tick(s, 10, nil, b) // 5 * 0.006 * 10 = 0.3
-	want := 100 - 5*b.InferenceRentPerGPUSec*10
+	ns := Tick(s, 10, nil, b) // 5 * N7.RentPerSec * 10
+	want := 100 - 5*n7.RentPerSec*10
 	if !approx(ns.Resources.Cash, want) {
 		t.Fatalf("Cash = %v, want %v", ns.Resources.Cash, want)
 	}
@@ -434,7 +437,7 @@ func TestTickRecordsInferenceLoad(t *testing.T) {
 	m := onlineModel(50, b.RefPrice)
 	m.Users = 5000
 	s := model.GameState{Models: []model.Model{m}}
-	s.Compute.InferenceCapacity = 1e9 // plenty → no churn
+	s.Compute.RentedInference = map[string]int{"N7": 1e9} // plenty → no churn
 	ns := Tick(s, 1, nil, b)
 	want := ns.Models[0].Users * b.InferenceLoadPerUser
 	if !approx(ns.Compute.InferenceLoad, want) {
@@ -447,9 +450,9 @@ func TestTickInferenceOverloadChurns(t *testing.T) {
 	m := onlineModel(50, b.RefPrice)
 	m.Users = 100000 // load = 100000*0.0001 = 10
 	low := model.GameState{Models: []model.Model{m}}
-	low.Compute.InferenceCapacity = 1 // overloaded (10 > 1)
+	low.Compute.RentedInference = map[string]int{"N7": 1} // overloaded (10 > 1)
 	high := model.GameState{Models: []model.Model{m}}
-	high.Compute.InferenceCapacity = 1e9 // served
+	high.Compute.RentedInference = map[string]int{"N7": 1e9} // served
 	nl := Tick(low, 1, nil, b)
 	nh := Tick(high, 1, nil, b)
 	if nl.Models[0].Users >= nh.Models[0].Users {
@@ -462,9 +465,9 @@ func TestTickZeroCapacityGrace(t *testing.T) {
 	b := balance.Default()
 	m := onlineModel(50, b.RefPrice)
 	m.Users = 100000
-	s := model.GameState{Models: []model.Model{m}} // InferenceCapacity 0
+	s := model.GameState{Models: []model.Model{m}} // no rented inference
 	served := model.GameState{Models: []model.Model{m}}
-	served.Compute.InferenceCapacity = 1e9
+	served.Compute.RentedInference = map[string]int{"N7": 1e9}
 	ns := Tick(s, 1, nil, b)
 	nserved := Tick(served, 1, nil, b)
 	// v0 grace: zero capacity behaves like fully served (no service churn)
@@ -476,8 +479,7 @@ func TestTickZeroCapacityGrace(t *testing.T) {
 
 func TestEffectiveTrainingIncludesServers(t *testing.T) {
 	b := balance.Default()
-	s := model.GameState{HasTraining: true}
-	s.Compute.TrainingCapacity = 0 // no rented
+	s := model.GameState{HasTraining: true} // no rented
 	s.Servers = []model.Server{{Pool: model.PoolTraining, Compute: 10}} // PowerKW 0 → no electricity
 	s.Training = model.TrainingJob{Gen: 1, WorkRemaining: 100}
 	ns := Tick(s, 1, nil, b) // effective training 10 → work -= 10 → 90
@@ -527,7 +529,7 @@ func TestTickDeductsSalary(t *testing.T) {
 func TestEngineersSpeedTraining(t *testing.T) {
 	b := balance.Default()
 	base := model.GameState{HasTraining: true}
-	base.Compute.TrainingCapacity = 10
+	base.Compute.RentedTraining = map[string]int{"N7": 10}
 	base.Training = model.TrainingJob{Gen: 1, WorkRemaining: 1e9}
 	withEng := base
 	withEng.Engineers = 5 // infra mult 1.1
@@ -554,7 +556,7 @@ func TestOpsReducesServiceChurn(t *testing.T) {
 	m := onlineModel(50, b.RefPrice)
 	m.Users = 100000
 	base := model.GameState{Models: []model.Model{m}}
-	base.Compute.InferenceCapacity = 1 // overloaded
+	base.Compute.RentedInference = map[string]int{"N7": 1} // overloaded
 	withOps := base
 	withOps.Ops = 20
 	nb := Tick(base, 1, nil, b)
@@ -567,7 +569,7 @@ func TestOpsReducesServiceChurn(t *testing.T) {
 func TestTechQualityMultOnTrainedModel(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{HasTraining: true, UnlockedTech: []string{"algo-cap-1"}} // cap ×1.15
-	s.Compute.TrainingCapacity = 1000
+	s.Compute.RentedTraining = map[string]int{"N7": 1000}
 	s.Training = model.TrainingJob{Gen: 2, Alloc: [model.NumQualityDims]float64{0.4, 0.2, 0.2, 0.2}, WorkRemaining: 1}
 	ns := Tick(s, 1, nil, b)
 	if !approx(ns.Models[0].Quality[model.DimCapability], 0.4*45*1.15) { // 20.7
@@ -594,7 +596,7 @@ func TestTechTrainCostAndWorkReduced(t *testing.T) {
 func TestTechInfraSpeedsTraining(t *testing.T) {
 	b := balance.Default()
 	base := model.GameState{HasTraining: true}
-	base.Compute.TrainingCapacity = 10
+	base.Compute.RentedTraining = map[string]int{"N7": 10}
 	base.Training = model.TrainingJob{Gen: 1, WorkRemaining: 1e9}
 	withTech := base
 	withTech.UnlockedTech = []string{"infra-eff-1"} // InfraMult 1.1
@@ -622,9 +624,16 @@ func TestValuation(t *testing.T) {
 	m.Users = 1000
 	s := model.GameState{Models: []model.Model{m}}
 	s.Resources.Cash = 50000
-	// monthlyRev 1000*12=12000; *120 = 1.44M; users 1000*10=10000; cash 50000 → 1.5M
-	if !approx(Valuation(s, b), 1_500_000) {
-		t.Fatalf("valuation = %v, want 1500000", Valuation(s, b))
+	// monthlyRev 1000*12=12000, ×RevenueMult(2)=24000; *120 = 2.88M; users 1000*10=10000; cash 50000 → 2.94M
+	if !approx(Valuation(s, b), 2_940_000) {
+		t.Fatalf("valuation = %v, want 2940000", Valuation(s, b))
+	}
+
+	// Valuation must scale with RevenueMult: doubling it should raise valuation.
+	bHigh := b
+	bHigh.RevenueMult = b.RevenueMult * 2
+	if !(Valuation(s, bHigh) > Valuation(s, b)) {
+		t.Fatalf("valuation should increase with higher RevenueMult: base=%v high=%v", Valuation(s, b), Valuation(s, bHigh))
 	}
 }
 
@@ -712,7 +721,7 @@ func TestTickStarRnDBonus(t *testing.T) {
 func TestStarQualityMult(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{HasTraining: true, HiredStars: []string{"aria-chen"}} // cap ×1.22
-	s.Compute.TrainingCapacity = 1000
+	s.Compute.RentedTraining = map[string]int{"N7": 1000}
 	s.Training = model.TrainingJob{Gen: 2, Alloc: [model.NumQualityDims]float64{0.4, 0.2, 0.2, 0.2}, WorkRemaining: 1}
 	ns := Tick(s, 1, nil, b)
 	if !approx(ns.Models[0].Quality[model.DimCapability], 0.4*45*1.22) { // 21.96
@@ -723,7 +732,7 @@ func TestStarQualityMult(t *testing.T) {
 func TestStarInfraSpeedsTraining(t *testing.T) {
 	b := balance.Default()
 	base := model.GameState{HasTraining: true}
-	base.Compute.TrainingCapacity = 10
+	base.Compute.RentedTraining = map[string]int{"N7": 10}
 	base.Training = model.TrainingJob{Gen: 1, WorkRemaining: 1e9}
 	withStar := base
 	withStar.HiredStars = []string{"kenji-tanaka"} // InfraMult 1.12

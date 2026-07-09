@@ -72,7 +72,7 @@ func Valuation(ns model.GameState, b balance.Config) float64 {
 	var monthlyRev, users float64
 	for _, m := range ns.Models {
 		if m.Online {
-			monthlyRev += m.Users * m.Price
+			monthlyRev += m.Users * m.Price * b.RevenueMult
 			users += m.Users
 		}
 	}
@@ -105,8 +105,7 @@ func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Co
 	pe := prestigeEffects(ns.Prestige.UnlockedPrestige, b)
 	starRnD := starEffects(ns, b).RnDPerSec * dt
 	ns.Resources.RnD += (staffRnD + tokenRnD + starRnD) * pe.RnDMult
-	ns.Resources.Cash -= ns.Compute.TrainingCapacity * b.TrainRentPerGPUSec * dt
-	ns.Resources.Cash -= ns.Compute.InferenceCapacity * b.InferenceRentPerGPUSec * dt
+	ns.Resources.Cash -= poolRentPerSec(ns, b) * dt
 	serverPower := 0.0
 	for _, sv := range ns.Servers {
 		serverPower += sv.PowerKW
@@ -135,7 +134,7 @@ func infraEfficiency(ns model.GameState, b balance.Config) float64 {
 
 // effectiveTraining is rented plus self-built training compute, scaled by engineer efficiency.
 func effectiveTraining(ns model.GameState, b balance.Config) float64 {
-	c := ns.Compute.TrainingCapacity
+	c := poolCompute(ns.Compute.RentedTraining, b)
 	for _, sv := range ns.Servers {
 		if sv.Pool == model.PoolTraining {
 			c += sv.Compute
@@ -146,7 +145,7 @@ func effectiveTraining(ns model.GameState, b balance.Config) float64 {
 
 // effectiveInference is rented plus self-built inference compute, scaled by engineer efficiency.
 func effectiveInference(ns model.GameState, b balance.Config) float64 {
-	c := ns.Compute.InferenceCapacity
+	c := poolCompute(ns.Compute.RentedInference, b)
 	for _, sv := range ns.Servers {
 		if sv.Pool == model.PoolInference {
 			c += sv.Compute
@@ -209,7 +208,7 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 		if int(m.Segment) < 0 || int(m.Segment) >= model.NumSegments {
 			continue
 		}
-		ns.Resources.Cash += m.Users * m.Price * dt / b.MonthSec * pe.CashMult
+		ns.Resources.Cash += m.Users * m.Price * dt / b.MonthSec * pe.CashMult * b.RevenueMult
 
 		w := b.SegmentWeights[m.Segment]
 		appeal := appealOf(m.Quality, w)

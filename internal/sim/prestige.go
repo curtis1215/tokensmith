@@ -66,8 +66,7 @@ func freshRun(p model.Prestige, b balance.Config) model.GameState {
 	ns.Competitors = balance.DefaultCompetitors()
 	ns.Research.EfficiencyMult = 1
 	ns.Research.Researchers[model.Tier1] = b.StartingResearchersT1
-	ns.Compute.TrainingCapacity = b.StartingTrainingCapacity
-	ns.Compute.InferenceCapacity = b.StartingInferenceCapacity
+	// Compute starts empty (nil maps → 0), same as a brand-new run.
 	ns.Resources.Cash = b.StartingCash + pe.StartCash
 	ns.Resources.RnD = b.StartingRnD + pe.StartRnD
 	return ns

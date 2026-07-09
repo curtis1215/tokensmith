@@ -10,8 +10,8 @@ import (
 func TestEffectiveCapacityExported(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{}
-	s.Compute.TrainingCapacity = 4
-	s.Compute.InferenceCapacity = 2
+	s.Compute.RentedTraining = map[string]int{"N7": 4}
+	s.Compute.RentedInference = map[string]int{"N7": 2}
 	if EffectiveTraining(s, b) != 4 {
 		t.Errorf("EffectiveTraining = %v, want 4", EffectiveTraining(s, b))
 	}

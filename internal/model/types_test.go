@@ -42,18 +42,18 @@ func TestModelAndComputeFields(t *testing.T) {
 		t.Fatalf("NumQualityDims = %d, want 4", NumQualityDims)
 	}
 	var s GameState
-	s.Compute.TrainingCapacity = 4
+	s.Compute.RentedTraining = map[string]int{"N7": 4}
 	s.Models = append(s.Models, m)
 	s.HasTraining = true
 	s.Training = TrainingJob{Gen: 2, Price: 12, WorkRemaining: 7200}
-	if s.Compute.TrainingCapacity != 4 || len(s.Models) != 1 || !s.HasTraining {
+	if s.Compute.RentedTraining["N7"] != 4 || len(s.Models) != 1 || !s.HasTraining {
 		t.Fatalf("gamestate extension wrong: %+v", s)
 	}
 }
 
 func TestCommandsImplementInterface(t *testing.T) {
 	var cmds []Command
-	cmds = append(cmds, StartTraining{Gen: 1}, RentTrainingCompute{Delta: 2})
+	cmds = append(cmds, StartTraining{Gen: 1}, RentCompute{Process: "N7", Pool: PoolTraining, Delta: 2})
 	if len(cmds) != 2 {
 		t.Fatalf("commands not assignable to Command interface")
 	}
@@ -97,14 +97,14 @@ func TestSegmentConstsAndModelField(t *testing.T) {
 
 func TestInferenceComputeAndCommand(t *testing.T) {
 	var s GameState
-	s.Compute.InferenceCapacity = 4
+	s.Compute.RentedInference = map[string]int{"N7": 4}
 	s.Compute.InferenceLoad = 1.5
-	if s.Compute.InferenceCapacity != 4 || s.Compute.InferenceLoad != 1.5 {
+	if s.Compute.RentedInference["N7"] != 4 || s.Compute.InferenceLoad != 1.5 {
 		t.Fatalf("inference compute fields wrong: %+v", s.Compute)
 	}
-	var c Command = RentInferenceCompute{Delta: 2}
-	if _, ok := c.(RentInferenceCompute); !ok {
-		t.Fatalf("RentInferenceCompute not a Command")
+	var c Command = RentCompute{Process: "N7", Pool: PoolInference, Delta: 2}
+	if _, ok := c.(RentCompute); !ok {
+		t.Fatalf("RentCompute not a Command")
 	}
 }
 
@@ -112,15 +112,14 @@ func TestComputeInfraTypes(t *testing.T) {
 	if PoolTraining != 0 || PoolInference != 1 {
 		t.Fatalf("pool consts wrong")
 	}
-	ch := Chip{Name: "T", Pool: PoolTraining, Compute: 3, PowerKW: 5, Price: 18000}
-	sv := Server{Pool: ch.Pool, Compute: 24, PowerKW: 40, Slots: 1}
+	sv := Server{Pool: PoolTraining, Compute: 24, PowerKW: 40, Slots: 1}
 	var s GameState
 	s.Servers = append(s.Servers, sv)
 	s.Datacenter = Datacenter{PowerCapacity: 800, SlotCapacity: 20}
 	if len(s.Servers) != 1 || s.Datacenter.PowerCapacity != 800 {
 		t.Fatalf("infra fields wrong: %+v", s)
 	}
-	var c1 Command = BuildServer{ChipName: "T"}
+	var c1 Command = BuildServer{Process: "N7"}
 	var c2 Command = ExpandDatacenter{PowerDelta: 100, SlotDelta: 5}
 	if _, ok := c1.(BuildServer); !ok {
 		t.Fatalf("BuildServer not a Command")

@@ -11,6 +11,9 @@ import (
 // MaxGen is the highest model generation modelled in v0.
 const MaxGen = 5
 
+// EntryProcessID is the process available from the first day (no tech unlock).
+const EntryProcessID = "N7"
+
 // GenUnlockNodeID is the tech node that unlocks training a given model
 // generation (gen >= 2); gen 1 needs no unlock.
 func GenUnlockNodeID(gen int) string {
@@ -56,9 +59,8 @@ type Config struct {
 	InferenceRentPerGPUSec float64 // cash per rented inference GPU per second
 	InferenceLoadPerUser   float64 // inference GPU load per active user
 	ServiceChurnRate       float64 // extra churn per second at full deficit
-	// Self-build compute (plan-07).
-	Chips               []model.Chip
-	ChipsPerServer      int
+	// Self-build compute (plan-07; plan-13 repoints self-build onto the
+	// Processes catalog below — one process-chip built per BuildServer call).
 	ChassisCost         float64
 	ElectricityPerKWSec float64 // cash per kW per second
 	PowerCostPerKW      float64 // datacenter power-capacity expansion cost per kW
@@ -87,13 +89,16 @@ type Config struct {
 	PrestigeNodes           []model.PrestigeNode
 	PrestigeUnlockValuation float64
 	PatentK                 float64
+	// Compute-process catalog & economy scalars (plan-13).
+	Processes     []Process
+	TrainRentMult float64 // training rent multiplier applied over inference rent
+	RevenueMult   float64 // global revenue multiplier
 	// New-run baseline, shared by game.NewGame and prestige freshRun so a
-	// reset reseeds the same starting researchers/compute/R&D.
-	StartingCash              float64
-	StartingRnD               float64
-	StartingResearchersT1     int
-	StartingTrainingCapacity  float64
-	StartingInferenceCapacity float64
+	// reset reseeds the same starting researchers/R&D. Compute starts empty
+	// (nil maps) — the player rents on demand, no seeded capacity.
+	StartingCash          float64
+	StartingRnD           float64
+	StartingResearchersT1 int
 	// BankruptcyDebtRatio: the run auto-restarts once cash falls below
 	// -(BankruptcyDebtRatio * StartingCash).
 	BankruptcyDebtRatio float64
@@ -139,11 +144,6 @@ func Default() Config {
 	c.InferenceRentPerGPUSec = 0.006
 	c.InferenceLoadPerUser = 0.0001
 	c.ServiceChurnRate = 0.01
-	c.Chips = []model.Chip{
-		{Name: "H-class G3", Pool: model.PoolInference, Compute: 2, PowerKW: 3, Price: 8000},
-		{Name: "T-class G4", Pool: model.PoolTraining, Compute: 3, PowerKW: 5, Price: 18000},
-	}
-	c.ChipsPerServer = 8
 	c.ChassisCost = 5000
 	c.ElectricityPerKWSec = 0.001
 	c.PowerCostPerKW = 400
@@ -171,11 +171,12 @@ func Default() Config {
 	c.StartingCash = 100000
 	c.StartingRnD = 50000
 	c.StartingResearchersT1 = 2
-	c.StartingTrainingCapacity = 0 // rent on demand — no rent burn before a product
-	c.StartingInferenceCapacity = 0
 	c.BankruptcyDebtRatio = 1.0 // game over at cash < -100000 (1× starting cash)
 	c.PrestigeNodes = DefaultPrestigeNodes()
 	c.Stars = DefaultStars()
+	c.Processes = DefaultProcesses()
+	c.TrainRentMult = 1.667
+	c.RevenueMult = 2
 	return c
 }
 
@@ -245,7 +246,43 @@ func DefaultTechNodes() []model.TechNode {
 		techNode(GenUnlockNodeID(3), model.BranchAlgo, 1500000, []string{GenUnlockNodeID(2)}, func(e *model.TechEffects) {}),
 		techNode(GenUnlockNodeID(4), model.BranchAlgo, 10000000, []string{GenUnlockNodeID(3)}, func(e *model.TechEffects) {}),
 		techNode(GenUnlockNodeID(5), model.BranchAlgo, 60000000, []string{GenUnlockNodeID(4)}, func(e *model.TechEffects) {}),
+		// Compute-process unlocks — chained gates (no direct effect) so smaller
+		// process nodes must be earned via R&D rather than picked from the start.
+		techNode("process-N5", model.BranchInfra, 150000, nil, func(e *model.TechEffects) {}),
+		techNode("process-N3", model.BranchInfra, 1500000, []string{"process-N5"}, func(e *model.TechEffects) {}),
+		techNode("process-N2", model.BranchInfra, 10000000, []string{"process-N3"}, func(e *model.TechEffects) {}),
 	}
+}
+
+// Process is a compute node: rentable (opex) or buildable (capex).
+type Process struct {
+	ID         string
+	Name       string
+	Compute    float64 // compute per chip (old GPU scale = 1)
+	PowerKW    float64
+	RentPerSec float64 // inference rent per chip/sec; training = ×TrainRentMult
+	BuyPrice   float64
+	UnlockTech string // "" = from start
+}
+
+// DefaultProcesses returns the v0 compute-process catalog (spec §17.6).
+func DefaultProcesses() []Process {
+	return []Process{
+		{"N7", "N7 入門", 1, 2.0, 0.001, 6000, ""},
+		{"N5", "N5", 2, 3.0, 0.0018, 15000, "process-N5"},
+		{"N3", "N3", 4, 5.0, 0.003, 40000, "process-N3"},
+		{"N2", "N2", 8, 8.0, 0.005, 100000, "process-N2"},
+	}
+}
+
+// ProcessByID looks up a process by ID within ps.
+func ProcessByID(ps []Process, id string) (Process, bool) {
+	for _, p := range ps {
+		if p.ID == id {
+			return p, true
+		}
+	}
+	return Process{}, false
 }
 
 // DefaultPrestigeNodes returns the v0 permanent-upgrade catalog (spec §17.4).

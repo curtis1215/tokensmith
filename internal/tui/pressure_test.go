@@ -10,7 +10,7 @@ import (
 func TestInferencePressureShown(t *testing.T) {
 	m := testModel(t)
 	m.state.Models = []model.Model{{Online: true, Users: 1e6, Price: 12}}
-	m.state.Compute.InferenceCapacity = 1 // tiny → overloaded
+	m.state.Compute.RentedInference = map[string]int{"N7": 1} // tiny → overloaded
 	m.state.Compute.InferenceLoad = 100
 	if !strings.Contains(strings.Join(pressures(m), "\n"), "推理") {
 		t.Fatalf("expected inference pressure warning")

@@ -16,7 +16,7 @@ func NewGame() model.GameState {
 	s.Research.EfficiencyMult = 1.0
 	s.Research.Researchers[model.Tier1] = b.StartingResearchersT1
 	s.Competitors = balance.DefaultCompetitors()
-	s.Compute.TrainingCapacity = b.StartingTrainingCapacity
-	s.Compute.InferenceCapacity = b.StartingInferenceCapacity
+	// Compute starts empty (nil maps → 0): rent on demand, no rent burn
+	// before a product exists.
 	return s
 }
