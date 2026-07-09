@@ -59,9 +59,8 @@ type Config struct {
 	InferenceRentPerGPUSec float64 // cash per rented inference GPU per second
 	InferenceLoadPerUser   float64 // inference GPU load per active user
 	ServiceChurnRate       float64 // extra churn per second at full deficit
-	// Self-build compute (plan-07).
-	Chips               []model.Chip
-	ChipsPerServer      int
+	// Self-build compute (plan-07; plan-13 repoints self-build onto the
+	// Processes catalog below — one process-chip built per BuildServer call).
 	ChassisCost         float64
 	ElectricityPerKWSec float64 // cash per kW per second
 	PowerCostPerKW      float64 // datacenter power-capacity expansion cost per kW
@@ -95,12 +94,11 @@ type Config struct {
 	TrainRentMult float64 // training rent multiplier applied over inference rent
 	RevenueMult   float64 // global revenue multiplier
 	// New-run baseline, shared by game.NewGame and prestige freshRun so a
-	// reset reseeds the same starting researchers/compute/R&D.
-	StartingCash              float64
-	StartingRnD               float64
-	StartingResearchersT1     int
-	StartingTrainingCapacity  float64
-	StartingInferenceCapacity float64
+	// reset reseeds the same starting researchers/R&D. Compute starts empty
+	// (nil maps) — the player rents on demand, no seeded capacity.
+	StartingCash          float64
+	StartingRnD           float64
+	StartingResearchersT1 int
 	// BankruptcyDebtRatio: the run auto-restarts once cash falls below
 	// -(BankruptcyDebtRatio * StartingCash).
 	BankruptcyDebtRatio float64
@@ -146,11 +144,6 @@ func Default() Config {
 	c.InferenceRentPerGPUSec = 0.006
 	c.InferenceLoadPerUser = 0.0001
 	c.ServiceChurnRate = 0.01
-	c.Chips = []model.Chip{
-		{Name: "H-class G3", Pool: model.PoolInference, Compute: 2, PowerKW: 3, Price: 8000},
-		{Name: "T-class G4", Pool: model.PoolTraining, Compute: 3, PowerKW: 5, Price: 18000},
-	}
-	c.ChipsPerServer = 8
 	c.ChassisCost = 5000
 	c.ElectricityPerKWSec = 0.001
 	c.PowerCostPerKW = 400
@@ -178,8 +171,6 @@ func Default() Config {
 	c.StartingCash = 100000
 	c.StartingRnD = 50000
 	c.StartingResearchersT1 = 2
-	c.StartingTrainingCapacity = 0 // rent on demand — no rent burn before a product
-	c.StartingInferenceCapacity = 0
 	c.BankruptcyDebtRatio = 1.0 // game over at cash < -100000 (1× starting cash)
 	c.PrestigeNodes = DefaultPrestigeNodes()
 	c.Stars = DefaultStars()

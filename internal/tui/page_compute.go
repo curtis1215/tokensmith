@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"tokensmith/internal/balance"
 	"tokensmith/internal/model"
 	"tokensmith/internal/sim"
 )
@@ -54,15 +55,10 @@ func renderCompute(m Model) string {
 	b.WriteString(fmt.Sprintf("機房  電力 %.0f/%.0f kW · 空間 %.0f/%.0f\n",
 		usedPower, s.Datacenter.PowerCapacity, usedSlots, s.Datacenter.SlotCapacity))
 
-	// Chip market.
-	b.WriteString("\n晶片市場\n")
-	for _, ch := range m.cfg.Chips {
-		pool := "推理"
-		if ch.Pool == model.PoolTraining {
-			pool = "訓練"
-		}
-		b.WriteString(fmt.Sprintf("  %-12s %s · 算力 %.0f · %.0fkW · $%s\n",
-			ch.Name, pool, ch.Compute, ch.PowerKW, human(ch.Price)))
+	// Entry process (N7) — full process-table UI lands in a later task.
+	if n7, ok := balance.ProcessByID(m.cfg.Processes, balance.EntryProcessID); ok {
+		b.WriteString(fmt.Sprintf("\n製程  %-6s 算力 %.0f · %.0fkW · 租 $%.4f/秒 · 建 $%s\n",
+			n7.Name, n7.Compute, n7.PowerKW, n7.RentPerSec, human(n7.BuyPrice)))
 	}
 
 	b.WriteString(helpStyle.Render("\n[r/R]±訓練 [i/I]±推理 [b]組伺服器 [e]擴機房 [Tab]切頁"))

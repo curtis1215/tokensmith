@@ -134,18 +134,10 @@ func TestDefaultInferenceValues(t *testing.T) {
 	}
 }
 
-func TestDefaultChipsAndInfra(t *testing.T) {
+func TestDefaultServerAndInfra(t *testing.T) {
 	c := Default()
-	if len(c.Chips) != 2 {
-		t.Fatalf("chips = %d, want 2", len(c.Chips))
-	}
-	if c.Chips[0].Name != "H-class G3" || c.Chips[0].Pool != model.PoolInference {
-		t.Errorf("first chip wrong: %+v", c.Chips[0])
-	}
-	if c.Chips[1].Pool != model.PoolTraining || c.Chips[1].Price != 18000 {
-		t.Errorf("second chip wrong: %+v", c.Chips[1])
-	}
-	if c.ChipsPerServer != 8 || c.ChassisCost != 5000 {
+	// Self-build repoints onto the Processes catalog (plan-13); Chips is gone.
+	if c.ChassisCost != 5000 {
 		t.Errorf("server params wrong: %+v", c)
 	}
 	if c.ElectricityPerKWSec != 0.001 || c.PowerCostPerKW != 400 || c.SlotCost != 30000 {

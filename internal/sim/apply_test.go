@@ -10,27 +10,27 @@ import (
 func TestApplyRentTrainingComputeAdds(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{}
-	s.Compute.TrainingCapacity = 2
-	ns, err := Apply(s, model.RentTrainingCompute{Delta: 3}, b)
+	s.Compute.RentedTraining = map[string]int{"N7": 2}
+	ns, err := Apply(s, model.RentCompute{Process: "N7", Pool: model.PoolTraining, Delta: 3}, b)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	if ns.Compute.TrainingCapacity != 5 {
-		t.Fatalf("capacity = %v, want 5", ns.Compute.TrainingCapacity)
+	if ns.Compute.RentedTraining["N7"] != 5 {
+		t.Fatalf("capacity = %v, want 5", ns.Compute.RentedTraining["N7"])
 	}
 	// input not mutated
-	if s.Compute.TrainingCapacity != 2 {
-		t.Fatalf("Apply mutated input: %v", s.Compute.TrainingCapacity)
+	if s.Compute.RentedTraining["N7"] != 2 {
+		t.Fatalf("Apply mutated input: %v", s.Compute.RentedTraining["N7"])
 	}
 }
 
 func TestApplyRentTrainingComputeFloorsAtZero(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{}
-	s.Compute.TrainingCapacity = 2
-	ns, _ := Apply(s, model.RentTrainingCompute{Delta: -5}, b)
-	if ns.Compute.TrainingCapacity != 0 {
-		t.Fatalf("capacity = %v, want 0", ns.Compute.TrainingCapacity)
+	s.Compute.RentedTraining = map[string]int{"N7": 2}
+	ns, _ := Apply(s, model.RentCompute{Process: "N7", Pool: model.PoolTraining, Delta: -5}, b)
+	if ns.Compute.RentedTraining["N7"] != 0 {
+		t.Fatalf("capacity = %v, want 0", ns.Compute.RentedTraining["N7"])
 	}
 }
 
@@ -97,7 +97,7 @@ func TestStartTrainingCarriesSegment(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{}
 	s.Resources.RnD = 50000
-	s.Compute.TrainingCapacity = 100 // finish fast
+	s.Compute.RentedTraining = map[string]int{"N7": 100} // finish fast
 	cmd := model.StartTraining{Gen: 1, Segment: model.SegEnterprise, Alloc: validAlloc(), Price: 180}
 	ns, err := Apply(s, cmd, b)
 	if err != nil {
@@ -174,16 +174,16 @@ func TestApplySetPriceErrors(t *testing.T) {
 func TestApplyRentInferenceCompute(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{}
-	s.Compute.InferenceCapacity = 2
-	ns, err := Apply(s, model.RentInferenceCompute{Delta: 3}, b)
-	if err != nil || ns.Compute.InferenceCapacity != 5 {
-		t.Fatalf("capacity = %v err=%v, want 5", ns.Compute.InferenceCapacity, err)
+	s.Compute.RentedInference = map[string]int{"N7": 2}
+	ns, err := Apply(s, model.RentCompute{Process: "N7", Pool: model.PoolInference, Delta: 3}, b)
+	if err != nil || ns.Compute.RentedInference["N7"] != 5 {
+		t.Fatalf("capacity = %v err=%v, want 5", ns.Compute.RentedInference["N7"], err)
 	}
-	ns2, _ := Apply(s, model.RentInferenceCompute{Delta: -10}, b)
-	if ns2.Compute.InferenceCapacity != 0 {
-		t.Fatalf("should floor at 0, got %v", ns2.Compute.InferenceCapacity)
+	ns2, _ := Apply(s, model.RentCompute{Process: "N7", Pool: model.PoolInference, Delta: -10}, b)
+	if ns2.Compute.RentedInference["N7"] != 0 {
+		t.Fatalf("should floor at 0, got %v", ns2.Compute.RentedInference["N7"])
 	}
-	if s.Compute.InferenceCapacity != 2 {
+	if s.Compute.RentedInference["N7"] != 2 {
 		t.Fatalf("Apply mutated input")
 	}
 }
@@ -226,8 +226,9 @@ func dcState(cash, power, slots float64) model.GameState {
 
 func TestApplyBuildServerSuccess(t *testing.T) {
 	b := balance.Default()
+	n7, _ := balance.ProcessByID(b.Processes, "N7")
 	s := dcState(1_000_000, 800, 20)
-	ns, err := Apply(s, model.BuildServer{ChipName: "T-class G4"}, b)
+	ns, err := Apply(s, model.BuildServer{Process: "N7"}, b)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -235,10 +236,10 @@ func TestApplyBuildServerSuccess(t *testing.T) {
 		t.Fatalf("servers = %d, want 1", len(ns.Servers))
 	}
 	sv := ns.Servers[0]
-	if sv.Pool != model.PoolTraining || sv.Compute != 24 || sv.PowerKW != 40 || sv.Slots != 1 {
-		t.Errorf("server wrong: %+v", sv) // 3*8, 5*8
+	if sv.Pool != model.PoolTraining || sv.Compute != n7.Compute || sv.PowerKW != n7.PowerKW || sv.Slots != 1 {
+		t.Errorf("server wrong: %+v", sv)
 	}
-	wantCapex := 18000*8 + b.ChassisCost
+	wantCapex := n7.BuyPrice + b.ChassisCost
 	if !approx(ns.Resources.Cash, 1_000_000-wantCapex) {
 		t.Errorf("cash = %v, want %v", ns.Resources.Cash, 1_000_000-wantCapex)
 	}
@@ -249,21 +250,25 @@ func TestApplyBuildServerSuccess(t *testing.T) {
 
 func TestApplyBuildServerErrors(t *testing.T) {
 	b := balance.Default()
-	// unknown chip
-	if _, err := Apply(dcState(1e9, 1e9, 1e9), model.BuildServer{ChipName: "nope"}, b); err != ErrInvalidChip {
-		t.Errorf("chip: err = %v, want ErrInvalidChip", err)
+	// unknown process
+	if _, err := Apply(dcState(1e9, 1e9, 1e9), model.BuildServer{Process: "nope"}, b); err != ErrInvalidProcess {
+		t.Errorf("process: err = %v, want ErrInvalidProcess", err)
 	}
 	// insufficient cash
-	if _, err := Apply(dcState(100, 1e9, 1e9), model.BuildServer{ChipName: "T-class G4"}, b); err != ErrInsufficientCash {
+	if _, err := Apply(dcState(100, 1e9, 1e9), model.BuildServer{Process: "N7"}, b); err != ErrInsufficientCash {
 		t.Errorf("cash: err = %v, want ErrInsufficientCash", err)
 	}
-	// insufficient power (T server draws 40kW; capacity 10)
-	if _, err := Apply(dcState(1e9, 10, 1e9), model.BuildServer{ChipName: "T-class G4"}, b); err != ErrInsufficientPower {
+	// insufficient power (N7 server draws 2kW; capacity 1)
+	if _, err := Apply(dcState(1e9, 1, 1e9), model.BuildServer{Process: "N7"}, b); err != ErrInsufficientPower {
 		t.Errorf("power: err = %v, want ErrInsufficientPower", err)
 	}
 	// insufficient space (slots 0)
-	if _, err := Apply(dcState(1e9, 1e9, 0), model.BuildServer{ChipName: "T-class G4"}, b); err != ErrInsufficientSpace {
+	if _, err := Apply(dcState(1e9, 1e9, 0), model.BuildServer{Process: "N7"}, b); err != ErrInsufficientSpace {
 		t.Errorf("space: err = %v, want ErrInsufficientSpace", err)
+	}
+	// locked process (N5 needs process-N5 tech)
+	if _, err := Apply(dcState(1e9, 1e9, 1e9), model.BuildServer{Process: "N5"}, b); err != ErrProcessLocked {
+		t.Errorf("locked: err = %v, want ErrProcessLocked", err)
 	}
 }
 

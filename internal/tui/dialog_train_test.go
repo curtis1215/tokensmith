@@ -13,7 +13,7 @@ func key(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []r
 func TestDialogAdjustAndConfirm(t *testing.T) {
 	m := testModel(t)
 	m.state.Resources.RnD = 50000
-	m.state.Compute.TrainingCapacity = 4
+	m.state.Compute.RentedTraining = map[string]int{"N7": 4}
 	d := newTrainDialog(m)
 	// move to 'safety' dim (index 2) and bump it
 	d, _, _ = d.update(tea.KeyMsg{Type: tea.KeyDown})
@@ -69,7 +69,7 @@ func TestDialogGenClampedToUnlocked(t *testing.T) {
 func TestDialogConfirmStartsTraining(t *testing.T) {
 	m := testModel(t)
 	m.state.Resources.RnD = 50000
-	m.state.Compute.TrainingCapacity = 4
+	m.state.Compute.RentedTraining = map[string]int{"N7": 4}
 	d := newTrainDialog(m)
 	m.dialog = &d
 	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})

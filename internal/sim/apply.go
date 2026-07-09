@@ -19,7 +19,8 @@ var (
 	ErrInvalidModelIndex  = errors.New("sim: invalid model index")
 	ErrInvalidPrice       = errors.New("sim: price must be positive")
 	ErrInsufficientCash  = errors.New("sim: insufficient cash")
-	ErrInvalidChip       = errors.New("sim: unknown chip")
+	ErrProcessLocked     = errors.New("sim: process not unlocked")
+	ErrInvalidProcess    = errors.New("sim: unknown process")
 	ErrInsufficientPower = errors.New("sim: datacenter power capacity exceeded")
 	ErrInsufficientSpace = errors.New("sim: datacenter rack space exceeded")
 	ErrInvalidCount = errors.New("sim: count must be positive")
@@ -39,14 +40,12 @@ var (
 // state. Pure: it does not mutate s.
 func Apply(s model.GameState, cmd model.Command, b balance.Config) (model.GameState, error) {
 	switch c := cmd.(type) {
-	case model.RentTrainingCompute:
-		return applyRentTrainingCompute(s, c), nil
+	case model.RentCompute:
+		return applyRentCompute(s, c, b)
 	case model.StartTraining:
 		return applyStartTraining(s, c, b)
 	case model.SetPrice:
 		return applySetPrice(s, c)
-	case model.RentInferenceCompute:
-		return applyRentInferenceCompute(s, c), nil
 	case model.ExpandDatacenter:
 		return applyExpandDatacenter(s, c, b)
 	case model.BuildServer:
@@ -68,13 +67,22 @@ func Apply(s model.GameState, cmd model.Command, b balance.Config) (model.GameSt
 	}
 }
 
-func applyRentTrainingCompute(s model.GameState, c model.RentTrainingCompute) model.GameState {
-	ns := s
-	ns.Compute.TrainingCapacity += c.Delta
-	if ns.Compute.TrainingCapacity < 0 {
-		ns.Compute.TrainingCapacity = 0
+func applyRentCompute(s model.GameState, c model.RentCompute, b balance.Config) (model.GameState, error) {
+	if _, ok := balance.ProcessByID(b.Processes, c.Process); !ok {
+		return s, ErrInvalidProcess
 	}
-	return ns
+	if !ProcessUnlocked(s, b, c.Process) {
+		return s, ErrProcessLocked
+	}
+	ns := s
+	if c.Pool == model.PoolTraining {
+		ns.Compute.RentedTraining = cloneCounts(s.Compute.RentedTraining)
+		ns.Compute.RentedTraining[c.Process] = max0(ns.Compute.RentedTraining[c.Process] + c.Delta)
+	} else {
+		ns.Compute.RentedInference = cloneCounts(s.Compute.RentedInference)
+		ns.Compute.RentedInference[c.Process] = max0(ns.Compute.RentedInference[c.Process] + c.Delta)
+	}
+	return ns, nil
 }
 
 func applyStartTraining(s model.GameState, c model.StartTraining, b balance.Config) (model.GameState, error) {
@@ -131,15 +139,6 @@ func applySetPrice(s model.GameState, c model.SetPrice) (model.GameState, error)
 	return ns, nil
 }
 
-func applyRentInferenceCompute(s model.GameState, c model.RentInferenceCompute) model.GameState {
-	ns := s
-	ns.Compute.InferenceCapacity += c.Delta
-	if ns.Compute.InferenceCapacity < 0 {
-		ns.Compute.InferenceCapacity = 0
-	}
-	return ns
-}
-
 func applyExpandDatacenter(s model.GameState, c model.ExpandDatacenter, b balance.Config) (model.GameState, error) {
 	power := c.PowerDelta
 	if power < 0 {
@@ -160,28 +159,25 @@ func applyExpandDatacenter(s model.GameState, c model.ExpandDatacenter, b balanc
 	return ns, nil
 }
 
-func findChip(chips []model.Chip, name string) (model.Chip, bool) {
-	for _, ch := range chips {
-		if ch.Name == name {
-			return ch, true
-		}
-	}
-	return model.Chip{}, false
-}
-
+// applyBuildServer builds one server from the named process, contributing to
+// the training pool. (Process-aware self-build; per-pool selection is a later
+// task's process-table UI.)
 func applyBuildServer(s model.GameState, c model.BuildServer, b balance.Config) (model.GameState, error) {
-	chip, ok := findChip(b.Chips, c.ChipName)
+	p, ok := balance.ProcessByID(b.Processes, c.Process)
 	if !ok {
-		return s, ErrInvalidChip
+		return s, ErrInvalidProcess
 	}
-	n := float64(b.ChipsPerServer)
+	if !ProcessUnlocked(s, b, c.Process) {
+		return s, ErrProcessLocked
+	}
+	n := 1.0
 	server := model.Server{
-		Pool:    chip.Pool,
-		Compute: chip.Compute * n,
-		PowerKW: chip.PowerKW * n,
+		Pool:    model.PoolTraining,
+		Compute: p.Compute * n,
+		PowerKW: p.PowerKW * n,
 		Slots:   1,
 	}
-	capex := chip.Price*n + b.ChassisCost
+	capex := p.BuyPrice*n + b.ChassisCost
 	if s.Resources.Cash < capex {
 		return s, ErrInsufficientCash
 	}

@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"tokensmith/internal/balance"
 	"tokensmith/internal/ingest"
 	"tokensmith/internal/model"
 	"tokensmith/internal/store"
@@ -45,9 +46,9 @@ func TestRentKeysAddCapacity(t *testing.T) {
 	m := newAt(filepath.Join(t.TempDir(), "s.json"))
 	m.poller = ingestEmptyPoller(t)
 	m.page = PageCompute // rent keys live on the compute page
-	beforeT := m.state.Compute.TrainingCapacity
+	beforeT := m.state.Compute.RentedTraining[balance.EntryProcessID]
 	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
-	if nm.(Model).state.Compute.TrainingCapacity != beforeT+1 {
+	if nm.(Model).state.Compute.RentedTraining[balance.EntryProcessID] != beforeT+1 {
 		t.Fatalf("rent-training key did not add capacity")
 	}
 }

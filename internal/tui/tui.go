@@ -263,27 +263,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "r":
 			if m.page == PageCompute {
-				m.state = applyOK(m.state, model.RentTrainingCompute{Delta: 1}, m.cfg)
+				m.state = applyOK(m.state, model.RentCompute{Process: balance.EntryProcessID, Pool: model.PoolTraining, Delta: 1}, m.cfg)
 			}
 			return m, nil
 		case "R":
 			if m.page == PageCompute {
-				m.state = applyOK(m.state, model.RentTrainingCompute{Delta: -1}, m.cfg)
+				m.state = applyOK(m.state, model.RentCompute{Process: balance.EntryProcessID, Pool: model.PoolTraining, Delta: -1}, m.cfg)
 			}
 			return m, nil
 		case "i":
 			if m.page == PageCompute {
-				m.state = applyOK(m.state, model.RentInferenceCompute{Delta: 1}, m.cfg)
+				m.state = applyOK(m.state, model.RentCompute{Process: balance.EntryProcessID, Pool: model.PoolInference, Delta: 1}, m.cfg)
 			}
 			return m, nil
 		case "I":
 			if m.page == PageCompute {
-				m.state = applyOK(m.state, model.RentInferenceCompute{Delta: -1}, m.cfg)
+				m.state = applyOK(m.state, model.RentCompute{Process: balance.EntryProcessID, Pool: model.PoolInference, Delta: -1}, m.cfg)
 			}
 			return m, nil
 		case "b":
-			if m.page == PageCompute && len(m.cfg.Chips) > 0 {
-				m.state = applyOK(m.state, model.BuildServer{ChipName: m.cfg.Chips[0].Name}, m.cfg)
+			if m.page == PageCompute {
+				m.state = applyOK(m.state, model.BuildServer{Process: balance.EntryProcessID}, m.cfg)
 			}
 			return m, nil
 		case "e":

@@ -22,7 +22,7 @@ func TestNewGameSeed(t *testing.T) {
 	}
 	// New runs start with NO rented compute — the player rents on demand so
 	// there is no rent burn before a product exists.
-	if s.Compute.TrainingCapacity != 0 || s.Compute.InferenceCapacity != 0 {
-		t.Errorf("compute should start at zero (rent on demand), got %+v", s.Compute)
+	if len(s.Compute.RentedTraining) != 0 || len(s.Compute.RentedInference) != 0 {
+		t.Errorf("compute should start empty (rent on demand), got %+v", s.Compute)
 	}
 }

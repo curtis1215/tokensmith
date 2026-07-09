@@ -27,7 +27,7 @@ func TestSettleGrantsOfflineRnDAndAdvances(t *testing.T) {
 func TestSettleCompletesTraining(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{}
-	s.Compute.TrainingCapacity = 1
+	s.Compute.RentedTraining = map[string]int{"N7": 1}
 	s.HasTraining = true
 	s.Training = model.TrainingJob{Gen: 1, Alloc: [4]float64{0.4, 0.2, 0.2, 0.2}, Price: 12, WorkRemaining: 1800}
 	ns, sum := Settle(s, b, 4*3600, 0, 0) // 4h × 1 GPU = 14400 GPU·s ≫ 1800
