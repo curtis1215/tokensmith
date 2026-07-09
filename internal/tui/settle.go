@@ -8,11 +8,13 @@ import (
 
 // Summary describes what an offline settlement produced, for the return banner.
 type Summary struct {
-	RnDGained         float64
-	SecondsSettled    float64
-	TrainingCompleted bool
-	TokensIn          int
-	TokensOut         int
+	RnDGained          float64
+	SecondsSettled     float64
+	TrainingCompleted  bool
+	TokensIn           int
+	TokensOut          int
+	EventsFired        int
+	EventsAutoResolved int
 }
 
 const (
@@ -32,6 +34,8 @@ func Settle(s model.GameState, b balance.Config, elapsedSec float64, offIn, offO
 	}
 	sum := Summary{SecondsSettled: elapsedSec, TokensIn: offIn, TokensOut: offOut}
 	beforeRnD := s.Resources.RnD
+	beforeFired := s.Events.FiredCount
+	beforeAuto := s.Events.AutoCount
 	wasTraining := s.HasTraining
 
 	chunks := int(elapsedSec / settleChunkSec)
@@ -64,6 +68,8 @@ func Settle(s model.GameState, b balance.Config, elapsedSec float64, offIn, offO
 	}
 
 	sum.RnDGained = s.Resources.RnD - beforeRnD
+	sum.EventsFired = s.Events.FiredCount - beforeFired
+	sum.EventsAutoResolved = s.Events.AutoCount - beforeAuto
 	sum.TrainingCompleted = wasTraining && !s.HasTraining
 	return s, sum
 }

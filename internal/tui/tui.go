@@ -110,6 +110,10 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 	} else if !ok {
 		state = game.NewGame()
 	}
+	if state.Events.RandState == 0 {
+		// New game or pre-events save: seed once, outside the pure sim.
+		state.Events.RandState = uint64(time.Now().UnixNano())
+	}
 	meta, metaOK, _ := store.LoadMeta(metaPath)
 	m := Model{
 		state:        state,
@@ -155,7 +159,7 @@ func (m Model) startup(now int64) Model {
 	ns, sum := Settle(m.state, m.cfg, elapsed, offIn, offOut)
 	m.state = ns
 	m.consumedIn, m.consumedOut = l.CumIn, l.CumOut
-	if sum.RnDGained > 0 || sum.TrainingCompleted {
+	if sum.RnDGained > 0 || sum.TrainingCompleted || sum.EventsFired > 0 {
 		m.offlineSummary = &sum
 	}
 	return m
@@ -829,6 +833,12 @@ func offlineBanner(s Summary) string {
 		s.SecondsSettled/3600, s.TokensIn+s.TokensOut, human(s.RnDGained))
 	if s.TrainingCompleted {
 		msg += " · 訓練完成 ✓"
+	}
+	if s.EventsFired > 0 {
+		msg += fmt.Sprintf(" · 產業事件 %d 起", s.EventsFired)
+		if s.EventsAutoResolved > 0 {
+			msg += fmt.Sprintf("（%d 起已自動決議）", s.EventsAutoResolved)
+		}
 	}
 	return tabActiveStyle.Render(msg) + helpStyle.Render("  （按任意鍵關閉）")
 }
