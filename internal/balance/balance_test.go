@@ -246,3 +246,37 @@ func TestDefaultStars(t *testing.T) {
 		t.Errorf("aria-chen InfraMult should be neutral 1")
 	}
 }
+
+func TestDefaultProcesses(t *testing.T) {
+	c := Default()
+	if len(c.Processes) != 4 {
+		t.Fatalf("processes = %d, want 4", len(c.Processes))
+	}
+	n7, ok := ProcessByID(c.Processes, EntryProcessID)
+	if !ok || n7.UnlockTech != "" || n7.Compute != 1 || n7.RentPerSec != 0.001 {
+		t.Errorf("N7 entry wrong: %+v ok=%v", n7, ok)
+	}
+	n5, _ := ProcessByID(c.Processes, "N5")
+	if n5.UnlockTech != "process-N5" || n5.Compute != 2 {
+		t.Errorf("N5 wrong: %+v", n5)
+	}
+	// higher process = better compute-per-rent and compute-per-watt
+	prev := 0.0
+	for _, p := range c.Processes {
+		if r := p.Compute / p.RentPerSec; r < prev {
+			t.Errorf("compute/rent should be non-decreasing, %s broke it", p.ID)
+		} else {
+			prev = r
+		}
+	}
+	if c.RevenueMult != 2 || c.TrainRentMult < 1.6 || c.TrainRentMult > 1.7 {
+		t.Errorf("economy scalars wrong: rev=%v trainmult=%v", c.RevenueMult, c.TrainRentMult)
+	}
+	byID := map[string]model.TechNode{}
+	for _, n := range c.TechNodes {
+		byID[n.ID] = n
+	}
+	if n, ok := byID["process-N3"]; !ok || len(n.Prereqs) != 1 || n.Prereqs[0] != "process-N5" {
+		t.Errorf("process-N3 prereq wrong: %+v", n)
+	}
+}
