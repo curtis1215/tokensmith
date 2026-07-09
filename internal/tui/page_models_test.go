@@ -42,3 +42,23 @@ func TestRenderModelsShowsDraftAndLive(t *testing.T) {
 		t.Fatalf("missing live name: %s", v)
 	}
 }
+
+func TestRenderModelsDetailContents(t *testing.T) {
+	m := testModel(t)
+	m.state.Models = []model.Model{
+		{Gen: 1, Segment: model.SegConsumer, Online: false, Users: 0, Quality: [model.NumQualityDims]float64{25, 0, 0, 0}},
+	}
+	m.page = PageModels
+	m.modelCursor = 0
+	v := renderModels(m)
+	if !strings.Contains(v, "待發佈草稿") {
+		t.Errorf("expected draft details to contain '待發佈草稿', got:\n%s", v)
+	}
+
+	m.state.Models[0].Online = true
+	m.state.Models[0].Users = 100
+	v = renderModels(m)
+	if !strings.Contains(v, "用戶數") {
+		t.Errorf("expected online details to contain '用戶數', got:\n%s", v)
+	}
+}
