@@ -91,6 +91,7 @@ type Model struct {
 	Users   float64
 	Price   float64 // per user per month; player-set
 	Online  bool
+	Name    string // player-chosen at publish; empty while draft
 }
 
 // TrainingJob is the single in-progress training (plan-02).
@@ -129,6 +130,15 @@ type SetPrice struct {
 }
 
 func (SetPrice) commandMarker() {}
+
+// PublishModel names, prices, and onlines a draft model (Online==false, Users==0).
+type PublishModel struct {
+	ModelIndex int
+	Name       string
+	Price      float64
+}
+
+func (PublishModel) commandMarker() {}
 
 // Competitor is a rival AI company competing for market share. Skill is the
 // per-dimension strength relative to the player's frontier: rivals rubber-band
