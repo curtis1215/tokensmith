@@ -115,6 +115,13 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 		state.Events.RandState = uint64(time.Now().UnixNano())
 	}
 	meta, metaOK, _ := store.LoadMeta(metaPath)
+	// Task 3 stores per-source watermarks; collapse to totals until Task 4
+	// rewires Model to a per-source map.
+	cin, cout := 0, 0
+	for _, s := range meta.ConsumedSources {
+		cin += s.In
+		cout += s.Out
+	}
 	m := Model{
 		state:        state,
 		cfg:          balance.Default(),
@@ -122,8 +129,8 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 		savePath:     savePath,
 		ledgerPath:   ledgerPath,
 		metaPath:     metaPath,
-		consumedIn:   meta.ConsumedIn,
-		consumedOut:  meta.ConsumedOut,
+		consumedIn:   cin,
+		consumedOut:  cout,
 		lastRealUnix: meta.LastRealUnix,
 		metaMissing:  !metaOK,
 		width:        100,
@@ -167,9 +174,11 @@ func (m Model) startup(now int64) Model {
 
 // saveMeta persists the consumed watermark and the current wall-clock time.
 func (m Model) saveMeta() {
+	// Aggregate total until Task 4 persists per-source keys; Load sums them.
 	_ = store.SaveMeta(m.metaPath, store.Meta{
-		ConsumedIn:   m.consumedIn,
-		ConsumedOut:  m.consumedOut,
+		ConsumedSources: map[string]model.SourceTotals{
+			"_total": {In: m.consumedIn, Out: m.consumedOut},
+		},
 		LastRealUnix: time.Now().Unix(),
 	})
 }

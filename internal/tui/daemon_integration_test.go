@@ -18,7 +18,7 @@ func TestTickConsumesLedgerDelta(t *testing.T) {
 		Sources:   map[string]model.SourceTotals{"claude-code": {In: 1000, Out: 500}},
 		UpdatedAt: 9_000_000_000,
 	})
-	store.SaveMeta(mp, store.Meta{ConsumedIn: 0, ConsumedOut: 0, LastRealUnix: 9_000_000_000})
+	store.SaveMeta(mp, store.Meta{LastRealUnix: 9_000_000_000})
 
 	m := newAtPaths(filepath.Join(dir, "s.json"), lp, mp)
 	m.daemonMode = true // exercise the tick path in isolation
@@ -47,7 +47,7 @@ func TestStartupSettlesOffline(t *testing.T) {
 		Sources:   map[string]model.SourceTotals{"claude-code": {In: 300000, Out: 150000}},
 		UpdatedAt: now,
 	}) // fresh
-	store.SaveMeta(mp, store.Meta{ConsumedIn: 0, ConsumedOut: 0, LastRealUnix: now - 8*3600})
+	store.SaveMeta(mp, store.Meta{LastRealUnix: now - 8*3600})
 
 	m := newAtPaths(filepath.Join(dir, "s.json"), lp, mp).startup(now)
 	if !m.daemonMode {
