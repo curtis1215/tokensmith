@@ -31,7 +31,7 @@ func newPublishDialog(m Model, index int) (publishDialog, bool) {
 	if !sim.IsDraft(md) {
 		return publishDialog{}, false
 	}
-	ref := m.cfg.SegmentRefPrice[md.Segment] // tech mult applied in estimate via full state
+	ref := sim.RefPrice(m.state, md.Segment, m.cfg)
 	price := md.Price
 	if price <= 0 {
 		price = ref
@@ -117,7 +117,7 @@ func renderPublishDialog(d publishDialog, m Model) string {
 	}
 	b.WriteString(fmt.Sprintf("  定價  $%.0f   （推薦 $%.0f）\n\n", d.price, d.refPrice))
 	b.WriteString(fmt.Sprintf("  預估  需求 ×%.2f · 封頂用戶 ~%s\n\n", demand, human(est)))
-	
+
 	if d.priceOnly {
 		b.WriteString(helpStyle.Render("[←→]調價 [Shift+←→]±5  [Enter]確認 [Esc]取消"))
 	} else {

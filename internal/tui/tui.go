@@ -251,8 +251,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.page == PageCompute && m.procCursor > 0 {
 				m.procCursor--
 			}
-			if m.page == PageModels && m.modelCursor > 0 {
-				m.modelCursor--
+			if m.page == PageModels && len(m.state.Models) > 0 {
+				vis := visualIndices(m.state.Models)
+				idx := indexOf(vis, m.modelCursor)
+				if idx > 0 {
+					m.modelCursor = vis[idx-1]
+				}
 			}
 			return m, nil
 		case "down":
@@ -262,8 +266,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.page == PageCompute && m.procCursor < len(m.cfg.Processes)-1 {
 				m.procCursor++
 			}
-			if m.page == PageModels && m.modelCursor < len(m.state.Models)-1 {
-				m.modelCursor++
+			if m.page == PageModels && len(m.state.Models) > 0 {
+				vis := visualIndices(m.state.Models)
+				idx := indexOf(vis, m.modelCursor)
+				if idx >= 0 && idx < len(vis)-1 {
+					m.modelCursor = vis[idx+1]
+				}
 			}
 			return m, nil
 		case "enter":
@@ -298,7 +306,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						index:     m.modelCursor,
 						name:      md.Name,
 						price:     md.Price,
-						refPrice:  m.cfg.SegmentRefPrice[md.Segment],
+						refPrice:  sim.RefPrice(m.state, md.Segment, m.cfg),
 						gen:       md.Gen,
 						segment:   md.Segment,
 						quality:   md.Quality,
@@ -397,11 +405,18 @@ func (m Model) updatePublishDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if confirm {
 		if d.priceOnly {
 			m.state = applyOK(m.state, model.SetPrice{ModelIndex: d.index, Price: d.price}, m.cfg)
-		} else if ns, err := sim.Apply(m.state, d.command(), m.cfg); err == nil {
+			m.publish = nil
+		} else {
+			ns, err := sim.Apply(m.state, d.command(), m.cfg)
+			if err != nil {
+				m.notice = "名稱必須為 1–24 字元且不能為空"
+				m.publish = &d
+				return m, nil
+			}
 			m.state = ns
 			m.notice = fmt.Sprintf("「%s」已上線", d.name)
+			m.publish = nil
 		}
-		m.publish = nil
 		return m, nil
 	}
 	m.publish = &d
@@ -568,4 +583,28 @@ func offlineBanner(s Summary) string {
 		msg += " · 訓練完成 ✓"
 	}
 	return tabActiveStyle.Render(msg) + helpStyle.Render("  （按任意鍵關閉）")
+}
+
+func visualIndices(models []model.Model) []int {
+	var vis []int
+	for i, md := range models {
+		if sim.IsDraft(md) {
+			vis = append(vis, i)
+		}
+	}
+	for i, md := range models {
+		if !sim.IsDraft(md) {
+			vis = append(vis, i)
+		}
+	}
+	return vis
+}
+
+func indexOf(arr []int, val int) int {
+	for i, v := range arr {
+		if v == val {
+			return i
+		}
+	}
+	return -1
 }

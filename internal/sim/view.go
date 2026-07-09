@@ -118,3 +118,12 @@ func EstimateUserTarget(s model.GameState, modelIndex int, price float64, b bala
 	return appeal * b.SegmentTargetScale[m.Segment] * demandMult * share *
 		marketingMult * te.UserGrowthMult * se.UserGrowthMult
 }
+
+// RefPrice returns the reference price of seg, incorporating tech tree multipliers.
+func RefPrice(s model.GameState, seg model.Segment, b balance.Config) float64 {
+	if int(seg) < 0 || int(seg) >= model.NumSegments {
+		return 0
+	}
+	te := techEffects(s, b)
+	return b.SegmentRefPrice[seg] * te.RefPriceMult
+}
