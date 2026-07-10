@@ -14,18 +14,25 @@ type directiveDialog struct {
 	cursor         int
 	choosingTarget bool
 	targetCursor   int
+	// targetMax is the highest valid targetCursor for the rivals present when
+	// the dialog opened (len(targets)-1, or -1 when none). Keeps nested Down
+	// bounds length-aware for one-rival / partial-old-save cases without
+	// changing update/command signatures.
+	targetMax int
 }
 
 func newDirectiveDialog(m Model) (directiveDialog, bool) {
 	if m.state.Campaign.Doctrine == model.DoctrineNone {
 		return directiveDialog{}, false
 	}
+	targets := directiveTargets(m)
 	return directiveDialog{
 		options: []model.DirectiveKind{
 			model.DirectiveRoutePush,
 			model.DirectiveCounter,
 			model.DirectiveIntel,
 		},
+		targetMax: len(targets) - 1,
 	}, true
 }
 
@@ -70,8 +77,7 @@ func (d directiveDialog) update(msg tea.KeyMsg) (directiveDialog, bool, bool) {
 		}
 	case "down", "right":
 		if d.choosingTarget {
-			// Primary + wildcard at most; bounds re-checked against live targets in command/render.
-			if d.targetCursor < 1 {
+			if d.targetCursor < d.targetMax {
 				d.targetCursor++
 			}
 		} else if d.cursor < len(d.options)-1 {

@@ -762,8 +762,9 @@ func (m Model) updateDoctrineDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.doctrineDialog = nil
 		if _, ok := cmd.(model.ChooseDoctrine); ok {
 			// Task 8 hard gate: overwrite any pre-armed clock at selection time.
+			// Preserve economic LastRealUnix (Task 8 C1) — only campaign clock moves.
 			m.lastCampaignUnix = time.Now().Unix()
-			m.saveMeta()
+			m.saveMetaAt(m.lastRealUnix)
 		}
 		return m, nil
 	}

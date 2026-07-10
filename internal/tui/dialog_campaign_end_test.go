@@ -195,15 +195,66 @@ func TestCampaignEndExitConfirmApplies(t *testing.T) {
 }
 
 func TestCampaignEndPWithoutVictoryKeepsPrestigeReset(t *testing.T) {
+	// Pre-campaign (no doctrine) + unlock valuation → legacy PrestigeReset banks patents and resets.
 	m := onlineCampaignModel(t)
 	m.page = PageOverview
-	m.state.Campaign = model.CampaignState{Doctrine: model.DoctrineConsumer, Stage: model.CampaignStageExpand}
-	m.state.PeakValuation = m.cfg.PrestigeUnlockValuation
-	// Without victory, P should not open campaign-end dialog (legacy PrestigeReset path).
+	m.state.Campaign = model.CampaignState{} // DoctrineNone
+	m.state.PeakValuation = 1e9
+	m.state.Resources.Cash = 5e6
+	m.state.Resources.RnD = 1e6
+	m.state.Engineers = 5
+	m.state.Prestige.Patents = 1
+	beforePatents := m.state.Prestige.Patents
+	wantPatents := beforePatents + 3 // patentsFor(1e9) = 3 with default balance
+
 	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P")})
 	got := nm.(Model)
 	if got.campaignEnd != nil {
-		t.Fatal("P without victory must not open campaign-end dialog")
+		t.Fatal("pre-campaign P must not open campaign-end dialog")
+	}
+	if got.state.Prestige.Patents != wantPatents {
+		t.Fatalf("PrestigeReset patents=%v want %v (banked)", got.state.Prestige.Patents, wantPatents)
+	}
+	if len(got.state.Models) != 0 || got.state.Engineers != 0 || got.state.PeakValuation != 0 {
+		t.Fatalf("PrestigeReset must start a fresh run: models=%d eng=%d peak=%v",
+			len(got.state.Models), got.state.Engineers, got.state.PeakValuation)
+	}
+	if got.state.Resources.Cash != got.cfg.StartingCash {
+		t.Fatalf("cash after PrestigeReset=%v want StartingCash %v", got.state.Resources.Cash, got.cfg.StartingCash)
+	}
+}
+
+func TestCampaignEndPActiveCampaignNoVictoryLeavesState(t *testing.T) {
+	// Active campaign without victory: no campaign-end dialog; PrestigeReset is blocked
+	// (Task 7 settlement only via CampaignPrestige/Exit) so state is unchanged.
+	m := onlineCampaignModel(t)
+	m.page = PageOverview
+	m.state.Campaign = model.CampaignState{
+		Doctrine: model.DoctrineConsumer,
+		Stage:    model.CampaignStageExpand,
+		Cycle:    4,
+		Perks:    []string{"consumer-premium"},
+	}
+	m.state.PeakValuation = m.cfg.PrestigeUnlockValuation * 2
+	m.state.Resources.Cash = 123456
+	m.state.Prestige.Patents = 7
+	before := m.state
+
+	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P")})
+	got := nm.(Model)
+	if got.campaignEnd != nil {
+		t.Fatal("active not-won campaign must not open campaign-end dialog")
+	}
+	if got.state.Campaign.Doctrine != before.Campaign.Doctrine ||
+		got.state.Campaign.Stage != before.Campaign.Stage ||
+		got.state.Campaign.Cycle != before.Campaign.Cycle ||
+		got.state.PeakValuation != before.PeakValuation ||
+		got.state.Resources.Cash != before.Resources.Cash ||
+		got.state.Prestige.Patents != before.Prestige.Patents ||
+		len(got.state.Models) != len(before.Models) {
+		t.Fatalf("P must not bypass Task 7 settlement; state changed:\nbefore campaign=%+v patents=%v cash=%v\nafter campaign=%+v patents=%v cash=%v",
+			before.Campaign, before.Prestige.Patents, before.Resources.Cash,
+			got.state.Campaign, got.state.Prestige.Patents, got.state.Resources.Cash)
 	}
 }
 

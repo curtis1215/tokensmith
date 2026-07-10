@@ -127,6 +127,43 @@ func TestDirectiveDialogRejectedKeepsOpen(t *testing.T) {
 	}
 }
 
+func TestDirectiveDialogOneRivalTargetBounds(t *testing.T) {
+	// Partial/old-save: only primary roadmap company is present.
+	m := onlineCampaignModel(t)
+	m.state.Campaign = model.CampaignState{
+		Doctrine: model.DoctrineConsumer,
+		Primary:  model.RivalRoadmap{Company: "OpenAI", ActionIndex: 0},
+		// Wildcard empty — one valid target only.
+	}
+	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	got := nm.(Model)
+	if got.directiveDialog == nil {
+		t.Fatal("expected directive dialog")
+	}
+	// Select counter (index 1) → target phase.
+	nm, _ = got.Update(tea.KeyMsg{Type: tea.KeyDown})
+	got = nm.(Model)
+	nm, _ = got.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got = nm.(Model)
+	if got.directiveDialog == nil || !got.directiveDialog.choosingTarget {
+		t.Fatal("expected nested target selection")
+	}
+	if got.directiveDialog.targetCursor != 0 {
+		t.Fatalf("targetCursor=%d want 0", got.directiveDialog.targetCursor)
+	}
+	// Down must not advance OOB when only one rival.
+	nm, _ = got.Update(tea.KeyMsg{Type: tea.KeyDown})
+	got = nm.(Model)
+	if got.directiveDialog.targetCursor != 0 {
+		t.Fatalf("Down on single target must stay at 0, got %d", got.directiveDialog.targetCursor)
+	}
+	// Confirm still targets the only rival.
+	cmd := got.directiveDialog.command(got)
+	if cmd.Kind != model.DirectiveCounter || cmd.Target != "OpenAI" {
+		t.Fatalf("command=%+v want counter→OpenAI", cmd)
+	}
+}
+
 func TestDirectiveDialogRoutePushApplies(t *testing.T) {
 	m := onlineCampaignModel(t)
 	m.state.Campaign = model.CampaignState{

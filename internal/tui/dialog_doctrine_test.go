@@ -168,10 +168,12 @@ func TestDoctrineDialogRejectedKeepsOpenAndShowsError(t *testing.T) {
 
 func TestChooseDoctrineOverwritesLastCampaignUnix(t *testing.T) {
 	m := onlineCampaignModel(t)
-	const oldUnix int64 = 1_000_000
-	m.lastCampaignUnix = oldUnix
-	// Persist the stale arm so we can prove overwrite on disk too.
-	m.saveMeta()
+	const oldCampaignUnix int64 = 1_000_000
+	const priorRealUnix int64 = 1_700_000_000
+	m.lastCampaignUnix = oldCampaignUnix
+	m.lastRealUnix = priorRealUnix
+	// Seed disk with the economic watermark preserved (not saveMeta wall-stamp).
+	m.saveMetaAt(priorRealUnix)
 
 	before := time.Now().Unix()
 	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
@@ -184,11 +186,15 @@ func TestChooseDoctrineOverwritesLastCampaignUnix(t *testing.T) {
 	if m.state.Campaign.Doctrine == model.DoctrineNone {
 		t.Fatal("doctrine not applied")
 	}
-	if m.lastCampaignUnix == oldUnix {
+	if m.lastCampaignUnix == oldCampaignUnix {
 		t.Fatal("lastCampaignUnix must overwrite pre-armed nonzero value")
 	}
 	if m.lastCampaignUnix < before {
 		t.Fatalf("lastCampaignUnix=%d want >= selection time %d", m.lastCampaignUnix, before)
+	}
+	// Task 8 C1: economic watermark must not burn on doctrine re-arm.
+	if m.lastRealUnix != priorRealUnix {
+		t.Fatalf("in-memory lastRealUnix=%d want prior %d", m.lastRealUnix, priorRealUnix)
 	}
 	meta, ok, err := store.LoadMeta(m.metaPath)
 	if err != nil || !ok {
@@ -197,8 +203,11 @@ func TestChooseDoctrineOverwritesLastCampaignUnix(t *testing.T) {
 	if meta.LastCampaignUnix != m.lastCampaignUnix {
 		t.Fatalf("persisted LastCampaignUnix=%d want %d", meta.LastCampaignUnix, m.lastCampaignUnix)
 	}
-	if meta.LastCampaignUnix == oldUnix {
+	if meta.LastCampaignUnix == oldCampaignUnix {
 		t.Fatal("disk meta must not keep pre-armed lastCampaignUnix")
+	}
+	if meta.LastRealUnix != priorRealUnix {
+		t.Fatalf("disk LastRealUnix=%d want prior %d (must not burn economic watermark)", meta.LastRealUnix, priorRealUnix)
 	}
 }
 
