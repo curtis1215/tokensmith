@@ -73,19 +73,44 @@ func TestStartupSettlesOffline(t *testing.T) {
 	dir := t.TempDir()
 	lp := filepath.Join(dir, "ledger.json")
 	mp := filepath.Join(dir, "meta.json")
+	sp := filepath.Join(dir, "s.json")
 	now := int64(1_800_000_000)
 	ledger.Save(lp, ledger.Ledger{
 		Sources:   map[string]model.SourceTotals{"claude-code": {In: 300000, Out: 150000}},
 		UpdatedAt: now,
 	}) // fresh
-	store.SaveMeta(mp, store.Meta{LastRealUnix: now - 8*3600})
+	// Active campaign + stale board clock: offline catch-up must advance cycles
+	// even on the daemon economic-settlement path.
+	staleCampaign := now - 7*24*60*60
+	if err := store.Save(sp, model.GameState{
+		Campaign: model.CampaignState{
+			Doctrine: model.DoctrineConsumer,
+			Stage:    model.CampaignStageExpand,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store.SaveMeta(mp, store.Meta{
+		LastRealUnix:     now - 8*3600,
+		LastCampaignUnix: staleCampaign,
+	})
 
-	m := newAtPaths(filepath.Join(dir, "s.json"), lp, mp).startup(now)
+	m := newAtPaths(sp, lp, mp).startup(now)
 	if !m.daemonMode {
 		t.Fatal("fresh ledger should enable daemon mode")
 	}
 	if m.offlineSummary == nil || m.offlineSummary.RnDGained <= 0 {
 		t.Fatalf("expected offline R&D gain, got %+v", m.offlineSummary)
+	}
+	if m.offlineSummary.CampaignCycles != 3 {
+		t.Fatalf("daemon startup should catch up capped board cycles, got CampaignCycles=%d cycle=%d last=%d",
+			m.offlineSummary.CampaignCycles, m.state.Campaign.Cycle, m.lastCampaignUnix)
+	}
+	if m.state.Campaign.Cycle != 3 {
+		t.Fatalf("campaign cycle after daemon catch-up = %d, want 3", m.state.Campaign.Cycle)
+	}
+	if m.lastCampaignUnix != now {
+		t.Fatalf("capped catch-up should set lastCampaignUnix=now, got %d want %d", m.lastCampaignUnix, now)
 	}
 	if m.consumed["claude-code"] != (model.SourceTotals{In: 300000, Out: 150000}) {
 		t.Fatalf("consumed should adopt ledger cum after settlement: %+v", m.consumed)
@@ -121,15 +146,37 @@ func TestStartupStandaloneWhenLedgerStale(t *testing.T) {
 	dir := t.TempDir()
 	lp := filepath.Join(dir, "ledger.json")
 	mp := filepath.Join(dir, "meta.json")
+	sp := filepath.Join(dir, "s.json")
 	now := int64(1_800_000_000)
 	ledger.Save(lp, ledger.Ledger{
 		Sources:   map[string]model.SourceTotals{"claude-code": {In: 100}},
 		UpdatedAt: now - 3600, // 1h stale
 	})
+	// Standalone early-return must still advance board cycles (guards the
+	// historical `return m` before campaign catch-up).
+	staleCampaign := now - 7*24*60*60
+	if err := store.Save(sp, model.GameState{
+		Campaign: model.CampaignState{
+			Doctrine: model.DoctrineConsumer,
+			Stage:    model.CampaignStageExpand,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store.SaveMeta(mp, store.Meta{LastCampaignUnix: staleCampaign})
 
-	m := newAtPaths(filepath.Join(dir, "s.json"), lp, mp).startup(now)
+	m := newAtPaths(sp, lp, mp).startup(now)
 	if m.daemonMode {
 		t.Fatal("stale ledger should fall back to standalone (poller) mode")
+	}
+	if m.state.Campaign.Cycle != 3 {
+		t.Fatalf("standalone startup should catch up capped board cycles, cycle=%d want 3", m.state.Campaign.Cycle)
+	}
+	if m.lastCampaignUnix != now {
+		t.Fatalf("standalone catch-up lastCampaignUnix=%d want %d", m.lastCampaignUnix, now)
+	}
+	if m.offlineSummary == nil || m.offlineSummary.CampaignCycles != 3 {
+		t.Fatalf("standalone catch-up should surface campaign cycle count in banner: %+v", m.offlineSummary)
 	}
 }
 

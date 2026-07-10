@@ -86,8 +86,8 @@ type Model struct {
 	streakDays     int
 	lastActiveDate string
 	// lastCampaignUnix mirrors store.Meta.LastCampaignUnix — wall-clock of the
-	// last board cycle (or the session that armed the clock). Task 8 will use
-	// campaignCyclesDue against this field; Task 2 only load/saves it.
+	// last board cycle (or the session that armed the clock). advanceCampaignTo
+	// drives board-cycle catch-up against this field on startup and live ticks.
 	lastCampaignUnix int64
 	notice           string // transient one-line banner, dismissed by any key
 	pendingRestart   bool   // armed manual restart; a second X confirms it
@@ -160,33 +160,48 @@ func ledgerFresh(l ledger.Ledger, now int64) bool { return now-l.UpdatedAt <= 30
 
 // startup detects daemon mode and settles offline progress. Called by New()
 // only, so unit-test constructors stay hermetic.
+//
+// Economic settlement (tokens/R&D/events) remains daemon-only and conditional,
+// but board-cycle catch-up always runs via advanceCampaignTo so standalone
+// early-return and first-open paths cannot skip the campaign clock.
 func (m Model) startup(now int64) Model {
 	l, ok, _ := ledger.Load(m.ledgerPath)
-	if !ok || !ledgerFresh(l, now) {
-		return m // standalone: Init primes the built-in poller
+	if ok && ledgerFresh(l, now) {
+		m.daemonMode = true
+		if m.metaMissing {
+			// First-ever open: adopt the current total so we don't settle a phantom
+			// window of everything harvested before the player ever played.
+			m.consumed = copySourceTotals(l.Sources)
+		} else {
+			prevIn, prevOut := sumSourceTotals(m.consumed)
+			offIn := l.TotalIn() - prevIn
+			offOut := l.TotalOut() - prevOut
+			elapsed := float64(now - m.lastRealUnix)
+			if offIn > 0 || offOut > 0 {
+				m.updateStreak(time.Unix(now, 0))
+			}
+			cfg := m.cfg
+			cfg.StreakMult = m.currentStreakMult()
+			ns, sum := Settle(m.state, cfg, elapsed, offIn, offOut)
+			m.state = ns
+			m.consumed = copySourceTotals(l.Sources)
+			if sum.RnDGained > 0 || sum.TrainingCompleted || sum.EventsFired > 0 || sum.EventsAutoResolved > 0 {
+				m.offlineSummary = &sum
+			}
+		}
 	}
-	m.daemonMode = true
-	if m.metaMissing {
-		// First-ever open: adopt the current total so we don't settle a phantom
-		// window of everything harvested before the player ever played.
-		m.consumed = copySourceTotals(l.Sources)
-		return m
+	// Board-cycle catch-up is wall-clock TUI work, independent of daemon mode.
+	var advanced int
+	m, advanced = m.advanceCampaignTo(now)
+	if advanced > 0 {
+		if m.offlineSummary == nil {
+			m.offlineSummary = &Summary{}
+		}
+		m.offlineSummary.CampaignCycles = advanced
 	}
-	prevIn, prevOut := sumSourceTotals(m.consumed)
-	offIn := l.TotalIn() - prevIn
-	offOut := l.TotalOut() - prevOut
-	elapsed := float64(now - m.lastRealUnix)
-	if offIn > 0 || offOut > 0 {
-		m.updateStreak(time.Unix(now, 0))
-	}
-	cfg := m.cfg
-	cfg.StreakMult = m.currentStreakMult()
-	ns, sum := Settle(m.state, cfg, elapsed, offIn, offOut)
-	m.state = ns
-	m.consumed = copySourceTotals(l.Sources)
-	if sum.RnDGained > 0 || sum.TrainingCompleted || sum.EventsFired > 0 || sum.EventsAutoResolved > 0 {
-		m.offlineSummary = &sum
-	}
+	// Persist nextLast (and any first-arm of the clock) so a relaunch does not
+	// re-fire the same capped backlog.
+	m.saveMeta()
 	return m
 }
 
@@ -328,6 +343,8 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		prevFired := m.state.Events.FiredCount
 		m.state = sim.Tick(m.state, tickDT, events, cfgTick)
+		// Board cycles use wall-clock, not game-time: catch up after the pure tick.
+		m, _ = m.advanceCampaignTo(now.Unix())
 		if m.state.Events.FiredCount > prevFired {
 			m.setNotice("📰 產業事件：" + latestEventName(m.state))
 		}
@@ -1015,6 +1032,9 @@ func offlineBanner(s Summary) string {
 		}
 	} else if s.EventsAutoResolved > 0 {
 		msg += fmt.Sprintf(" · %d 起待決事件已自動決議", s.EventsAutoResolved)
+	}
+	if s.CampaignCycles > 0 {
+		msg += fmt.Sprintf(" · 董事會週期 %d 次", s.CampaignCycles)
 	}
 	return tabActiveStyle.Render(msg) + helpStyle.Render("  （按任意鍵關閉）")
 }
