@@ -55,18 +55,22 @@ var pageNames = [numPages]string{"總覽", "模型", "市場", "算力", "團隊
 
 // Model is the Bubble Tea root model.
 type Model struct {
-	state          model.GameState
-	cfg            balance.Config
-	poller         *ingest.Poller
-	savePath       string
-	ticksSinceSave int
-	page           Page
-	dialog         *trainDialog   // non-nil while the training modal is open
-	publish        *publishDialog // non-nil while the publish/price modal is open
-	event          *eventDialog   // non-nil while the event-choice modal is open
-	techCursor     int            // selected tech node on the tech page
-	procCursor     int            // selected process node on the compute page
-	modelCursor    int            // selected index into state.Models on models page
+	state           model.GameState
+	cfg             balance.Config
+	poller          *ingest.Poller
+	savePath        string
+	ticksSinceSave  int
+	page            Page
+	dialog          *trainDialog       // non-nil while the training modal is open
+	publish         *publishDialog     // non-nil while the publish/price modal is open
+	event           *eventDialog       // non-nil while the event-choice modal is open
+	doctrineDialog  *doctrineDialog    // non-nil while doctrine/perk/secondary/pivot modal is open
+	directiveDialog *directiveDialog   // non-nil while executive-directive modal is open
+	campaignEnd     *campaignEndDialog // non-nil while victory/exit modal is open
+	campaignError   string             // last rejected campaign command; survives ticks
+	techCursor      int                // selected tech node on the tech page
+	procCursor      int                // selected process node on the compute page
+	modelCursor     int                // selected index into state.Models on models page
 	// Harvest-daemon integration (§10.2).
 	ledgerPath     string
 	metaPath       string
@@ -388,6 +392,16 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		return m, tick()
 	case tea.KeyMsg:
+		// Campaign dialogs take priority over event/publish/train.
+		if m.doctrineDialog != nil {
+			return m.updateDoctrineDialog(msg)
+		}
+		if m.directiveDialog != nil {
+			return m.updateDirectiveDialog(msg)
+		}
+		if m.campaignEnd != nil {
+			return m.updateCampaignEndDialog(msg)
+		}
 		if m.event != nil {
 			return m.updateEventDialog(msg)
 		}
@@ -529,8 +543,56 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			return m, nil
 		case "P":
 			if m.page == PageOverview || m.page == PageTech {
-				m.state = applyOK(m.state, model.PrestigeReset{}, m.cfg)
-				m.snapDisplay()
+				if d, ok := newCampaignEndDialog(m, campaignEndVictory); ok {
+					m.campaignEnd = &d
+					m.campaignError = ""
+				} else {
+					m.state = applyOK(m.state, model.PrestigeReset{}, m.cfg)
+					m.snapDisplay()
+				}
+			}
+			return m, nil
+		case "E":
+			if m.page == PageOverview {
+				if d, ok := newCampaignEndDialog(m, campaignEndExit); ok {
+					m.campaignEnd = &d
+					m.campaignError = ""
+				} else {
+					m.campaignError = campaignErrorText(sim.ErrStrategyExitLocked)
+				}
+			}
+			return m, nil
+		case "c":
+			if m.page == PageOverview {
+				if d, ok := newDoctrineDialog(m, false); ok {
+					m.doctrineDialog = &d
+					m.campaignError = ""
+				} else {
+					m.campaignError = "此策略目前無法執行"
+				}
+			}
+			return m, nil
+		case "C":
+			if m.page == PageOverview {
+				if d, ok := newDoctrineDialog(m, true); ok {
+					m.doctrineDialog = &d
+					m.campaignError = ""
+				} else if m.state.Campaign.Stage == model.CampaignStageShowdown ||
+					m.state.Campaign.Stage == model.CampaignStageWon {
+					m.campaignError = campaignErrorText(sim.ErrPivotLocked)
+				} else {
+					m.campaignError = "此策略目前無法執行"
+				}
+			}
+			return m, nil
+		case "d":
+			if m.page == PageOverview {
+				if d, ok := newDirectiveDialog(m); ok {
+					m.directiveDialog = &d
+					m.campaignError = ""
+				} else {
+					m.campaignError = "此策略目前無法執行"
+				}
 			}
 			return m, nil
 		case "r", "R", "i", "I":
@@ -680,6 +742,82 @@ func (m Model) updateEventDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) updateDoctrineDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
+	d, confirm, cancel := m.doctrineDialog.update(msg)
+	if cancel {
+		m.doctrineDialog = nil
+		m.campaignError = ""
+		return m, nil
+	}
+	if confirm {
+		cmd := d.command(m)
+		ns, err := sim.Apply(m.state, cmd, m.cfg)
+		if err != nil {
+			m.campaignError = campaignErrorText(err)
+			m.doctrineDialog = &d
+			return m, nil
+		}
+		m.state = ns
+		m.campaignError = ""
+		m.doctrineDialog = nil
+		if _, ok := cmd.(model.ChooseDoctrine); ok {
+			// Task 8 hard gate: overwrite any pre-armed clock at selection time.
+			m.lastCampaignUnix = time.Now().Unix()
+			m.saveMeta()
+		}
+		return m, nil
+	}
+	m.doctrineDialog = &d
+	return m, nil
+}
+
+func (m Model) updateDirectiveDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
+	d, confirm, cancel := m.directiveDialog.update(msg)
+	if cancel {
+		m.directiveDialog = nil
+		m.campaignError = ""
+		return m, nil
+	}
+	if confirm {
+		ns, err := sim.Apply(m.state, d.command(m), m.cfg)
+		if err != nil {
+			m.campaignError = campaignErrorText(err)
+			m.directiveDialog = &d
+			return m, nil
+		}
+		m.state = ns
+		m.campaignError = ""
+		m.directiveDialog = nil
+		return m, nil
+	}
+	m.directiveDialog = &d
+	return m, nil
+}
+
+func (m Model) updateCampaignEndDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
+	d, confirm, cancel := m.campaignEnd.update(msg)
+	if cancel {
+		m.campaignEnd = nil
+		m.campaignError = ""
+		return m, nil
+	}
+	if confirm {
+		ns, err := sim.Apply(m.state, d.command(), m.cfg)
+		if err != nil {
+			m.campaignError = campaignErrorText(err)
+			m.campaignEnd = &d
+			return m, nil
+		}
+		m.state = ns
+		m.campaignError = ""
+		m.campaignEnd = nil
+		m.snapDisplay()
+		return m, nil
+	}
+	m.campaignEnd = &d
+	return m, nil
+}
+
 // resize updates terminal dimensions and viewport content region size.
 func (m *Model) resize(w, h int) {
 	if w < 1 {
@@ -734,6 +872,10 @@ func (m Model) chromeRows() int {
 	if m.notice != "" {
 		n++
 	}
+	// campaignError outside an open dialog is shown as a banner line.
+	if m.campaignError != "" && m.doctrineDialog == nil && m.directiveDialog == nil && m.campaignEnd == nil {
+		n++
+	}
 	n++    // resource bar
 	n++    // tabs
 	n++    // footer
@@ -743,6 +885,16 @@ func (m Model) chromeRows() int {
 
 // contentBody is the scrollable region: dialog or active page (no footer).
 func (m Model) contentBody() string {
+	// Campaign dialogs before event/publish/train.
+	if m.doctrineDialog != nil {
+		return renderDoctrineDialog(*m.doctrineDialog, m)
+	}
+	if m.directiveDialog != nil {
+		return renderDirectiveDialog(*m.directiveDialog, m)
+	}
+	if m.campaignEnd != nil {
+		return renderCampaignEndDialog(*m.campaignEnd, m)
+	}
 	if m.event != nil {
 		return renderEventDialog(*m.event, m)
 	}
@@ -799,7 +951,8 @@ func (m Model) tryScroll(msg tea.KeyMsg) (bool, Model) {
 
 // pageKeys returns page-specific help text for the fixed shell footer.
 func pageKeys(m Model) string {
-	if m.publish != nil || m.dialog != nil || m.event != nil {
+	if m.publish != nil || m.dialog != nil || m.event != nil ||
+		m.doctrineDialog != nil || m.directiveDialog != nil || m.campaignEnd != nil {
 		return "" // dialogs embed their own help
 	}
 	switch m.page {
@@ -1052,6 +1205,11 @@ func (m Model) View() string {
 			notice = styleMuted.Render(notice)
 		}
 		top = append(top, notice)
+	}
+	// Show campaignError as a shell banner when no campaign dialog is open
+	// (in-dialog errors render inside the modal). Tick must not clear it.
+	if m.campaignError != "" && m.doctrineDialog == nil && m.directiveDialog == nil && m.campaignEnd == nil {
+		top = append(top, styleWarn.Render(m.campaignError))
 	}
 	top = append(top, renderResourceBar(m))
 	top = append(top, renderTabBar(m.page))
