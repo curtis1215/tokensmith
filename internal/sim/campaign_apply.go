@@ -36,6 +36,7 @@ func applyChooseDoctrine(s model.GameState, c model.ChooseDoctrine, b balance.Co
 	if ns.Campaign.Legacy.Kind == model.LegacySecondary {
 		ns.Campaign.Secondary, ns.Campaign.SecondaryPerk = ns.Campaign.Legacy.Doctrine, ns.Campaign.Legacy.PerkID
 	}
+	ns = initCampaignRoadmaps(ns, c.Doctrine, b)
 	return ns, nil
 }
 
@@ -100,5 +101,6 @@ func applyPivotDoctrine(s model.GameState, c model.PivotDoctrine, b balance.Conf
 	ns.Campaign.PerkTierPending, ns.Campaign.PivotUsed = 0, true
 	ns.Campaign.ShowdownHeld, ns.Campaign.ShowdownStartedCycle = 0, 0
 	ns.Campaign.Primary, ns.Campaign.Wildcard = model.RivalRoadmap{}, model.RivalRoadmap{}
+	ns = initCampaignRoadmaps(ns, c.Doctrine, b)
 	return ns, nil
 }

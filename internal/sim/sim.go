@@ -290,6 +290,10 @@ func playerFrontier(ns model.GameState) [model.NumQualityDims]float64 {
 // CompetitorMaxLead×frontier so Skill>1 rivals cannot jump a full generation
 // ahead during the Gen1→Gen2 R&D farm window.
 func advanceCompetitors(ns model.GameState, dt float64, b balance.Config) model.GameState {
+	// Active campaign rivals advance only via board-cycle roadmap actions.
+	if ns.Campaign.Doctrine != model.DoctrineNone {
+		return ns
+	}
 	if len(ns.Competitors) == 0 {
 		return ns
 	}
