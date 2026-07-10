@@ -110,6 +110,10 @@ func applyPivotDoctrine(s model.GameState, c model.PivotDoctrine, b balance.Conf
 	ns.Campaign.Stage, ns.Campaign.Perks = model.CampaignStageEstablish, nil
 	ns.Campaign.PerkTierPending, ns.Campaign.PivotUsed = 0, true
 	ns.Campaign.ShowdownHeld, ns.Campaign.ShowdownStartedCycle = 0, 0
+	// Drop stale executive counter pin so it cannot soft-lock against re-seeded
+	// roadmaps. Preserve Active and DirectiveUsed: Task 3 keeps combat modifiers,
+	// and one-directive-per-cycle still spans the pivot within the same cycle.
+	ns.Campaign.CounterTarget, ns.Campaign.CounterActionID = "", ""
 	ns.Campaign.Primary, ns.Campaign.Wildcard = model.RivalRoadmap{}, model.RivalRoadmap{}
 	ns = initCampaignRoadmaps(ns, c.Doctrine, b)
 	return ns, nil

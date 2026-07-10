@@ -136,6 +136,26 @@ func TestCampaignRivalIntelRejectsUnknown(t *testing.T) {
 	}
 }
 
+// At ActionIndex=len-1, execution wraps via modulo; rumored must telegraph Actions[0].
+func TestCampaignRivalIntelWrapsRumoredAtLastIndex(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	// OpenAI has two actions: flagship (0), platform (1). Last index must rumor flagship.
+	s.Campaign.Primary = model.RivalRoadmap{
+		Company: "OpenAI", ActionIndex: 1, CyclesUntilAction: 3, IntelFull: true,
+	}
+	view, ok := CampaignRivalIntel(s, b, true)
+	if !ok {
+		t.Fatal("expected ok for OpenAI at last action index")
+	}
+	if view.ConfirmedActionID != "openai-platform" {
+		t.Fatalf("confirmed=%q want openai-platform", view.ConfirmedActionID)
+	}
+	if view.RumoredActionID != "openai-flagship" {
+		t.Fatalf("rumored=%q want openai-flagship (modulo wrap)", view.RumoredActionID)
+	}
+}
+
 func TestNetCashPerSecPositiveAndNegative(t *testing.T) {
 	b := balance.Default()
 	// Revenue-only state: 100k users * $12 / MonthSec * RevenueMult > 0.

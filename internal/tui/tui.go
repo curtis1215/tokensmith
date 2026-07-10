@@ -93,6 +93,10 @@ type Model struct {
 	// last board cycle (or the session that armed the clock). advanceCampaignTo
 	// drives board-cycle catch-up against this field on startup and live ticks.
 	lastCampaignUnix int64
+	// lastCampaignCycle mirrors store.Meta.LastCampaignCycle — high-water of
+	// Campaign.Cycle after a successful state+meta pair. Startup recovery uses
+	// this to detect state-saved/meta-stale half-writes without wall-clock in sim.
+	lastCampaignCycle int
 	notice           string // transient one-line banner, dismissed by any key
 	pendingRestart   bool   // armed manual restart; a second X confirms it
 	width            int    // terminal width
@@ -147,9 +151,10 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 		lastRealUnix:     meta.LastRealUnix,
 		metaMissing:      !metaOK,
 		streakDays:       meta.StreakDays,
-		lastActiveDate:   meta.LastActiveDate,
-		lastCampaignUnix: meta.LastCampaignUnix,
-		width:            100,
+		lastActiveDate:    meta.LastActiveDate,
+		lastCampaignUnix:  meta.LastCampaignUnix,
+		lastCampaignCycle: meta.LastCampaignCycle,
+		width:             100,
 		height:           40,
 		vp:               viewport.New(80, 20),
 	}
@@ -203,8 +208,16 @@ func (m Model) startup(now int64) Model {
 		}
 	}
 	// Board-cycle catch-up is wall-clock TUI work, independent of daemon mode.
+	// Recovery: saved GameState is ahead of meta high-water (state Save ok,
+	// meta write lost). Arm the campaign clock at now and skip replay so
+	// rivals/holds/reports are not double-applied.
 	var advanced int
-	m, advanced = m.advanceCampaignTo(now)
+	if m.state.Campaign.Doctrine != model.DoctrineNone && m.state.Campaign.Cycle > m.lastCampaignCycle {
+		m.lastCampaignUnix = now
+		m.lastCampaignCycle = m.state.Campaign.Cycle
+	} else {
+		m, advanced = m.advanceCampaignTo(now)
+	}
 	if advanced > 0 {
 		if m.offlineSummary == nil {
 			m.offlineSummary = &Summary{}
@@ -212,7 +225,10 @@ func (m Model) startup(now int64) Model {
 		m.offlineSummary.CampaignCycles = advanced
 		// Persist advanced campaign state before the campaign meta watermark so
 		// a crash cannot drop Cycle/reports while meta claims cycles were taken.
-		_ = store.Save(m.savePath, m.state)
+		// Never advance meta after a failed state write.
+		if err := store.Save(m.savePath, m.state); err != nil {
+			return m
+		}
 	}
 	if advanceEconomic {
 		m.lastRealUnix = now
@@ -286,11 +302,12 @@ func (m Model) saveMeta() {
 // elapsed on standalone board-only opens (which pass the preserved watermark).
 func (m Model) saveMetaAt(lastRealUnix int64) {
 	_ = store.SaveMeta(m.metaPath, store.Meta{
-		ConsumedSources:  m.consumed,
-		LastRealUnix:     lastRealUnix,
-		LastActiveDate:   m.lastActiveDate,
-		StreakDays:       m.streakDays,
-		LastCampaignUnix: m.lastCampaignUnix,
+		ConsumedSources:   m.consumed,
+		LastRealUnix:      lastRealUnix,
+		LastActiveDate:    m.lastActiveDate,
+		StreakDays:        m.streakDays,
+		LastCampaignUnix:  m.lastCampaignUnix,
+		LastCampaignCycle: m.state.Campaign.Cycle,
 	})
 }
 
@@ -387,8 +404,10 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		m.ticksSinceSave++
 		if m.ticksSinceSave >= 40 {
 			m.ticksSinceSave = 0
-			_ = store.Save(m.savePath, m.state)
-			m.saveMeta()
+			// Meta watermarks only advance after a confirmed state write.
+			if err := store.Save(m.savePath, m.state); err == nil {
+				m.saveMeta()
+			}
 		}
 		return m, tick()
 	case tea.KeyMsg:
@@ -505,8 +524,9 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return m, nil
 		case "q", "ctrl+c":
-			_ = store.Save(m.savePath, m.state)
-			m.saveMeta()
+			if err := store.Save(m.savePath, m.state); err == nil {
+				m.saveMeta()
+			}
 			return m, tea.Quit
 		case "t":
 			if m.page == PageModels || m.page == PageOverview {

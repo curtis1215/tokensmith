@@ -26,6 +26,11 @@ type Meta struct {
 	// cycle (or the session that armed the clock). Used only by the TUI to
 	// compute catch-up cycles; the pure sim never sees this field.
 	LastCampaignUnix int64 `json:"lastCampaignUnix"`
+	// LastCampaignCycle is a high-water of GameState.Campaign.Cycle written
+	// only after a successful state save. On load, if saved state cycle is
+	// ahead of this watermark, the TUI treats meta as stale (Save ok / Meta
+	// lost) and arms the campaign clock without replaying catch-up cycles.
+	LastCampaignCycle int `json:"lastCampaignCycle"`
 }
 
 // DefaultMetaPath is the standard meta-file location.

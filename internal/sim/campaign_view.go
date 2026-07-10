@@ -84,18 +84,19 @@ func CampaignRivalIntel(s model.GameState, b balance.Config, primary bool) (Riva
 	if _, ok := balance.RivalActionByID(b.Campaign, confirmed); !ok {
 		return RivalIntelView{}, false
 	}
-	rumored := ""
-	if roadmap.ActionIndex+1 < len(profile.Actions) {
-		next := profile.Actions[roadmap.ActionIndex+1]
-		if _, ok := balance.RivalActionByID(b.Campaign, next); !ok {
-			return RivalIntelView{}, false
-		}
-		rumored = next
+	// Match executeRivalAction: next action wraps via modulo. Empty/unknown
+	// action IDs still fail closed (ok=false).
+	if len(profile.Actions) == 0 {
+		return RivalIntelView{}, false
+	}
+	next := profile.Actions[(roadmap.ActionIndex+1)%len(profile.Actions)]
+	if _, ok := balance.RivalActionByID(b.Campaign, next); !ok {
+		return RivalIntelView{}, false
 	}
 	return RivalIntelView{
 		Company:           roadmap.Company,
 		ConfirmedActionID: confirmed,
-		RumoredActionID:   rumored,
+		RumoredActionID:   next,
 		CyclesUntilAction: roadmap.CyclesUntilAction,
 		IntelFull:         roadmap.IntelFull,
 	}, true

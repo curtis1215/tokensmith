@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -326,8 +327,9 @@ func TestStartupCatchUpNoCampaignSpending(t *testing.T) {
 		t.Fatal(err)
 	}
 	store.SaveMeta(mp, store.Meta{
-		LastRealUnix:     now - 10*3600,
-		LastCampaignUnix: staleCampaign,
+		LastRealUnix:      now - 10*3600,
+		LastCampaignUnix:  staleCampaign,
+		LastCampaignCycle: 5, // in sync with state Cycle → legitimate wall-clock catch-up
 	})
 
 	m := newAtPaths(sp, lp, mp).startup(now)
@@ -381,8 +383,9 @@ func TestStartupCatchUpNoCampaignSpending(t *testing.T) {
 		t.Fatal(err)
 	}
 	store.SaveMeta(mp2, store.Meta{
-		LastRealUnix:     now, // no economic offline window
-		LastCampaignUnix: now - 72*3600,
+		LastRealUnix:      now, // no economic offline window
+		LastCampaignUnix:  now - 72*3600,
+		LastCampaignCycle: 1, // in sync with state Cycle
 	})
 	m2 := newAtPaths(sp2, lp2, mp2).startup(now)
 	if !m2.daemonMode {
@@ -396,6 +399,141 @@ func TestStartupCatchUpNoCampaignSpending(t *testing.T) {
 	}
 	if m2.state.Resources.Cash != cash {
 		t.Fatalf("daemon catch-up burned cash: %v want %v", m2.state.Resources.Cash, cash)
+	}
+}
+
+// TestStartupStateAheadMetaStaleRecovery: GameState saved at Cycle=3 with reports,
+// but meta still has LastCampaignCycle=0 and an old LastCampaignUnix. A long gap
+// must NOT re-apply catch-up cycles (would go to 6); instead arm the clock at now
+// and persist LastCampaignCycle=3.
+func TestStartupStateAheadMetaStaleRecovery(t *testing.T) {
+	dir := t.TempDir()
+	lp := filepath.Join(dir, "ledger.json")
+	mp := filepath.Join(dir, "meta.json")
+	sp := filepath.Join(dir, "s.json")
+	now := int64(1_800_000_000)
+	// Stale ledger → standalone (board-only open; preserve economic watermark).
+	ledger.Save(lp, ledger.Ledger{
+		Sources:   map[string]model.SourceTotals{"claude-code": {In: 10}},
+		UpdatedAt: now - 3600,
+	})
+	priorEconomic := now - 20*3600
+	staleCampaign := now - 7*24*60*60
+	if err := store.Save(sp, model.GameState{
+		Campaign: model.CampaignState{
+			Doctrine: model.DoctrineConsumer,
+			Stage:    model.CampaignStageExpand,
+			Cycle:    3,
+			Reports: []model.BoardReport{
+				{Cycle: 1}, {Cycle: 2}, {Cycle: 3},
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Meta high-water lagging behind saved state (Save succeeded, SaveMeta failed).
+	store.SaveMeta(mp, store.Meta{
+		LastRealUnix:      priorEconomic,
+		LastCampaignUnix:  staleCampaign,
+		LastCampaignCycle: 0,
+	})
+
+	m := newAtPaths(sp, lp, mp).startup(now)
+	if m.state.Campaign.Cycle != 3 {
+		t.Fatalf("recovery must keep Cycle=3, got %d (replay would yield 6)", m.state.Campaign.Cycle)
+	}
+	if m.lastCampaignUnix != now {
+		t.Fatalf("recovery lastCampaignUnix=%d want now=%d", m.lastCampaignUnix, now)
+	}
+	if m.offlineSummary != nil && m.offlineSummary.CampaignCycles != 0 {
+		t.Fatalf("recovery must not report catch-up cycles: %+v", m.offlineSummary)
+	}
+	// Disk state unchanged (no replay).
+	saved, ok, err := store.Load(sp)
+	if err != nil || !ok {
+		t.Fatalf("reload save: ok=%v err=%v", ok, err)
+	}
+	if saved.Campaign.Cycle != 3 || len(saved.Campaign.Reports) != 3 {
+		t.Fatalf("disk state mutated: cycle=%d reports=%d", saved.Campaign.Cycle, len(saved.Campaign.Reports))
+	}
+	meta, mok, merr := store.LoadMeta(mp)
+	if merr != nil || !mok {
+		t.Fatalf("reload meta: ok=%v err=%v", mok, merr)
+	}
+	if meta.LastCampaignUnix != now {
+		t.Fatalf("reconciled LastCampaignUnix=%d want %d", meta.LastCampaignUnix, now)
+	}
+	if meta.LastCampaignCycle != 3 {
+		t.Fatalf("reconciled LastCampaignCycle=%d want 3", meta.LastCampaignCycle)
+	}
+	if meta.LastRealUnix != priorEconomic {
+		t.Fatalf("recovery must not burn LastRealUnix: got %d want %d", meta.LastRealUnix, priorEconomic)
+	}
+}
+
+// TestStartupCatchUpSkipsMetaWhenStateSaveFails: if store.Save fails after
+// catch-up, meta watermarks must remain unchanged so a later launch can retry.
+func TestStartupCatchUpSkipsMetaWhenStateSaveFails(t *testing.T) {
+	dir := t.TempDir()
+	lp := filepath.Join(dir, "ledger.json")
+	mp := filepath.Join(dir, "meta.json")
+	// Put save path inside a file-as-directory so MkdirAll/WriteFile fails.
+	blocked := filepath.Join(dir, "blocked")
+	if err := os.WriteFile(blocked, []byte("not-a-dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sp := filepath.Join(blocked, "s.json") // parent is a file → Save fails
+	now := int64(1_800_000_000)
+	ledger.Save(lp, ledger.Ledger{
+		Sources:   map[string]model.SourceTotals{"claude-code": {In: 10}},
+		UpdatedAt: now - 3600,
+	})
+	staleCampaign := now - 7*24*60*60
+	priorEconomic := now - 10*3600
+	// Seed meta as if a prior successful session armed the clocks; state lives only
+	// in memory (save path cannot load) so use newAtPaths after writing meta, then
+	// force campaign fields. Instead: write state elsewhere and point savePath to
+	// a failing path after construction — exercise startup via a thin helper path.
+	// Simpler approach: create a readable save, then swap savePath to unwritable.
+	goodSP := filepath.Join(dir, "good.json")
+	if err := store.Save(goodSP, model.GameState{
+		Campaign: model.CampaignState{
+			Doctrine: model.DoctrineConsumer,
+			Stage:    model.CampaignStageExpand,
+			Cycle:    0,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store.SaveMeta(mp, store.Meta{
+		LastRealUnix:      priorEconomic,
+		LastCampaignUnix:  staleCampaign,
+		LastCampaignCycle: 0,
+	})
+	m := newAtPaths(goodSP, lp, mp)
+	// Redirect writes to the failing path so catch-up Save fails.
+	m.savePath = sp
+	m = m.startup(now)
+	if m.state.Campaign.Cycle != 3 {
+		// In-memory still advanced; disk/meta must not claim the watermark.
+		t.Fatalf("in-memory cycle after catch-up=%d want 3", m.state.Campaign.Cycle)
+	}
+	meta, ok, err := store.LoadMeta(mp)
+	if err != nil || !ok {
+		t.Fatalf("reload meta: ok=%v err=%v", ok, err)
+	}
+	if meta.LastCampaignUnix != staleCampaign {
+		t.Fatalf("failed Save must leave LastCampaignUnix: got %d want %d", meta.LastCampaignUnix, staleCampaign)
+	}
+	if meta.LastCampaignCycle != 0 {
+		t.Fatalf("failed Save must leave LastCampaignCycle: got %d want 0", meta.LastCampaignCycle)
+	}
+	if meta.LastRealUnix != priorEconomic {
+		t.Fatalf("failed Save must leave LastRealUnix: got %d want %d", meta.LastRealUnix, priorEconomic)
+	}
+	// Ensure the failing path never produced a save file.
+	if _, err := os.Stat(sp); err == nil {
+		t.Fatal("expected save path to remain unwritable / missing")
 	}
 }
 

@@ -69,6 +69,72 @@ func TestPivotChargesAndResetsBuild(t *testing.T) {
 	}
 }
 
+// TestPivotClearsStaleCounterPin: counter on old primary → pivot → pin gone;
+// Active and DirectiveUsed preserved; after cycle reset, counter on new primary works.
+func TestPivotClearsStaleCounterPin(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{Resources: model.Resources{Cash: 100000, RnD: 50000}}
+	s.Models = []model.Model{{Online: true, Users: 1000, Price: 12}}
+	s.Campaign = model.CampaignState{
+		Doctrine: model.DoctrineConsumer,
+		Stage:    model.CampaignStageExpand,
+		Primary:  model.RivalRoadmap{Company: "OpenAI", ActionIndex: 0, CyclesUntilAction: 2},
+		Active: []model.CampaignModifier{{
+			ID: "fixture-route-push", CyclesRemaining: 1, Effects: model.NeutralCampaignEffects(),
+		}},
+	}
+	// Issue counter against old primary → pins OpenAI/openai-flagship and spends the cycle directive.
+	pinned, err := Apply(s, model.IssueDirective{Kind: model.DirectiveCounter, Target: "OpenAI"}, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pinned.Campaign.CounterTarget != "OpenAI" || pinned.Campaign.CounterActionID != "openai-flagship" {
+		t.Fatalf("expected counter pin, got %+v", pinned.Campaign)
+	}
+	if !pinned.Campaign.DirectiveUsed {
+		t.Fatal("counter should spend DirectiveUsed")
+	}
+	if len(pinned.Campaign.Active) != 1 {
+		t.Fatalf("fixture Active should remain after counter: %+v", pinned.Campaign.Active)
+	}
+
+	// Pivot to enterprise re-seeds roadmaps; must drop the stale pin.
+	pivoted, err := Apply(pinned, model.PivotDoctrine{Doctrine: model.DoctrineEnterprise}, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pivoted.Campaign.CounterTarget != "" || pivoted.Campaign.CounterActionID != "" {
+		t.Fatalf("pivot must clear counter pin: target=%q action=%q",
+			pivoted.Campaign.CounterTarget, pivoted.Campaign.CounterActionID)
+	}
+	if !pivoted.Campaign.DirectiveUsed {
+		t.Fatal("pivot must not clear DirectiveUsed (one-directive-per-cycle spans pivot)")
+	}
+	if len(pivoted.Campaign.Active) != 1 || pivoted.Campaign.Active[0].ID != "fixture-route-push" {
+		t.Fatalf("pivot must not clear Active modifiers: %+v", pivoted.Campaign.Active)
+	}
+	if pivoted.Campaign.Primary.Company == "" || pivoted.Campaign.Primary.Company == "OpenAI" {
+		t.Fatalf("pivot should re-seed enterprise primary, got %+v", pivoted.Campaign.Primary)
+	}
+
+	// Per-cycle reset clears DirectiveUsed so a fresh counter can be issued.
+	reset := AdvanceCampaignCycle(pivoted, b)
+	if reset.Campaign.DirectiveUsed {
+		t.Fatal("cycle should reset DirectiveUsed")
+	}
+	newPrimary := reset.Campaign.Primary.Company
+	if newPrimary == "" {
+		t.Fatal("expected primary after pivot cycle")
+	}
+	countered, err := Apply(reset, model.IssueDirective{Kind: model.DirectiveCounter, Target: newPrimary}, b)
+	if err != nil {
+		t.Fatalf("counter on new primary after pivot must succeed: %v", err)
+	}
+	if countered.Campaign.CounterTarget != newPrimary || countered.Campaign.CounterActionID == "" {
+		t.Fatalf("new counter pin missing: %+v", countered.Campaign)
+	}
+}
+
 func TestRoutePushCostsCashAndAddsModifier(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{Resources: model.Resources{Cash: 50000}}
