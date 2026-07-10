@@ -64,9 +64,13 @@ func Restart(s model.GameState, b balance.Config) model.GameState {
 }
 
 // freshRun produces a new run's starting state, preserving prestige.
+// PendingLegacy is transferred into Campaign.Legacy (one-run), tech is applied
+// immediately, then PendingLegacy is cleared so a second restart cannot re-apply it.
 func freshRun(p model.Prestige, b balance.Config) model.GameState {
 	pe := PrestigeEffects(p.UnlockedPrestige, b)
 	var ns model.GameState
+	pending := p.PendingLegacy
+	p.PendingLegacy = model.LegacyChoice{}
 	ns.Prestige = p
 	ns.Competitors = balance.DefaultCompetitors()
 	ns.Research.EfficiencyMult = 1
@@ -74,5 +78,13 @@ func freshRun(p model.Prestige, b balance.Config) model.GameState {
 	// Compute starts empty (nil maps → 0), same as a brand-new run.
 	ns.Resources.Cash = b.StartingCash + pe.StartCash
 	ns.Resources.RnD = b.StartingRnD + pe.StartRnD
+	if pending.Kind == model.LegacyTech {
+		// One-shot: unlock tech now; leave Campaign.Legacy empty (already consumed).
+		if pending.TechID != "" {
+			ns.UnlockedTech = append([]string(nil), pending.TechID)
+		}
+	} else if pending.Kind != model.LegacyNone {
+		ns.Campaign.Legacy = pending
+	}
 	return ns
 }

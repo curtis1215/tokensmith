@@ -34,10 +34,19 @@ func applyChooseDoctrine(s model.GameState, c model.ChooseDoctrine, b balance.Co
 	ns := s
 	ns.Campaign.Doctrine = c.Doctrine
 	ns.Campaign.Stage = model.CampaignStageEstablish
-	if ns.Campaign.Legacy.Kind == model.LegacySecondary {
-		ns.Campaign.Secondary, ns.Campaign.SecondaryPerk = ns.Campaign.Legacy.Doctrine, ns.Campaign.Legacy.PerkID
+	legacy := ns.Campaign.Legacy
+	if legacy.Kind == model.LegacySecondary {
+		ns.Campaign.Secondary, ns.Campaign.SecondaryPerk = legacy.Doctrine, legacy.PerkID
 	}
 	ns = initCampaignRoadmaps(ns, c.Doctrine, b)
+	if legacy.Kind == model.LegacyIntel {
+		ns.Campaign.Primary.IntelFull = true
+		ns.Campaign.Wildcard.IntelFull = true
+	}
+	// Secondary and intel are one-run: consume after doctrine selection.
+	if legacy.Kind == model.LegacySecondary || legacy.Kind == model.LegacyIntel {
+		ns.Campaign.Legacy = model.LegacyChoice{}
+	}
 	return ns, nil
 }
 
@@ -153,5 +162,82 @@ func applyIssueDirective(s model.GameState, c model.IssueDirective, b balance.Co
 		return s, ErrInvalidDirective
 	}
 	ns.Campaign.DirectiveUsed = true
+	return ns, nil
+}
+
+func addDoctrineUnique(in []model.Doctrine, d model.Doctrine) []model.Doctrine {
+	for _, x := range in {
+		if x == d {
+			return in
+		}
+	}
+	return append(append([]model.Doctrine(nil), in...), d)
+}
+
+func validateLegacy(s model.GameState, leg model.LegacyChoice, b balance.Config) error {
+	switch leg.Kind {
+	case model.LegacyNone:
+		return ErrInvalidLegacy
+	case model.LegacySecondary:
+		if leg.Doctrine != s.Campaign.Secondary || leg.PerkID != s.Campaign.SecondaryPerk {
+			return ErrInvalidLegacy
+		}
+		p, ok := balance.CampaignPerkByID(b.Campaign, leg.PerkID)
+		if !ok || p.Doctrine != leg.Doctrine || p.Tier != 1 {
+			return ErrInvalidLegacy
+		}
+		return nil
+	case model.LegacyIntel:
+		// No payload required.
+		return nil
+	case model.LegacyTech:
+		if leg.TechID == "" {
+			return ErrInvalidLegacy
+		}
+		for _, id := range s.UnlockedTech {
+			if id == leg.TechID {
+				return nil
+			}
+		}
+		return ErrInvalidLegacy
+	default:
+		return ErrInvalidLegacy
+	}
+}
+
+func applyCampaignContinue(s model.GameState) (model.GameState, error) {
+	if s.Campaign.Victory == model.DoctrineNone {
+		return s, ErrCampaignNotWon
+	}
+	ns := s
+	ns.Campaign.Endless = true
+	return ns, nil
+}
+
+func applyCampaignExit(s model.GameState, b balance.Config) (model.GameState, error) {
+	if s.Campaign.Cycle < b.Campaign.StrategyExitCycle && s.Campaign.FinancialDistressCycles < 2 {
+		return s, ErrStrategyExitLocked
+	}
+	p := s.Prestige
+	p.Patents += math.Floor(patentsFor(s.PeakValuation, b) * 0.5)
+	p.PendingLegacy = model.LegacyChoice{}
+	ns := freshRun(p, b)
+	ns.Events.RandState, ns.Campaign.RandState = s.Events.RandState, s.Campaign.RandState
+	return ns, nil
+}
+
+func applyCampaignPrestige(s model.GameState, c model.CampaignPrestige, b balance.Config) (model.GameState, error) {
+	if s.Campaign.Victory == model.DoctrineNone {
+		return s, ErrCampaignNotWon
+	}
+	if err := validateLegacy(s, c.Legacy, b); err != nil {
+		return s, err
+	}
+	p := s.Prestige
+	p.Patents += patentsFor(s.PeakValuation, b)
+	p.RouteBadges = addDoctrineUnique(p.RouteBadges, s.Campaign.Victory)
+	p.PendingLegacy = c.Legacy
+	ns := freshRun(p, b)
+	ns.Events.RandState, ns.Campaign.RandState = s.Events.RandState, s.Campaign.RandState
 	return ns, nil
 }

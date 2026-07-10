@@ -332,7 +332,10 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			m.setNotice("📰 產業事件：" + latestEventName(m.state))
 		}
 		// Mechanism B: auto game-over + restart once debt passes the threshold.
-		if m.state.Resources.Cash < -m.cfg.BankruptcyDebtRatio*m.cfg.StartingCash {
+		// Active campaigns use FinancialDistressCycles instead; player recovers
+		// operationally or exits after two distressed cycles (Phase C restructuring later).
+		if m.state.Campaign.Doctrine == model.DoctrineNone &&
+			m.state.Resources.Cash < -m.cfg.BankruptcyDebtRatio*m.cfg.StartingCash {
 			m.state = sim.Restart(m.state, m.cfg)
 			m.setNotice("💥 破產！公司已重整重來")
 			m.snapDisplay()

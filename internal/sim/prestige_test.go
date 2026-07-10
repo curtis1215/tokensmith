@@ -79,3 +79,48 @@ func TestFreshRun(t *testing.T) {
 		t.Errorf("R&D not reseeded: %v, want %v", ns.Resources.RnD, b.StartingRnD)
 	}
 }
+
+func TestFreshRunTransfersAndConsumesPendingLegacy(t *testing.T) {
+	b := balance.Default()
+	// Secondary: transfer to Campaign.Legacy, clear PendingLegacy, no tech unlock.
+	p := model.Prestige{
+		Patents:       3,
+		PendingLegacy: model.LegacyChoice{Kind: model.LegacySecondary, Doctrine: model.DoctrineDeveloper, PerkID: "developer-open"},
+	}
+	ns := freshRun(p, b)
+	if ns.Campaign.Legacy.Kind != model.LegacySecondary || ns.Campaign.Legacy.PerkID != "developer-open" {
+		t.Fatalf("secondary not transferred: %+v", ns.Campaign.Legacy)
+	}
+	if ns.Prestige.PendingLegacy.Kind != model.LegacyNone {
+		t.Fatalf("pending not cleared: %+v", ns.Prestige.PendingLegacy)
+	}
+	// Tech: apply UnlockedTech and clear pending; tech is one-shot so Campaign.Legacy is cleared after apply.
+	p2 := model.Prestige{
+		Patents:       1,
+		PendingLegacy: model.LegacyChoice{Kind: model.LegacyTech, TechID: "algo-cap-1"},
+	}
+	ns2 := freshRun(p2, b)
+	if len(ns2.UnlockedTech) != 1 || ns2.UnlockedTech[0] != "algo-cap-1" {
+		t.Fatalf("tech not applied: %v", ns2.UnlockedTech)
+	}
+	if ns2.Prestige.PendingLegacy.Kind != model.LegacyNone {
+		t.Fatalf("pending not cleared after tech: %+v", ns2.Prestige.PendingLegacy)
+	}
+	// Repeating freshRun on resulting prestige must not re-apply.
+	ns3 := freshRun(ns2.Prestige, b)
+	if len(ns3.UnlockedTech) != 0 {
+		t.Fatalf("tech re-applied on second freshRun: %v", ns3.UnlockedTech)
+	}
+}
+
+func TestFreshRunBadgeUniquenessViaAddDoctrine(t *testing.T) {
+	// addDoctrineUnique is exercised via prestige banking; unit-check uniqueness helper path.
+	got := addDoctrineUnique([]model.Doctrine{model.DoctrineConsumer}, model.DoctrineConsumer)
+	if len(got) != 1 {
+		t.Fatalf("duplicate badge added: %v", got)
+	}
+	got = addDoctrineUnique(got, model.DoctrineDeveloper)
+	if len(got) != 2 || got[1] != model.DoctrineDeveloper {
+		t.Fatalf("unique append failed: %v", got)
+	}
+}

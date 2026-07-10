@@ -193,3 +193,156 @@ func TestMismatchedCounterDoesNotConsume(t *testing.T) {
 		t.Fatalf("mismatched counter must not consume: %+v", ns.Campaign)
 	}
 }
+
+func TestCampaignPrestigeBanksBadgeAndLegacy(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{PeakValuation: 1e10}
+	s.Campaign = model.CampaignState{Doctrine: model.DoctrineConsumer, Secondary: model.DoctrineDeveloper, SecondaryPerk: "developer-open", Stage: model.CampaignStageWon, Victory: model.DoctrineConsumer}
+	ns, err := Apply(s, model.CampaignPrestige{Legacy: model.LegacyChoice{Kind: model.LegacySecondary, Doctrine: model.DoctrineDeveloper, PerkID: "developer-open"}}, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ns.Prestige.Patents != 10 || len(ns.Prestige.RouteBadges) != 1 {
+		t.Fatalf("prestige=%+v", ns.Prestige)
+	}
+	if ns.Campaign.Legacy.Kind != model.LegacySecondary || ns.Prestige.PendingLegacy.Kind != model.LegacyNone {
+		t.Fatalf("state=%+v", ns)
+	}
+}
+
+func TestCampaignExitPaysHalfAndNoBadge(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{PeakValuation: 1e10, Campaign: model.CampaignState{Doctrine: model.DoctrineConsumer, Cycle: 18}}
+	ns, err := Apply(s, model.CampaignExit{}, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ns.Prestige.Patents != 5 || len(ns.Prestige.RouteBadges) != 0 {
+		t.Fatalf("prestige=%+v", ns.Prestige)
+	}
+}
+
+func TestCampaignContinueKeepsRun(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{Campaign: model.CampaignState{Doctrine: model.DoctrineConsumer, Victory: model.DoctrineConsumer}}
+	ns, err := Apply(s, model.CampaignContinue{}, b)
+	if err != nil || !ns.Campaign.Endless {
+		t.Fatalf("err=%v campaign=%+v", err, ns.Campaign)
+	}
+}
+
+func TestCampaignPrestigeRejectsNotWon(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{PeakValuation: 1e10, Campaign: model.CampaignState{Doctrine: model.DoctrineConsumer}}
+	if _, err := Apply(s, model.CampaignPrestige{Legacy: model.LegacyChoice{Kind: model.LegacyIntel}}, b); !errors.Is(err, ErrCampaignNotWon) {
+		t.Fatalf("err=%v want ErrCampaignNotWon", err)
+	}
+}
+
+func TestCampaignPrestigeRejectsInvalidLegacy(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{PeakValuation: 1e10}
+	s.Campaign = model.CampaignState{
+		Doctrine: model.DoctrineConsumer, Secondary: model.DoctrineDeveloper, SecondaryPerk: "developer-open",
+		Victory: model.DoctrineConsumer,
+	}
+	// Secondary mismatch.
+	if _, err := Apply(s, model.CampaignPrestige{Legacy: model.LegacyChoice{Kind: model.LegacySecondary, Doctrine: model.DoctrineEnterprise, PerkID: "enterprise-compliance"}}, b); !errors.Is(err, ErrInvalidLegacy) {
+		t.Fatalf("secondary mismatch err=%v", err)
+	}
+	// LegacyNone rejected.
+	if _, err := Apply(s, model.CampaignPrestige{Legacy: model.LegacyChoice{}}, b); !errors.Is(err, ErrInvalidLegacy) {
+		t.Fatalf("none err=%v", err)
+	}
+	// Tech not in UnlockedTech.
+	if _, err := Apply(s, model.CampaignPrestige{Legacy: model.LegacyChoice{Kind: model.LegacyTech, TechID: "algo-cap-1"}}, b); !errors.Is(err, ErrInvalidLegacy) {
+		t.Fatalf("tech err=%v", err)
+	}
+}
+
+func TestCampaignExitLockedUntilCycleOrDistress(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{PeakValuation: 1e10, Campaign: model.CampaignState{Doctrine: model.DoctrineConsumer, Cycle: 10}}
+	if _, err := Apply(s, model.CampaignExit{}, b); !errors.Is(err, ErrStrategyExitLocked) {
+		t.Fatalf("err=%v want ErrStrategyExitLocked", err)
+	}
+	s.Campaign.FinancialDistressCycles = 2
+	ns, err := Apply(s, model.CampaignExit{}, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ns.Prestige.Patents != 5 {
+		t.Fatalf("distress exit patents=%v", ns.Prestige.Patents)
+	}
+}
+
+func TestActiveCampaignBlocksPrestigeReset(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{PeakValuation: 1e10, Campaign: model.CampaignState{Doctrine: model.DoctrineConsumer}}
+	if _, err := Apply(s, model.PrestigeReset{}, b); !errors.Is(err, ErrCampaignNotWon) {
+		t.Fatalf("err=%v want ErrCampaignNotWon", err)
+	}
+}
+
+func TestCampaignSettlementPreservesRNG(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{PeakValuation: 1e10}
+	s.Events.RandState = 42
+	s.Campaign = model.CampaignState{
+		Doctrine: model.DoctrineConsumer, Secondary: model.DoctrineDeveloper, SecondaryPerk: "developer-open",
+		Victory: model.DoctrineConsumer, RandState: 99,
+	}
+	ns, err := Apply(s, model.CampaignPrestige{Legacy: model.LegacyChoice{Kind: model.LegacyIntel}}, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ns.Events.RandState != 42 || ns.Campaign.RandState != 99 {
+		t.Fatalf("rng not preserved: events=%d campaign=%d", ns.Events.RandState, ns.Campaign.RandState)
+	}
+}
+
+func TestDoctrineSelectionConsumesSecondaryLegacy(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{Models: []model.Model{{Online: true}}}
+	s.Campaign.Legacy = model.LegacyChoice{Kind: model.LegacySecondary, Doctrine: model.DoctrineDeveloper, PerkID: "developer-open"}
+	ns, err := Apply(s, model.ChooseDoctrine{Doctrine: model.DoctrineConsumer}, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ns.Campaign.Secondary != model.DoctrineDeveloper || ns.Campaign.SecondaryPerk != "developer-open" {
+		t.Fatalf("secondary not applied: %+v", ns.Campaign)
+	}
+	if ns.Campaign.Legacy.Kind != model.LegacyNone {
+		t.Fatalf("legacy not consumed: %+v", ns.Campaign.Legacy)
+	}
+}
+
+func TestDoctrineSelectionConsumesIntelLegacy(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{Models: []model.Model{{Online: true}}}
+	s.Campaign.Legacy = model.LegacyChoice{Kind: model.LegacyIntel}
+	ns, err := Apply(s, model.ChooseDoctrine{Doctrine: model.DoctrineConsumer}, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ns.Campaign.Primary.IntelFull || !ns.Campaign.Wildcard.IntelFull {
+		t.Fatalf("intel not applied: primary=%+v wildcard=%+v", ns.Campaign.Primary, ns.Campaign.Wildcard)
+	}
+	if ns.Campaign.Legacy.Kind != model.LegacyNone {
+		t.Fatalf("legacy not consumed: %+v", ns.Campaign.Legacy)
+	}
+}
+
+func TestFailedSettlementPreservesState(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{PeakValuation: 1e10, Resources: model.Resources{Cash: 12345}}
+	s.Campaign = model.CampaignState{Doctrine: model.DoctrineConsumer, Cycle: 3}
+	s.Prestige.Patents = 7
+	ns, err := Apply(s, model.CampaignExit{}, b)
+	if !errors.Is(err, ErrStrategyExitLocked) {
+		t.Fatalf("err=%v", err)
+	}
+	if ns.Prestige.Patents != 7 || ns.Resources.Cash != 12345 || len(ns.Prestige.RouteBadges) != 0 {
+		t.Fatalf("failure mutated state: %+v", ns)
+	}
+}
