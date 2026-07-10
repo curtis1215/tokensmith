@@ -49,6 +49,11 @@ var (
 	ErrSecondaryNotReady     = errors.New("sim: secondary doctrine not ready")
 	ErrPivotAlreadyUsed      = errors.New("sim: doctrine pivot already used")
 	ErrPivotLocked           = errors.New("sim: doctrine pivot locked during showdown")
+
+	ErrDirectiveUsed         = errors.New("sim: executive directive already used this cycle")
+	ErrInvalidDirective      = errors.New("sim: invalid executive directive")
+	ErrInvalidRivalTarget    = errors.New("sim: invalid rival target")
+	ErrRivalAlreadyCountered = errors.New("sim: rival action already countered")
 )
 
 // Apply validates and applies a single player command, returning the new
@@ -89,6 +94,8 @@ func Apply(s model.GameState, cmd model.Command, b balance.Config) (model.GameSt
 		return applyChooseSecondaryDoctrine(s, c, b)
 	case model.PivotDoctrine:
 		return applyPivotDoctrine(s, c, b)
+	case model.IssueDirective:
+		return applyIssueDirective(s, c, b)
 	default:
 		return s, ErrUnknownCommand
 	}

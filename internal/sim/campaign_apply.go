@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"fmt"
 	"math"
 
 	"tokensmith/internal/balance"
@@ -102,5 +103,55 @@ func applyPivotDoctrine(s model.GameState, c model.PivotDoctrine, b balance.Conf
 	ns.Campaign.ShowdownHeld, ns.Campaign.ShowdownStartedCycle = 0, 0
 	ns.Campaign.Primary, ns.Campaign.Wildcard = model.RivalRoadmap{}, model.RivalRoadmap{}
 	ns = initCampaignRoadmaps(ns, c.Doctrine, b)
+	return ns, nil
+}
+
+func applyIssueDirective(s model.GameState, c model.IssueDirective, b balance.Config) (model.GameState, error) {
+	if s.Campaign.Doctrine == model.DoctrineNone {
+		return s, ErrInvalidDirective
+	}
+	if s.Campaign.DirectiveUsed {
+		return s, ErrDirectiveUsed
+	}
+	ns := s
+	switch c.Kind {
+	case model.DirectiveRoutePush:
+		cost := math.Max(5000, MonthlyRevenue(s)*0.25)
+		if s.Resources.Cash < cost {
+			return s, ErrInsufficientCash
+		}
+		e := model.NeutralCampaignEffects()
+		e.UserGrowthMult[doctrineSegment(s.Campaign.Doctrine)] = 1.20
+		ns.Resources.Cash -= cost
+		ns.Campaign.Active = append(append([]model.CampaignModifier(nil), s.Campaign.Active...), model.CampaignModifier{
+			ID:              fmt.Sprintf("directive-route-push-%d", s.Campaign.Cycle),
+			CyclesRemaining: 1,
+			Effects:         e,
+		})
+	case model.DirectiveCounter:
+		r, ok := campaignRoadmapByCompany(s, c.Target)
+		if !ok {
+			return s, ErrInvalidRivalTarget
+		}
+		if s.Campaign.CounterTarget != "" {
+			return s, ErrRivalAlreadyCountered
+		}
+		actionID, ok := roadmapActionID(r, b)
+		if !ok {
+			return s, ErrInvalidRivalTarget
+		}
+		ns.Campaign.CounterTarget, ns.Campaign.CounterActionID = c.Target, actionID
+	case model.DirectiveIntel:
+		if c.Target == s.Campaign.Primary.Company {
+			ns.Campaign.Primary.IntelFull = true
+		} else if c.Target == s.Campaign.Wildcard.Company {
+			ns.Campaign.Wildcard.IntelFull = true
+		} else {
+			return s, ErrInvalidRivalTarget
+		}
+	default:
+		return s, ErrInvalidDirective
+	}
+	ns.Campaign.DirectiveUsed = true
 	return ns, nil
 }

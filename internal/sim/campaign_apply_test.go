@@ -68,3 +68,128 @@ func TestPivotChargesAndResetsBuild(t *testing.T) {
 		t.Fatalf("resources=%+v", ns.Resources)
 	}
 }
+
+func TestRoutePushCostsCashAndAddsModifier(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{Resources: model.Resources{Cash: 50000}}
+	s.Campaign = model.CampaignState{Doctrine: model.DoctrineConsumer, Stage: model.CampaignStageExpand}
+	ns, err := Apply(s, model.IssueDirective{Kind: model.DirectiveRoutePush}, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ns.Resources.Cash != 45000 || len(ns.Campaign.Active) != 1 || !ns.Campaign.DirectiveUsed {
+		t.Fatalf("state=%+v campaign=%+v", ns.Resources, ns.Campaign)
+	}
+}
+
+func TestCounterDirectivePinsTelegraphedAction(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{Campaign: model.CampaignState{Doctrine: model.DoctrineConsumer, Primary: model.RivalRoadmap{Company: "OpenAI", ActionIndex: 0}}}
+	ns, err := Apply(s, model.IssueDirective{Kind: model.DirectiveCounter, Target: "OpenAI"}, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ns.Campaign.CounterTarget != "OpenAI" || ns.Campaign.CounterActionID != "openai-flagship" {
+		t.Fatalf("campaign=%+v", ns.Campaign)
+	}
+}
+
+func TestSecondDirectiveSameCycleRejected(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{Campaign: model.CampaignState{Doctrine: model.DoctrineConsumer, DirectiveUsed: true}}
+	_, err := Apply(s, model.IssueDirective{Kind: model.DirectiveIntel, Target: "OpenAI"}, b)
+	if !errors.Is(err, ErrDirectiveUsed) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestCampaignCycleResetsDirective(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{Campaign: model.CampaignState{
+		Doctrine: model.DoctrineConsumer, Stage: model.CampaignStageExpand, DirectiveUsed: true,
+	}}
+	ns := AdvanceCampaignCycle(s, b)
+	if ns.Campaign.DirectiveUsed {
+		t.Fatalf("DirectiveUsed should reset after cycle: %+v", ns.Campaign)
+	}
+}
+
+func TestFailedDirectivePreservesState(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{Resources: model.Resources{Cash: 1000}}
+	s.Campaign = model.CampaignState{Doctrine: model.DoctrineConsumer, Stage: model.CampaignStageExpand}
+	ns, err := Apply(s, model.IssueDirective{Kind: model.DirectiveRoutePush}, b)
+	if !errors.Is(err, ErrInsufficientCash) {
+		t.Fatalf("err=%v", err)
+	}
+	if ns.Resources.Cash != 1000 || ns.Campaign.DirectiveUsed || len(ns.Campaign.Active) != 0 {
+		t.Fatalf("failed directive must not mutate: cash=%v campaign=%+v", ns.Resources.Cash, ns.Campaign)
+	}
+}
+
+func TestIntelDirectiveSetsIntelFull(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{Campaign: model.CampaignState{
+		Doctrine: model.DoctrineConsumer,
+		Primary:  model.RivalRoadmap{Company: "OpenAI", ActionIndex: 0},
+		Wildcard: model.RivalRoadmap{Company: "DeepSeek", ActionIndex: 0},
+	}}
+	ns, err := Apply(s, model.IssueDirective{Kind: model.DirectiveIntel, Target: "OpenAI"}, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ns.Campaign.Primary.IntelFull || ns.Campaign.Wildcard.IntelFull || !ns.Campaign.DirectiveUsed {
+		t.Fatalf("campaign=%+v", ns.Campaign)
+	}
+}
+
+func TestMatchingCounterHalvesImpactAndConsumes(t *testing.T) {
+	b := balance.Default()
+	// OpenAI quality baseline from DefaultCompetitors; action openai-flagship is +15% capability.
+	s := model.GameState{Competitors: balance.DefaultCompetitors()}
+	s.Campaign = model.CampaignState{
+		Doctrine: model.DoctrineConsumer, Stage: model.CampaignStageExpand,
+		Primary:         model.RivalRoadmap{Company: "OpenAI", ActionIndex: 0, CyclesUntilAction: 1},
+		CounterTarget:   "OpenAI",
+		CounterActionID: "openai-flagship",
+	}
+	// Find OpenAI competitor quality before.
+	var before float64
+	for _, c := range s.Competitors {
+		if c.Name == "OpenAI" {
+			before = c.Quality[model.DimCapability]
+			break
+		}
+	}
+	// Uncountered impact would be before * (1 + 0.15); matched is before * (1 + 0.15*0.5).
+	want := before * (1 + 0.15*0.5)
+	ns := AdvanceCampaignCycle(s, b)
+	var after float64
+	for _, c := range ns.Competitors {
+		if c.Name == "OpenAI" {
+			after = c.Quality[model.DimCapability]
+			break
+		}
+	}
+	if after != want {
+		t.Fatalf("quality after counter: got %v want %v (before=%v)", after, want, before)
+	}
+	if ns.Campaign.CounterTarget != "" || ns.Campaign.CounterActionID != "" {
+		t.Fatalf("counter should be consumed: target=%q action=%q", ns.Campaign.CounterTarget, ns.Campaign.CounterActionID)
+	}
+}
+
+func TestMismatchedCounterDoesNotConsume(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{Competitors: balance.DefaultCompetitors()}
+	s.Campaign = model.CampaignState{
+		Doctrine: model.DoctrineConsumer, Stage: model.CampaignStageExpand,
+		Primary:         model.RivalRoadmap{Company: "OpenAI", ActionIndex: 0, CyclesUntilAction: 1},
+		CounterTarget:   "OpenAI",
+		CounterActionID: "openai-platform", // wrong telegraphed action
+	}
+	ns := AdvanceCampaignCycle(s, b)
+	if ns.Campaign.CounterTarget != "OpenAI" || ns.Campaign.CounterActionID != "openai-platform" {
+		t.Fatalf("mismatched counter must not consume: %+v", ns.Campaign)
+	}
+}
