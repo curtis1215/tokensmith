@@ -15,6 +15,11 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	s.Models = []model.Model{{Gen: 2, Online: true, Users: 1000, Price: 12}}
 	s.Prestige.Patents = 3
 	s.HiredStars = []string{"aria-chen"}
+	s.Campaign = model.CampaignState{
+		RandState: 7, Cycle: 4, Doctrine: model.DoctrineConsumer,
+		Stage: model.CampaignStageExpand, Perks: []string{"consumer-premium"},
+	}
+	s.Prestige.RouteBadges = []model.Doctrine{model.DoctrineConsumer}
 	if err := Save(path, s); err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -30,6 +35,12 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 	if got.Prestige.Patents != 3 || len(got.HiredStars) != 1 {
 		t.Errorf("prestige/stars not restored: %+v %+v", got.Prestige, got.HiredStars)
+	}
+	if got.Campaign.Cycle != 4 || got.Campaign.Doctrine != model.DoctrineConsumer {
+		t.Fatalf("campaign not restored: %+v", got.Campaign)
+	}
+	if len(got.Prestige.RouteBadges) != 1 {
+		t.Fatalf("badges=%+v", got.Prestige.RouteBadges)
 	}
 }
 

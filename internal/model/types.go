@@ -69,6 +69,7 @@ type GameState struct {
 	Training          TrainingJob
 	HiredStars        []string
 	Events            EventsState
+	Campaign          CampaignState
 }
 
 // QualityDim indexes Model.Quality.
@@ -291,6 +292,8 @@ func (UnlockTech) commandMarker() {}
 type Prestige struct {
 	Patents          float64
 	UnlockedPrestige []string
+	RouteBadges      []Doctrine   `json:"routeBadges,omitempty"`
+	PendingLegacy    LegacyChoice `json:"pendingLegacy,omitempty"`
 }
 
 // PrestigeEffects are permanent bonuses; neutral = mults 1, adds 0.
