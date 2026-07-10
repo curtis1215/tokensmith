@@ -27,11 +27,47 @@ func TestNoModelPressureShown(t *testing.T) {
 }
 
 func TestFinancialDistressPressureShown(t *testing.T) {
+	// Distress=1: warn about pressure / approaching exit, but never advertise [E].
+	m1 := testModel(t)
+	m1.state.Campaign.FinancialDistressCycles = 1
+	joined1 := strings.Join(pressures(m1), "\n")
+	if !strings.Contains(joined1, "財務") {
+		t.Fatalf("distress=1 should warn about finance:\n%s", joined1)
+	}
+	if strings.Contains(joined1, "[E]") {
+		t.Fatalf("distress=1 must not advertise [E]:\n%s", joined1)
+	}
+
+	// Distress>=2: may explicitly advertise [E]策略退出 (matches pageKeys gate).
+	m2 := testModel(t)
+	m2.state.Campaign.FinancialDistressCycles = 2
+	joined2 := strings.Join(pressures(m2), "\n")
+	if !strings.Contains(joined2, "財務") {
+		t.Fatalf("distress=2 should warn about finance:\n%s", joined2)
+	}
+	if !strings.Contains(joined2, "[E]策略退出") {
+		t.Fatalf("distress=2 may advertise [E]策略退出:\n%s", joined2)
+	}
+}
+
+func TestPendingPerkAndNoDoctrinePressures(t *testing.T) {
+	// Online model + no doctrine → choose-strategy pressure.
 	m := testModel(t)
-	m.state.Campaign.FinancialDistressCycles = 2
+	m.state.Models = []model.Model{{Online: true, Users: 10, Price: 12}}
+	m.state.Campaign = model.CampaignState{}
 	joined := strings.Join(pressures(m), "\n")
-	if !strings.Contains(joined, "財務") {
-		t.Fatalf("expected financial distress pressure:\n%s", joined)
+	if !strings.Contains(joined, "尚未選擇公司戰略") {
+		t.Fatalf("expected no-doctrine pressure:\n%s", joined)
+	}
+
+	// Pending perk tier → choose-perk pressure.
+	m2 := testModel(t)
+	m2.state.Campaign = model.CampaignState{
+		Doctrine: model.DoctrineConsumer, PerkTierPending: 1,
+	}
+	joined2 := strings.Join(pressures(m2), "\n")
+	if !strings.Contains(joined2, "可選第 1 階路線能力") {
+		t.Fatalf("expected pending-perk pressure:\n%s", joined2)
 	}
 }
 

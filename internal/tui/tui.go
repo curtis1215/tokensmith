@@ -987,9 +987,12 @@ func pressures(m Model) []string {
 		out = append(out, fmt.Sprintf("待發佈模型 %d 個 — 模型頁按 p", draftN))
 	}
 	// Campaign pressures (append only; keep existing warnings above).
-	if s.Campaign.FinancialDistressCycles > 0 {
-		out = append(out, fmt.Sprintf("⚠ 財務困境已連續 %d 個董事會週期——考慮 [E]策略退出或止血",
-			s.Campaign.FinancialDistressCycles))
+	// Distress=1 may warn about approaching exit eligibility but must not
+	// advertise [E] (pageKeys only unlocks E at distress>=2 or cycle>=18).
+	if n := s.Campaign.FinancialDistressCycles; n >= 2 {
+		out = append(out, fmt.Sprintf("⚠ 財務困境已連續 %d 個董事會週期——可按 [E]策略退出或止血", n))
+	} else if n == 1 {
+		out = append(out, "⚠ 財務困境 1 個董事會週期——接近策略退出條件，請先止血")
 	}
 	if s.Campaign.Doctrine == model.DoctrineNone && hasOnline {
 		out = append(out, "⚠ 尚未選擇公司戰略——總覽頁按 c")
