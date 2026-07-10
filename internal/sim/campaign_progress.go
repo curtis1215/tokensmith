@@ -53,9 +53,10 @@ func advanceCampaignProgress(s model.GameState, b balance.Config) (model.GameSta
 		return ns, nil
 	}
 	if !campaignGateMet(ns, b, status) {
-		if ns.Campaign.ShowdownHeld > 0 {
+		if ns.Campaign.ShowdownStartedCycle > 0 || ns.Campaign.ShowdownHeld > 0 {
 			ns.Campaign.ShowdownAttempts++
 		}
+		ns.Campaign.ShowdownStartedCycle = 0
 		ns.Campaign.ShowdownHeld = 0
 		return ns, nil
 	}

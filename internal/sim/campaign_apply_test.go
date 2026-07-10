@@ -2,6 +2,7 @@ package sim
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 
 	"tokensmith/internal/balance"
@@ -49,6 +50,27 @@ func TestChooseSecondaryIncludesOneTierOnePerk(t *testing.T) {
 	}
 	if ns.Campaign.Secondary != model.DoctrineDeveloper || ns.Campaign.SecondaryPerk != "developer-open" {
 		t.Fatalf("campaign=%+v", ns.Campaign)
+	}
+}
+
+func TestChooseSecondaryRejectsReplacement(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{Campaign: model.CampaignState{
+		Doctrine:      model.DoctrineConsumer,
+		Stage:         model.CampaignStageShowdown,
+		Secondary:     model.DoctrineDeveloper,
+		SecondaryPerk: "developer-open",
+	}}
+
+	ns, err := Apply(s, model.ChooseSecondaryDoctrine{
+		Doctrine: model.DoctrineEnterprise,
+		PerkID:   "enterprise-compliance",
+	}, b)
+	if !errors.Is(err, ErrSecondaryNotReady) {
+		t.Fatalf("err=%v, want ErrSecondaryNotReady", err)
+	}
+	if !reflect.DeepEqual(ns, s) {
+		t.Fatalf("rejected replacement mutated state:\n got=%+v\nwant=%+v", ns, s)
 	}
 }
 

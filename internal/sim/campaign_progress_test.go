@@ -137,7 +137,10 @@ func TestCampaignVictoryRequiresTwoHeldCycles(t *testing.T) {
 	s.Campaign.Stage = model.CampaignStageShowdown
 	s.Campaign.Perks = []string{"consumer-premium", "consumer-resilience"}
 	s.Campaign.Cycle = 10
-	s.Campaign.Primary.Company = "OpenAI"
+	s.Campaign.Primary = model.RivalRoadmap{Company: "OpenAI", ActionIndex: 0, CyclesUntilAction: 2}
+	// OpenAI starts just behind the player; the telegraphed flagship action
+	// moves it ahead and breaks the rank-1 showdown gate.
+	s.Competitors = []model.Competitor{{Name: "OpenAI", Quality: [4]float64{80, 80, 80, 80}}}
 
 	// First complete win state starts the showdown window.
 	ns, entries := advanceCampaignProgress(s, b)
@@ -198,6 +201,63 @@ func TestCampaignShowdownBrokenConditionsResetHeld(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("entries=%+v", entries)
+	}
+}
+
+func TestCampaignShowdownFailureBeforeFirstHoldRequiresNewAttack(t *testing.T) {
+	b := balance.Default()
+	s := campaignRouteState(model.DoctrineConsumer, model.SegConsumer)
+	s.Campaign.Stage = model.CampaignStageShowdown
+	s.Campaign.Perks = []string{"consumer-premium", "consumer-resilience"}
+	s.Campaign.Cycle = 10
+	s.Campaign.Primary = model.RivalRoadmap{Company: "OpenAI", ActionIndex: 0, CyclesUntilAction: 2}
+	// OpenAI starts tied with the player; the telegraphed flagship action
+	// raises capability and moves it ahead of the rank-1 showdown gate.
+	s.Competitors = []model.Competitor{{Name: "OpenAI", Quality: [4]float64{80, 80, 80, 80}}}
+
+	started, entries := advanceCampaignProgress(s, b)
+	if started.Campaign.ShowdownStartedCycle != 10 || started.Campaign.Primary.CyclesUntilAction != 1 {
+		t.Fatalf("showdown did not start: campaign=%+v", started.Campaign)
+	}
+	if len(entries) != 1 || entries[0].Kind != model.ReportShowdown {
+		t.Fatalf("start entries=%+v", entries)
+	}
+
+	// The real board cycle executes the telegraphed attack before any hold has
+	// accrued. This must consume the attempt, not the challenge.
+	failed := AdvanceCampaignCycle(started, b)
+	if failed.Campaign.ShowdownStartedCycle != 0 || failed.Campaign.ShowdownHeld != 0 {
+		t.Fatalf("failed attempt not reset: campaign=%+v competitors=%+v status=%+v",
+			failed.Campaign, failed.Competitors, CampaignStatus(failed, b))
+	}
+	if failed.Campaign.ShowdownAttempts != 1 {
+		t.Fatalf("attempts=%d, want 1", failed.Campaign.ShowdownAttempts)
+	}
+	if failed.Campaign.Primary.LastExecutedCycle != 11 || failed.Campaign.Primary.ActionIndex != 1 {
+		t.Fatalf("primary attack did not execute/advance: roadmap=%+v", failed.Campaign.Primary)
+	}
+
+	// Restoring the gate must start and telegraph a fresh primary attack.
+	failed.Models[0].Quality = [4]float64{100, 100, 100, 100}
+	retried := AdvanceCampaignCycle(failed, b)
+	if retried.Campaign.ShowdownStartedCycle != 12 || retried.Campaign.Primary.CyclesUntilAction != 1 {
+		t.Fatalf("fresh showdown not scheduled: campaign=%+v", retried.Campaign)
+	}
+	if retried.Campaign.ShowdownHeld != 0 || retried.Campaign.Victory != model.DoctrineNone {
+		t.Fatalf("retry bypassed fresh attack: campaign=%+v", retried.Campaign)
+	}
+	if len(retried.Campaign.Reports) == 0 {
+		t.Fatal("retry did not emit board report")
+	}
+	latest := retried.Campaign.Reports[len(retried.Campaign.Reports)-1]
+	if len(latest.Entries) != 1 || latest.Entries[0].Kind != model.ReportShowdown {
+		t.Fatalf("retry report=%+v", latest)
+	}
+
+	// The previous attack cannot count toward the new attempt.
+	waiting, entries := advanceCampaignProgress(retried, b)
+	if waiting.Campaign.ShowdownHeld != 0 || len(entries) != 0 {
+		t.Fatalf("old attack counted for retry: campaign=%+v entries=%+v", waiting.Campaign, entries)
 	}
 }
 

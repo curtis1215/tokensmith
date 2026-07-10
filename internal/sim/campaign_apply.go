@@ -73,7 +73,8 @@ func applyChooseSecondaryDoctrine(s model.GameState, c model.ChooseSecondaryDoct
 	if !validDoctrine(c.Doctrine) || c.Doctrine == s.Campaign.Doctrine {
 		return s, ErrInvalidDoctrine
 	}
-	if s.Campaign.Stage != model.CampaignStageShowdown {
+	if s.Campaign.Stage != model.CampaignStageShowdown ||
+		s.Campaign.Secondary != model.DoctrineNone || s.Campaign.SecondaryPerk != "" {
 		return s, ErrSecondaryNotReady
 	}
 	p, ok := balance.CampaignPerkByID(b.Campaign, c.PerkID)
