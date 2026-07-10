@@ -50,6 +50,39 @@ func TestRestartUngatedBanksPatentsAndResets(t *testing.T) {
 	}
 }
 
+func TestActiveCampaignRestartDoesNotFullBank(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Models = []model.Model{{Online: true, Users: 100}}
+	s.PeakValuation = 1e10 // would bank 10 patents if full bank applied
+	s.Prestige.Patents = 3
+	s.Prestige.RouteBadges = []model.Doctrine{model.DoctrineEnterprise}
+	s.Events.RandState = 42
+	s.Campaign = model.CampaignState{
+		Doctrine:  model.DoctrineConsumer,
+		Cycle:     5,
+		RandState: 99,
+		Victory:   model.DoctrineNone,
+	}
+	ns := Restart(s, b)
+	if ns.Prestige.Patents != 3 {
+		t.Fatalf("active-campaign Restart must not bank patents: got %v want 3", ns.Prestige.Patents)
+	}
+	if len(ns.Prestige.RouteBadges) != 1 || ns.Prestige.RouteBadges[0] != model.DoctrineEnterprise {
+		t.Fatalf("Restart must not grant/alter badges: %+v", ns.Prestige.RouteBadges)
+	}
+	if ns.Prestige.PendingLegacy.Kind != model.LegacyNone || ns.Campaign.Legacy.Kind != model.LegacyNone {
+		t.Fatalf("Restart must not grant Legacy: pending=%+v campaign=%+v", ns.Prestige.PendingLegacy, ns.Campaign.Legacy)
+	}
+	if len(ns.Models) != 0 {
+		t.Fatalf("Restart should still abandon run (clear models), got %d", len(ns.Models))
+	}
+	if ns.Events.RandState != 42 || ns.Campaign.RandState != 99 {
+		t.Fatalf("RNG not preserved: events=%d campaign=%d", ns.Events.RandState, ns.Campaign.RandState)
+	}
+	// Pre-campaign behavior remains covered by TestRestartUngatedBanksPatentsAndResets.
+}
+
 func TestFreshRun(t *testing.T) {
 	b := balance.Default()
 	p := model.Prestige{Patents: 5, UnlockedPrestige: []string{"start-cash-1"}} // +100k cash

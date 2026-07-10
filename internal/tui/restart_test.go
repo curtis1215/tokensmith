@@ -64,3 +64,29 @@ func TestBankruptcyAutoRestarts(t *testing.T) {
 		t.Fatal("bankruptcy should surface a notice banner")
 	}
 }
+
+func TestBankruptcySkipsActiveCampaign(t *testing.T) {
+	m := testModel(t)
+	m.state.Campaign.Doctrine = model.DoctrineConsumer
+	m.state.Campaign.Cycle = 4
+	m.state.Models = []model.Model{{Online: true, Users: 1}}
+	debt := -(m.cfg.BankruptcyDebtRatio * m.cfg.StartingCash) - 1
+	m.state.Resources.Cash = debt
+	patentsBefore := m.state.Prestige.Patents
+	nm, _ := m.Update(tickMsg(time.Unix(0, 0)))
+	g := nm.(Model)
+	// Tick may nudge cash slightly, but bankruptcy must not call Restart
+	// (which would restore StartingCash and clear models/campaign).
+	if g.state.Resources.Cash >= 0 || g.state.Resources.Cash == m.cfg.StartingCash {
+		t.Fatalf("active campaign must not auto-restart, cash=%v", g.state.Resources.Cash)
+	}
+	if len(g.state.Models) == 0 {
+		t.Fatal("models cleared — bankruptcy restart fired")
+	}
+	if g.state.Campaign.Doctrine != model.DoctrineConsumer || g.state.Campaign.Cycle != 4 {
+		t.Fatalf("campaign state reset on bankruptcy: %+v", g.state.Campaign)
+	}
+	if g.state.Prestige.Patents != patentsBefore {
+		t.Fatalf("patents changed on skipped bankruptcy: %v", g.state.Prestige.Patents)
+	}
+}
