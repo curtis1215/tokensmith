@@ -7,6 +7,33 @@ import (
 	"tokensmith/internal/model"
 )
 
+func TestOverviewShowsCampaignWarRoom(t *testing.T) {
+	m := testModel(t)
+	m.state.Campaign = model.CampaignState{
+		Doctrine: model.DoctrineConsumer, Stage: model.CampaignStageExpand, Cycle: 4,
+		Primary:  model.RivalRoadmap{Company: "OpenAI", ActionIndex: 0, CyclesUntilAction: 1},
+		Wildcard: model.RivalRoadmap{Company: "DeepSeek", ActionIndex: 0, CyclesUntilAction: 2},
+		Reports: []model.BoardReport{{Cycle: 4, Entries: []model.CampaignReportEntry{
+			{Kind: model.ReportRivalAction, SubjectID: "OpenAI", DetailID: "openai-flagship"},
+		}}},
+	}
+	v := renderOverview(m)
+	for _, want := range []string{"主要戰略", "消費者霸主", "OpenAI", "下一步", "董事會報告"} {
+		if !strings.Contains(v, want) {
+			t.Fatalf("missing %q:\n%s", want, v)
+		}
+	}
+}
+
+func TestOverviewPreCampaignGuidance(t *testing.T) {
+	m := testModel(t)
+	m.state.Campaign = model.CampaignState{}
+	v := renderOverview(m)
+	if !strings.Contains(v, "第一個模型上線後可選公司戰略") {
+		t.Fatalf("pre-campaign guidance missing:\n%s", v)
+	}
+}
+
 func TestOverviewShowsKPIsAndTraining(t *testing.T) {
 	m := testModel(t)
 	m.state.HasTraining = true

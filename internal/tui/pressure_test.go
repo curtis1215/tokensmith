@@ -26,6 +26,51 @@ func TestNoModelPressureShown(t *testing.T) {
 	}
 }
 
+func TestFinancialDistressPressureShown(t *testing.T) {
+	m := testModel(t)
+	m.state.Campaign.FinancialDistressCycles = 2
+	joined := strings.Join(pressures(m), "\n")
+	if !strings.Contains(joined, "財務") {
+		t.Fatalf("expected financial distress pressure:\n%s", joined)
+	}
+}
+
+func TestOverviewHelpShowsCampaignKeys(t *testing.T) {
+	m := testModel(t)
+	m.page = PageOverview
+	hint := pageKeys(m)
+	for _, want := range []string{"[c]公司策略", "[d]高層指令", "[t]訓練", "[X]重來"} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("overview help missing %q: %q", want, hint)
+		}
+	}
+	if strings.Contains(hint, "[P]勝利結算") {
+		t.Fatalf("victory settle key must not show pre-victory: %q", hint)
+	}
+	if strings.Contains(hint, "[E]策略退出") {
+		t.Fatalf("exit key must not show before unlock: %q", hint)
+	}
+
+	m.state.Campaign.Victory = model.DoctrineConsumer
+	if !strings.Contains(pageKeys(m), "[P]勝利結算") {
+		t.Fatalf("expected [P]勝利結算 after victory: %q", pageKeys(m))
+	}
+
+	m2 := testModel(t)
+	m2.page = PageOverview
+	m2.state.Campaign.Cycle = 18
+	if !strings.Contains(pageKeys(m2), "[E]策略退出") {
+		t.Fatalf("expected [E]策略退出 at cycle 18: %q", pageKeys(m2))
+	}
+
+	m3 := testModel(t)
+	m3.page = PageOverview
+	m3.state.Campaign.FinancialDistressCycles = 2
+	if !strings.Contains(pageKeys(m3), "[E]策略退出") {
+		t.Fatalf("expected [E]策略退出 after two distress cycles: %q", pageKeys(m3))
+	}
+}
+
 func TestResourceBarShowsPerRealSecondRnDRate(t *testing.T) {
 	m := testModel(t) // fresh game seeds 2 T1 researchers
 	bar := renderResourceBar(m)

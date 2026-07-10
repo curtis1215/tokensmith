@@ -816,11 +816,18 @@ func pageKeys(m Model) string {
 		return "[h]雇研究員 [e]雇工程 [o]雇營運 [k]雇行銷 [s]簽明星"
 	case PageTech:
 		return "[↑↓]選節點 [Enter]解鎖"
-	default: // overview
+	default: // overview — campaign keys are hints only (dialogs land in Task 10)
 		hint := "[t]訓練 [X]重來"
-		if m.state.PeakValuation >= m.cfg.PrestigeUnlockValuation {
+		if m.state.Campaign.Victory != model.DoctrineNone {
+			hint = "[t]訓練 [P]勝利結算 [X]重來"
+		} else if m.state.PeakValuation >= m.cfg.PrestigeUnlockValuation {
 			hint = "[t]訓練 [P]傳承重開 [X]重來"
 		}
+		if m.state.Campaign.Cycle >= m.cfg.Campaign.StrategyExitCycle ||
+			m.state.Campaign.FinancialDistressCycles >= 2 {
+			hint += " [E]策略退出"
+		}
+		hint += " [c]公司策略 [d]高層指令"
 		if len(m.state.Events.Pending) > 0 {
 			hint = "[e]事件決策 " + hint
 		}
@@ -978,6 +985,17 @@ func pressures(m Model) []string {
 	}
 	if draftN > 0 {
 		out = append(out, fmt.Sprintf("待發佈模型 %d 個 — 模型頁按 p", draftN))
+	}
+	// Campaign pressures (append only; keep existing warnings above).
+	if s.Campaign.FinancialDistressCycles > 0 {
+		out = append(out, fmt.Sprintf("⚠ 財務困境已連續 %d 個董事會週期——考慮 [E]策略退出或止血",
+			s.Campaign.FinancialDistressCycles))
+	}
+	if s.Campaign.Doctrine == model.DoctrineNone && hasOnline {
+		out = append(out, "⚠ 尚未選擇公司戰略——總覽頁按 c")
+	}
+	if s.Campaign.PerkTierPending > 0 {
+		out = append(out, fmt.Sprintf("⚠ 可選第 %d 階路線能力——總覽頁按 c", s.Campaign.PerkTierPending))
 	}
 	return out
 }
