@@ -155,6 +155,7 @@ func TestStartupStandaloneWhenLedgerStale(t *testing.T) {
 	// Standalone early-return must still advance board cycles (guards the
 	// historical `return m` before campaign catch-up).
 	staleCampaign := now - 7*24*60*60
+	priorEconomic := now - 8*3600
 	if err := store.Save(sp, model.GameState{
 		Campaign: model.CampaignState{
 			Doctrine: model.DoctrineConsumer,
@@ -163,7 +164,10 @@ func TestStartupStandaloneWhenLedgerStale(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	store.SaveMeta(mp, store.Meta{LastCampaignUnix: staleCampaign})
+	store.SaveMeta(mp, store.Meta{
+		LastRealUnix:     priorEconomic,
+		LastCampaignUnix: staleCampaign,
+	})
 
 	m := newAtPaths(sp, lp, mp).startup(now)
 	if m.daemonMode {
@@ -177,6 +181,118 @@ func TestStartupStandaloneWhenLedgerStale(t *testing.T) {
 	}
 	if m.offlineSummary == nil || m.offlineSummary.CampaignCycles != 3 {
 		t.Fatalf("standalone catch-up should surface campaign cycle count in banner: %+v", m.offlineSummary)
+	}
+
+	// C1: board-only standalone open must not burn economic offline elapsed.
+	meta, ok, err := store.LoadMeta(mp)
+	if err != nil || !ok {
+		t.Fatalf("reload meta after standalone startup: ok=%v err=%v", ok, err)
+	}
+	if meta.LastRealUnix != priorEconomic {
+		t.Fatalf("standalone startup burned LastRealUnix: got %d want preserved %d", meta.LastRealUnix, priorEconomic)
+	}
+	if meta.LastCampaignUnix != now {
+		t.Fatalf("standalone startup LastCampaignUnix on disk=%d want %d", meta.LastCampaignUnix, now)
+	}
+
+	// I1: advanced campaign state must be on disk, not only in memory/meta.
+	saved, sok, serr := store.Load(sp)
+	if serr != nil || !sok {
+		t.Fatalf("reload save after standalone catch-up: ok=%v err=%v", sok, serr)
+	}
+	if saved.Campaign.Cycle != 3 {
+		t.Fatalf("persisted Campaign.Cycle=%d want 3", saved.Campaign.Cycle)
+	}
+	if len(saved.Campaign.Reports) == 0 {
+		t.Fatal("persisted campaign should include board reports after catch-up cycles")
+	}
+}
+
+func TestStartupDaemonPersistsSyntheticLastRealUnix(t *testing.T) {
+	dir := t.TempDir()
+	lp := filepath.Join(dir, "ledger.json")
+	mp := filepath.Join(dir, "meta.json")
+	sp := filepath.Join(dir, "s.json")
+	now := int64(1_800_000_000)
+	ledger.Save(lp, ledger.Ledger{
+		Sources:   map[string]model.SourceTotals{"claude-code": {In: 300000, Out: 150000}},
+		UpdatedAt: now,
+	})
+	if err := store.Save(sp, model.GameState{}); err != nil {
+		t.Fatal(err)
+	}
+	store.SaveMeta(mp, store.Meta{LastRealUnix: now - 8*3600})
+
+	// Sleep so wall-clock now diverges from synthetic startup(now); meta must
+	// still stamp the argument, not time.Now().
+	time.Sleep(20 * time.Millisecond)
+	_ = newAtPaths(sp, lp, mp).startup(now)
+
+	meta, ok, err := store.LoadMeta(mp)
+	if err != nil || !ok {
+		t.Fatalf("reload meta after daemon startup: ok=%v err=%v", ok, err)
+	}
+	if meta.LastRealUnix != now {
+		t.Fatalf("daemon economic startup LastRealUnix=%d want synthetic now=%d (not wall clock)", meta.LastRealUnix, now)
+	}
+	wall := time.Now().Unix()
+	if meta.LastRealUnix == wall || meta.LastRealUnix > now {
+		t.Fatalf("LastRealUnix looks like wall stamp: meta=%d wall=%d synthetic=%d", meta.LastRealUnix, wall, now)
+	}
+}
+
+func TestStartupCatchUpPersistsCampaignState(t *testing.T) {
+	dir := t.TempDir()
+	lp := filepath.Join(dir, "ledger.json")
+	mp := filepath.Join(dir, "meta.json")
+	sp := filepath.Join(dir, "s.json")
+	now := int64(1_800_000_000)
+	// Stale ledger → standalone path still persists advanced campaign state.
+	ledger.Save(lp, ledger.Ledger{
+		Sources:   map[string]model.SourceTotals{"claude-code": {In: 50}},
+		UpdatedAt: now - 3600,
+	})
+	staleCampaign := now - 7*24*60*60
+	if err := store.Save(sp, model.GameState{
+		Campaign: model.CampaignState{
+			Doctrine: model.DoctrineConsumer,
+			Stage:    model.CampaignStageExpand,
+			Cycle:    0,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store.SaveMeta(mp, store.Meta{
+		LastRealUnix:     now - 10*3600,
+		LastCampaignUnix: staleCampaign,
+	})
+
+	_ = newAtPaths(sp, lp, mp).startup(now)
+
+	saved, ok, err := store.Load(sp)
+	if err != nil || !ok {
+		t.Fatalf("reload save: ok=%v err=%v", ok, err)
+	}
+	if saved.Campaign.Cycle != 3 {
+		t.Fatalf("Campaign.Cycle after reload=%d want 3", saved.Campaign.Cycle)
+	}
+	if len(saved.Campaign.Reports) != 3 {
+		t.Fatalf("board reports after reload=%d want 3", len(saved.Campaign.Reports))
+	}
+	for i, r := range saved.Campaign.Reports {
+		if r.Cycle != i+1 {
+			t.Fatalf("report[%d].Cycle=%d want %d", i, r.Cycle, i+1)
+		}
+	}
+	meta, mok, merr := store.LoadMeta(mp)
+	if merr != nil || !mok {
+		t.Fatalf("reload meta: ok=%v err=%v", mok, merr)
+	}
+	if meta.LastCampaignUnix != now {
+		t.Fatalf("LastCampaignUnix after catch-up=%d want %d", meta.LastCampaignUnix, now)
+	}
+	if meta.LastRealUnix != now-10*3600 {
+		t.Fatalf("catch-up must not burn LastRealUnix: got %d", meta.LastRealUnix)
 	}
 }
 

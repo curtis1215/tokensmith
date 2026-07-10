@@ -164,7 +164,13 @@ func ledgerFresh(l ledger.Ledger, now int64) bool { return now-l.UpdatedAt <= 30
 // Economic settlement (tokens/R&D/events) remains daemon-only and conditional,
 // but board-cycle catch-up always runs via advanceCampaignTo so standalone
 // early-return and first-open paths cannot skip the campaign clock.
+//
+// Meta persistence separates campaign clock from economic watermark:
+// daemon settle/first-open adopt stamps LastRealUnix to startup(now);
+// standalone/stale opens preserve the prior LastRealUnix on disk so a later
+// daemon session can still settle the full offline economic window.
 func (m Model) startup(now int64) Model {
+	advanceEconomic := false
 	l, ok, _ := ledger.Load(m.ledgerPath)
 	if ok && ledgerFresh(l, now) {
 		m.daemonMode = true
@@ -172,6 +178,7 @@ func (m Model) startup(now int64) Model {
 			// First-ever open: adopt the current total so we don't settle a phantom
 			// window of everything harvested before the player ever played.
 			m.consumed = copySourceTotals(l.Sources)
+			advanceEconomic = true
 		} else {
 			prevIn, prevOut := sumSourceTotals(m.consumed)
 			offIn := l.TotalIn() - prevIn
@@ -188,6 +195,7 @@ func (m Model) startup(now int64) Model {
 			if sum.RnDGained > 0 || sum.TrainingCompleted || sum.EventsFired > 0 || sum.EventsAutoResolved > 0 {
 				m.offlineSummary = &sum
 			}
+			advanceEconomic = true
 		}
 	}
 	// Board-cycle catch-up is wall-clock TUI work, independent of daemon mode.
@@ -198,10 +206,17 @@ func (m Model) startup(now int64) Model {
 			m.offlineSummary = &Summary{}
 		}
 		m.offlineSummary.CampaignCycles = advanced
+		// Persist advanced campaign state before the campaign meta watermark so
+		// a crash cannot drop Cycle/reports while meta claims cycles were taken.
+		_ = store.Save(m.savePath, m.state)
 	}
-	// Persist nextLast (and any first-arm of the clock) so a relaunch does not
-	// re-fire the same capped backlog.
-	m.saveMeta()
+	if advanceEconomic {
+		m.lastRealUnix = now
+	}
+	// Always write meta (campaign clock + first-open consumed), but only advance
+	// economic LastRealUnix when daemon settle/adopt ran — never burn it on a
+	// standalone board-only open.
+	m.saveMetaAt(m.lastRealUnix)
 	return m
 }
 
@@ -257,11 +272,18 @@ const (
 )
 
 // saveMeta persists the consumed watermark, streak state, campaign clock,
-// and the current wall-clock time.
+// and stamps LastRealUnix to the live wall clock (autosave / quit).
 func (m Model) saveMeta() {
+	m.saveMetaAt(time.Now().Unix())
+}
+
+// saveMetaAt writes meta with an explicit LastRealUnix. Startup uses this so
+// daemon settle can stamp the synthetic/session now without burning economic
+// elapsed on standalone board-only opens (which pass the preserved watermark).
+func (m Model) saveMetaAt(lastRealUnix int64) {
 	_ = store.SaveMeta(m.metaPath, store.Meta{
 		ConsumedSources:  m.consumed,
-		LastRealUnix:     time.Now().Unix(),
+		LastRealUnix:     lastRealUnix,
 		LastActiveDate:   m.lastActiveDate,
 		StreakDays:       m.streakDays,
 		LastCampaignUnix: m.lastCampaignUnix,
