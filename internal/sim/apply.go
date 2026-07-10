@@ -40,6 +40,15 @@ var (
 	ErrInvalidName         = errors.New("sim: model name must be 1–24 characters")
 	ErrInvalidEventIndex   = errors.New("sim: invalid pending-event index")
 	ErrInvalidEventChoice  = errors.New("sim: invalid event choice")
+
+	ErrCampaignNeedsModel    = errors.New("sim: campaign needs an online model")
+	ErrInvalidDoctrine       = errors.New("sim: invalid campaign doctrine")
+	ErrDoctrineAlreadyChosen = errors.New("sim: doctrine already chosen")
+	ErrInvalidDoctrinePerk   = errors.New("sim: invalid doctrine perk")
+	ErrPerkChoiceNotReady    = errors.New("sim: doctrine perk choice not ready")
+	ErrSecondaryNotReady     = errors.New("sim: secondary doctrine not ready")
+	ErrPivotAlreadyUsed      = errors.New("sim: doctrine pivot already used")
+	ErrPivotLocked           = errors.New("sim: doctrine pivot locked during showdown")
 )
 
 // Apply validates and applies a single player command, returning the new
@@ -72,6 +81,14 @@ func Apply(s model.GameState, cmd model.Command, b balance.Config) (model.GameSt
 		return applyPublishModel(s, c)
 	case model.ResolveEvent:
 		return resolveChoice(s, c.PendingIndex, c.Choice, false, b)
+	case model.ChooseDoctrine:
+		return applyChooseDoctrine(s, c, b)
+	case model.ChooseDoctrinePerk:
+		return applyChooseDoctrinePerk(s, c, b)
+	case model.ChooseSecondaryDoctrine:
+		return applyChooseSecondaryDoctrine(s, c, b)
+	case model.PivotDoctrine:
+		return applyPivotDoctrine(s, c, b)
 	default:
 		return s, ErrUnknownCommand
 	}

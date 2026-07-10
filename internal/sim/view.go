@@ -104,8 +104,12 @@ func EstimateUserTarget(s model.GameState, modelIndex int, price float64, b bala
 	te := techEffects(s, b)
 	se := starEffects(s, b)
 	ee := eventEffects(s, b)
+	ce := campaignEffects(s, b)
 	w := b.SegmentWeights[m.Segment]
 	w[model.DimSafety] *= ee.SafetyWeightMult
+	if m.Segment == model.SegEnterprise {
+		w[model.DimSafety] *= ce.SafetyAppealMult
+	}
 	appeal := appealOf(m.Quality, w)
 	rivalAppeal := 0.0
 	for _, c := range s.Competitors {
@@ -118,18 +122,22 @@ func EstimateUserTarget(s model.GameState, modelIndex int, price float64, b bala
 	refPrice := EffectiveRefPrice(s, m.Segment, b)
 	demandMult := math.Pow(refPrice/price, b.PriceElasticity)
 	marketingMult := 1 + float64(s.Marketing)*b.MarketingBonus
-	return appeal * b.SegmentTargetScale[m.Segment] * demandMult * share *
+	target := appeal * b.SegmentTargetScale[m.Segment] * demandMult * share *
 		marketingMult * te.UserGrowthMult * se.UserGrowthMult *
 		ee.UserGrowthMult * ee.TAMMult
+	target *= ce.UserGrowthMult[m.Segment]
+	return target
 }
 
-// EffectiveRefPrice returns the reference price of seg, incorporating tech tree multipliers.
+// EffectiveRefPrice returns the reference price of seg, incorporating tech tree
+// and campaign multipliers.
 func EffectiveRefPrice(s model.GameState, seg model.Segment, b balance.Config) float64 {
 	if int(seg) < 0 || int(seg) >= model.NumSegments {
 		return 0
 	}
 	te := techEffects(s, b)
-	return b.SegmentRefPrice[seg] * te.RefPriceMult * eventEffects(s, b).RefPriceMult
+	ce := campaignEffects(s, b)
+	return b.SegmentRefPrice[seg] * te.RefPriceMult * eventEffects(s, b).RefPriceMult * ce.RefPriceMult[seg]
 }
 
 // ShareRow is one entry for market/overview bars.
@@ -253,6 +261,11 @@ func ServableUsers(ns model.GameState, b balance.Config) float64 {
 	if b.InferenceLoadPerUser <= 0 {
 		return 0
 	}
+	ce := campaignEffects(ns, b)
+	loadPerUser := b.InferenceLoadPerUser * ce.InferenceLoadMult
+	if loadPerUser <= 0 {
+		return 0
+	}
 	cap := EffectiveInference(ns, b)
-	return cap / b.InferenceLoadPerUser
+	return cap / loadPerUser
 }

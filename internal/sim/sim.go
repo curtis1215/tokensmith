@@ -73,10 +73,15 @@ func starSalaryPerSec(ns model.GameState, b balance.Config) float64 {
 
 // Valuation is the company's estimated worth (spec §7.0).
 func Valuation(ns model.GameState, b balance.Config) float64 {
+	ce := campaignEffects(ns, b)
 	var monthlyRev, users float64
 	for _, m := range ns.Models {
 		if m.Online {
-			monthlyRev += m.Users * m.Price * b.RevenueMult
+			revMult := 1.0
+			if int(m.Segment) >= 0 && int(m.Segment) < model.NumSegments {
+				revMult = ce.RevenueMult[m.Segment]
+			}
+			monthlyRev += m.Users * m.Price * b.RevenueMult * revMult
 			users += m.Users
 		}
 	}
@@ -212,6 +217,7 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 	pe := PrestigeEffects(ns.Prestige.UnlockedPrestige, b)
 	se := starEffects(ns, b)
 	ee := eventEffects(ns, b)
+	ce := campaignEffects(ns, b)
 	models := append([]model.Model(nil), ns.Models...)
 	for i := range models {
 		m := &models[i]
@@ -223,17 +229,20 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 		if int(m.Segment) < 0 || int(m.Segment) >= model.NumSegments {
 			continue
 		}
-		ns.Resources.Cash += m.Users * m.Price * dt / b.MonthSec * pe.CashMult * b.RevenueMult
+		ns.Resources.Cash += m.Users * m.Price * ce.RevenueMult[m.Segment] * dt / b.MonthSec * pe.CashMult * b.RevenueMult
 
 		w := b.SegmentWeights[m.Segment]
 		w[model.DimSafety] *= ee.SafetyWeightMult // arrays copy by value; safe
+		if m.Segment == model.SegEnterprise {
+			w[model.DimSafety] *= ce.SafetyAppealMult
+		}
 		appeal := appealOf(m.Quality, w)
 		rivalAppeal := 0.0
 		for _, c := range ns.Competitors {
 			rivalAppeal += appealOf(c.Quality, w)
 		}
 		te := techEffects(ns, b)
-		refPrice := b.SegmentRefPrice[m.Segment] * te.RefPriceMult * ee.RefPriceMult
+		refPrice := EffectiveRefPrice(ns, m.Segment, b)
 		var demandMult float64
 		if m.Price > 0 {
 			demandMult = math.Pow(refPrice/m.Price, b.PriceElasticity)
@@ -246,6 +255,7 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 		target := appeal * b.SegmentTargetScale[m.Segment] * demandMult * share *
 			marketingMult * te.UserGrowthMult * se.UserGrowthMult *
 			ee.UserGrowthMult * ee.TAMMult
+		target *= ce.UserGrowthMult[m.Segment]
 		decay := math.Exp(-b.UserGrowthRate * dt)
 		m.Users = target + (m.Users-target)*decay
 		if m.Users < 0 {
@@ -333,10 +343,11 @@ func advanceCompetitors(ns model.GameState, dt float64, b balance.Config) model.
 // matches the linear Euler to first order; for hour ticks it settles at the
 // servable user count instead of oscillating through zero.
 func advanceServing(ns model.GameState, dt float64, b balance.Config) model.GameState {
+	ce := campaignEffects(ns, b)
 	load := 0.0
 	for _, m := range ns.Models {
 		if m.Online {
-			load += m.Users * b.InferenceLoadPerUser
+			load += m.Users * b.InferenceLoadPerUser * ce.InferenceLoadMult
 		}
 	}
 	ns.Compute.InferenceLoad = load
@@ -346,7 +357,7 @@ func advanceServing(ns model.GameState, dt float64, b balance.Config) model.Game
 	}
 	opsFactor := 1.0 / (1 + float64(ns.Ops)*b.OpsChurnReduction)
 	// Continuous approach of total load toward capacity.
-	newLoad := capacity + (load-capacity)*math.Exp(-b.ServiceChurnRate*dt*opsFactor)
+	newLoad := capacity + (load-capacity)*math.Exp(-b.ServiceChurnRate*ce.ServiceChurnMult*dt*opsFactor)
 	if newLoad < 0 {
 		newLoad = 0
 	}
