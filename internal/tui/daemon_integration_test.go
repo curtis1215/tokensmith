@@ -296,6 +296,109 @@ func TestStartupCatchUpPersistsCampaignState(t *testing.T) {
 	}
 }
 
+// TestStartupCatchUpNoCampaignSpending asserts offline board catch-up after a
+// long absence advances exactly MaxCatchupCycles (3) without synthesizing player
+// commands (directives / doctrine / settlement) or spending campaign cash.
+func TestStartupCatchUpNoCampaignSpending(t *testing.T) {
+	dir := t.TempDir()
+	lp := filepath.Join(dir, "ledger.json")
+	mp := filepath.Join(dir, "meta.json")
+	sp := filepath.Join(dir, "s.json")
+	now := int64(1_800_000_000)
+	// Stale ledger → standalone: economic offline settlement skipped; only board catch-up.
+	ledger.Save(lp, ledger.Ledger{
+		Sources:   map[string]model.SourceTotals{"claude-code": {In: 10}},
+		UpdatedAt: now - 3600,
+	})
+	const cash, rnd = 50_000.0, 12_000.0
+	staleCampaign := now - 72*3600 // exactly 72h → 3 cycles at 8h cadence (raw=3, no backlog drop)
+	if err := store.Save(sp, model.GameState{
+		Resources: model.Resources{Cash: cash, RnD: rnd},
+		Campaign: model.CampaignState{
+			Doctrine:      model.DoctrineConsumer,
+			Stage:         model.CampaignStageExpand,
+			Cycle:         5,
+			Perks:         []string{"consumer-premium"},
+			DirectiveUsed: true, // must clear via cycle reset, not a new directive spend
+			Active:        nil,  // no paid modifiers to age-in
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store.SaveMeta(mp, store.Meta{
+		LastRealUnix:     now - 10*3600,
+		LastCampaignUnix: staleCampaign,
+	})
+
+	m := newAtPaths(sp, lp, mp).startup(now)
+	if m.daemonMode {
+		t.Fatal("stale ledger should be standalone")
+	}
+	if m.offlineSummary == nil || m.offlineSummary.CampaignCycles != 3 {
+		t.Fatalf("want exactly 3 catch-up cycles after 72h, got %+v cycle=%d", m.offlineSummary, m.state.Campaign.Cycle)
+	}
+	if m.state.Campaign.Cycle != 8 {
+		t.Fatalf("cycle after catch-up=%d want 8 (started 5 + 3)", m.state.Campaign.Cycle)
+	}
+	// No campaign spending: cash/RnD unchanged (catch-up never Apply's IssueDirective etc.).
+	if m.state.Resources.Cash != cash || m.state.Resources.RnD != rnd {
+		t.Fatalf("catch-up spent resources: cash=%v rnd=%v want cash=%v rnd=%v",
+			m.state.Resources.Cash, m.state.Resources.RnD, cash, rnd)
+	}
+	if m.state.Campaign.DirectiveUsed {
+		t.Fatal("DirectiveUsed should be reset by catch-up cycles, not left spent")
+	}
+	if len(m.state.Campaign.Active) != 0 {
+		t.Fatalf("catch-up must not synthesize directive modifiers: %+v", m.state.Campaign.Active)
+	}
+	// Reports only from board ticks (rival/progress/distress), not player command markers.
+	for _, r := range m.state.Campaign.Reports {
+		for _, e := range r.Entries {
+			switch e.Kind {
+			case model.ReportDoctrineChosen:
+				t.Fatalf("catch-up synthesized doctrine command report: %+v", e)
+			}
+		}
+	}
+
+	// Daemon path after 72h: same board-cap + no cash burn from campaign commands.
+	dir2 := t.TempDir()
+	lp2 := filepath.Join(dir2, "ledger.json")
+	mp2 := filepath.Join(dir2, "meta.json")
+	sp2 := filepath.Join(dir2, "s.json")
+	ledger.Save(lp2, ledger.Ledger{
+		Sources:   map[string]model.SourceTotals{"claude-code": {In: 100}}, // small; no huge offline R&D required
+		UpdatedAt: now,                                                     // fresh ledger → daemon
+	})
+	if err := store.Save(sp2, model.GameState{
+		Resources: model.Resources{Cash: cash, RnD: rnd},
+		Campaign: model.CampaignState{
+			Doctrine: model.DoctrineEnterprise,
+			Stage:    model.CampaignStageEstablish,
+			Cycle:    1,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store.SaveMeta(mp2, store.Meta{
+		LastRealUnix:     now, // no economic offline window
+		LastCampaignUnix: now - 72*3600,
+	})
+	m2 := newAtPaths(sp2, lp2, mp2).startup(now)
+	if !m2.daemonMode {
+		t.Fatal("fresh ledger should enable daemon mode")
+	}
+	if m2.offlineSummary == nil || m2.offlineSummary.CampaignCycles != 3 {
+		t.Fatalf("daemon 72h catch-up want 3 cycles, got %+v", m2.offlineSummary)
+	}
+	if m2.state.Campaign.Cycle != 4 {
+		t.Fatalf("daemon cycle=%d want 4", m2.state.Campaign.Cycle)
+	}
+	if m2.state.Resources.Cash != cash {
+		t.Fatalf("daemon catch-up burned cash: %v want %v", m2.state.Resources.Cash, cash)
+	}
+}
+
 func TestStreakIncrementsOnConsecutiveDays(t *testing.T) {
 	m := newAt(filepath.Join(t.TempDir(), "s.json"))
 	day1 := time.Date(2026, 7, 8, 10, 0, 0, 0, time.UTC)
