@@ -47,6 +47,34 @@ func MonthlyRevenue(ns model.GameState) float64 {
 	return r
 }
 
+// NetCashPerSec is the steady-state cash delta per game-second from subscription
+// revenue minus rent, electricity, and salaries (mirrors Tick accrual, without
+// mutating state). Used by developer showdown CashflowOK.
+func NetCashPerSec(ns model.GameState, b balance.Config) float64 {
+	ce := campaignEffects(ns, b)
+	pe := PrestigeEffects(ns.Prestige.UnlockedPrestige, b)
+	ee := eventEffects(ns, b)
+	var rev float64
+	for _, m := range ns.Models {
+		if !m.Online {
+			continue
+		}
+		if int(m.Segment) < 0 || int(m.Segment) >= model.NumSegments {
+			continue
+		}
+		rev += m.Users * m.Price * ce.RevenueMult[m.Segment] / b.MonthSec * pe.CashMult * b.RevenueMult
+	}
+	serverPower := 0.0
+	for _, sv := range ns.Servers {
+		serverPower += sv.PowerKW
+	}
+	costs := poolRentPerSec(ns, b) +
+		serverPower*b.ElectricityPerKWSec*ee.PowerCostMult +
+		totalSalaryPerSec(ns, b) +
+		starSalaryPerSec(ns, b)
+	return rev - costs
+}
+
 // MarketRank returns the player's 1-based rank by appeal in seg among the
 // player's best online model and every competitor, plus the field size.
 func MarketRank(ns model.GameState, b balance.Config, seg model.Segment) (rank, total int) {
