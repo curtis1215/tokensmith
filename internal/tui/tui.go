@@ -55,22 +55,26 @@ var pageNames = [numPages]string{"總覽", "模型", "市場", "算力", "團隊
 
 // Model is the Bubble Tea root model.
 type Model struct {
-	state          model.GameState
-	cfg            balance.Config
-	poller         *ingest.Poller
-	savePath       string
-	ticksSinceSave int
-	page           Page
-	dialog         *trainDialog   // non-nil while the training modal is open
-	publish        *publishDialog // non-nil while the publish/price modal is open
-	event          *eventDialog   // non-nil while the event-choice modal is open
-	techCursor     int            // selected tech node on the tech page
-	procCursor     int            // selected process node on the compute page
-	modelCursor    int            // selected index into state.Models on models page
+	state           model.GameState
+	cfg             balance.Config
+	poller          *ingest.Poller
+	savePath        string
+	ticksSinceSave  int
+	page            Page
+	dialog          *trainDialog       // non-nil while the training modal is open
+	publish         *publishDialog     // non-nil while the publish/price modal is open
+	event           *eventDialog       // non-nil while the event-choice modal is open
+	doctrineDialog  *doctrineDialog    // non-nil while doctrine/perk/secondary/pivot modal is open
+	directiveDialog *directiveDialog   // non-nil while executive-directive modal is open
+	campaignEnd     *campaignEndDialog // non-nil while victory/exit modal is open
+	campaignError   string             // last rejected campaign command; survives ticks
+	techCursor      int                // selected tech node on the tech page
+	procCursor      int                // selected process node on the compute page
+	modelCursor     int                // selected index into state.Models on models page
 	// Harvest-daemon integration (§10.2).
 	ledgerPath     string
 	metaPath       string
-	daemonMode     bool // consume the daemon ledger instead of the built-in poller
+	daemonMode     bool                          // consume the daemon ledger instead of the built-in poller
 	consumed       map[string]model.SourceTotals // per-source ledger tokens already applied
 	lastRealUnix   int64
 	metaMissing    bool
@@ -85,13 +89,21 @@ type Model struct {
 	// so every tick can read the current streak multiplier cheaply.
 	streakDays     int
 	lastActiveDate string
-	notice         string // transient one-line banner, dismissed by any key
-	pendingRestart bool   // armed manual restart; a second X confirms it
-	width          int    // terminal width
-	height         int    // terminal height
-	vp             viewport.Model
-	disp           displayState
-	dispReady      bool // false until first snap after new game / restart
+	// lastCampaignUnix mirrors store.Meta.LastCampaignUnix — wall-clock of the
+	// last board cycle (or the session that armed the clock). advanceCampaignTo
+	// drives board-cycle catch-up against this field on startup and live ticks.
+	lastCampaignUnix int64
+	// lastCampaignCycle mirrors store.Meta.LastCampaignCycle — high-water of
+	// Campaign.Cycle after a successful state+meta pair. Startup recovery uses
+	// this to detect state-saved/meta-stale half-writes without wall-clock in sim.
+	lastCampaignCycle int
+	notice           string // transient one-line banner, dismissed by any key
+	pendingRestart   bool   // armed manual restart; a second X confirms it
+	width            int    // terminal width
+	height           int    // terminal height
+	vp               viewport.Model
+	disp             displayState
+	dispReady        bool // false until first snap after new game / restart
 }
 
 // New returns the game model wired to the real save/ledger/meta locations,
@@ -122,22 +134,29 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 		// New game or pre-events save: seed once, outside the pure sim.
 		state.Events.RandState = uint64(time.Now().UnixNano())
 	}
+	if state.Campaign.RandState == 0 {
+		// Campaign RNG is independent of event RNG; XOR a golden ratio constant
+		// so a shared UnixNano seed cannot leave both streams identical.
+		state.Campaign.RandState = uint64(time.Now().UnixNano()) ^ 0x9e3779b97f4a7c15
+	}
 	meta, metaOK, _ := store.LoadMeta(metaPath)
 	m := Model{
-		state:          state,
-		cfg:            balance.Default(),
-		poller:         ingest.NewDefaultPoller(),
-		savePath:       savePath,
-		ledgerPath:     ledgerPath,
-		metaPath:       metaPath,
-		consumed:       meta.ConsumedSources,
-		lastRealUnix:   meta.LastRealUnix,
-		metaMissing:    !metaOK,
-		streakDays:     meta.StreakDays,
-		lastActiveDate: meta.LastActiveDate,
-		width:          100,
-		height:         40,
-		vp:             viewport.New(80, 20),
+		state:            state,
+		cfg:              balance.Default(),
+		poller:           ingest.NewDefaultPoller(),
+		savePath:         savePath,
+		ledgerPath:       ledgerPath,
+		metaPath:         metaPath,
+		consumed:         meta.ConsumedSources,
+		lastRealUnix:     meta.LastRealUnix,
+		metaMissing:      !metaOK,
+		streakDays:       meta.StreakDays,
+		lastActiveDate:    meta.LastActiveDate,
+		lastCampaignUnix:  meta.LastCampaignUnix,
+		lastCampaignCycle: meta.LastCampaignCycle,
+		width:             100,
+		height:           40,
+		vp:               viewport.New(80, 20),
 	}
 	m.resize(m.width, m.height)
 	m.refreshViewport()
@@ -150,33 +169,74 @@ func ledgerFresh(l ledger.Ledger, now int64) bool { return now-l.UpdatedAt <= 30
 
 // startup detects daemon mode and settles offline progress. Called by New()
 // only, so unit-test constructors stay hermetic.
+//
+// Economic settlement (tokens/R&D/events) remains daemon-only and conditional,
+// but board-cycle catch-up always runs via advanceCampaignTo so standalone
+// early-return and first-open paths cannot skip the campaign clock.
+//
+// Meta persistence separates campaign clock from economic watermark:
+// daemon settle/first-open adopt stamps LastRealUnix to startup(now);
+// standalone/stale opens preserve the prior LastRealUnix on disk so a later
+// daemon session can still settle the full offline economic window.
 func (m Model) startup(now int64) Model {
+	advanceEconomic := false
 	l, ok, _ := ledger.Load(m.ledgerPath)
-	if !ok || !ledgerFresh(l, now) {
-		return m // standalone: Init primes the built-in poller
+	if ok && ledgerFresh(l, now) {
+		m.daemonMode = true
+		if m.metaMissing {
+			// First-ever open: adopt the current total so we don't settle a phantom
+			// window of everything harvested before the player ever played.
+			m.consumed = copySourceTotals(l.Sources)
+			advanceEconomic = true
+		} else {
+			prevIn, prevOut := sumSourceTotals(m.consumed)
+			offIn := l.TotalIn() - prevIn
+			offOut := l.TotalOut() - prevOut
+			elapsed := float64(now - m.lastRealUnix)
+			if offIn > 0 || offOut > 0 {
+				m.updateStreak(time.Unix(now, 0))
+			}
+			cfg := m.cfg
+			cfg.StreakMult = m.currentStreakMult()
+			ns, sum := Settle(m.state, cfg, elapsed, offIn, offOut)
+			m.state = ns
+			m.consumed = copySourceTotals(l.Sources)
+			if sum.RnDGained > 0 || sum.TrainingCompleted || sum.EventsFired > 0 || sum.EventsAutoResolved > 0 {
+				m.offlineSummary = &sum
+			}
+			advanceEconomic = true
+		}
 	}
-	m.daemonMode = true
-	if m.metaMissing {
-		// First-ever open: adopt the current total so we don't settle a phantom
-		// window of everything harvested before the player ever played.
-		m.consumed = copySourceTotals(l.Sources)
-		return m
+	// Board-cycle catch-up is wall-clock TUI work, independent of daemon mode.
+	// Recovery: saved GameState is ahead of meta high-water (state Save ok,
+	// meta write lost). Arm the campaign clock at now and skip replay so
+	// rivals/holds/reports are not double-applied.
+	var advanced int
+	if m.state.Campaign.Doctrine != model.DoctrineNone && m.state.Campaign.Cycle > m.lastCampaignCycle {
+		m.lastCampaignUnix = now
+		m.lastCampaignCycle = m.state.Campaign.Cycle
+	} else {
+		m, advanced = m.advanceCampaignTo(now)
 	}
-	prevIn, prevOut := sumSourceTotals(m.consumed)
-	offIn := l.TotalIn() - prevIn
-	offOut := l.TotalOut() - prevOut
-	elapsed := float64(now - m.lastRealUnix)
-	if offIn > 0 || offOut > 0 {
-		m.updateStreak(time.Unix(now, 0))
+	if advanced > 0 {
+		if m.offlineSummary == nil {
+			m.offlineSummary = &Summary{}
+		}
+		m.offlineSummary.CampaignCycles = advanced
+		// Persist advanced campaign state before the campaign meta watermark so
+		// a crash cannot drop Cycle/reports while meta claims cycles were taken.
+		// Never advance meta after a failed state write.
+		if err := store.Save(m.savePath, m.state); err != nil {
+			return m
+		}
 	}
-	cfg := m.cfg
-	cfg.StreakMult = m.currentStreakMult()
-	ns, sum := Settle(m.state, cfg, elapsed, offIn, offOut)
-	m.state = ns
-	m.consumed = copySourceTotals(l.Sources)
-	if sum.RnDGained > 0 || sum.TrainingCompleted || sum.EventsFired > 0 || sum.EventsAutoResolved > 0 {
-		m.offlineSummary = &sum
+	if advanceEconomic {
+		m.lastRealUnix = now
 	}
+	// Always write meta (campaign clock + first-open consumed), but only advance
+	// economic LastRealUnix when daemon settle/adopt ran — never burn it on a
+	// standalone board-only open.
+	m.saveMetaAt(m.lastRealUnix)
 	return m
 }
 
@@ -231,14 +291,23 @@ const (
 	streakBonusPerDay = 0.06 // +6%/day, so day 5 = ×1.3 and the day-10 cap = ×1.6
 )
 
-// saveMeta persists the consumed watermark, streak state, and the current
-// wall-clock time.
+// saveMeta persists the consumed watermark, streak state, campaign clock,
+// and stamps LastRealUnix to the live wall clock (autosave / quit).
 func (m Model) saveMeta() {
+	m.saveMetaAt(time.Now().Unix())
+}
+
+// saveMetaAt writes meta with an explicit LastRealUnix. Startup uses this so
+// daemon settle can stamp the synthetic/session now without burning economic
+// elapsed on standalone board-only opens (which pass the preserved watermark).
+func (m Model) saveMetaAt(lastRealUnix int64) {
 	_ = store.SaveMeta(m.metaPath, store.Meta{
-		ConsumedSources: m.consumed,
-		LastRealUnix:    time.Now().Unix(),
-		LastActiveDate:  m.lastActiveDate,
-		StreakDays:      m.streakDays,
+		ConsumedSources:   m.consumed,
+		LastRealUnix:      lastRealUnix,
+		LastActiveDate:    m.lastActiveDate,
+		StreakDays:        m.streakDays,
+		LastCampaignUnix:  m.lastCampaignUnix,
+		LastCampaignCycle: m.state.Campaign.Cycle,
 	})
 }
 
@@ -317,11 +386,16 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		prevFired := m.state.Events.FiredCount
 		m.state = sim.Tick(m.state, tickDT, events, cfgTick)
+		// Board cycles use wall-clock, not game-time: catch up after the pure tick.
+		m, _ = m.advanceCampaignTo(now.Unix())
 		if m.state.Events.FiredCount > prevFired {
 			m.setNotice("📰 產業事件：" + latestEventName(m.state))
 		}
 		// Mechanism B: auto game-over + restart once debt passes the threshold.
-		if m.state.Resources.Cash < -m.cfg.BankruptcyDebtRatio*m.cfg.StartingCash {
+		// Active campaigns use FinancialDistressCycles instead; player recovers
+		// operationally or exits after two distressed cycles (Phase C restructuring later).
+		if m.state.Campaign.Doctrine == model.DoctrineNone &&
+			m.state.Resources.Cash < -m.cfg.BankruptcyDebtRatio*m.cfg.StartingCash {
 			m.state = sim.Restart(m.state, m.cfg)
 			m.setNotice("💥 破產！公司已重整重來")
 			m.snapDisplay()
@@ -330,11 +404,23 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		m.ticksSinceSave++
 		if m.ticksSinceSave >= 40 {
 			m.ticksSinceSave = 0
-			_ = store.Save(m.savePath, m.state)
-			m.saveMeta()
+			// Meta watermarks only advance after a confirmed state write.
+			if err := store.Save(m.savePath, m.state); err == nil {
+				m.saveMeta()
+			}
 		}
 		return m, tick()
 	case tea.KeyMsg:
+		// Campaign dialogs take priority over event/publish/train.
+		if m.doctrineDialog != nil {
+			return m.updateDoctrineDialog(msg)
+		}
+		if m.directiveDialog != nil {
+			return m.updateDirectiveDialog(msg)
+		}
+		if m.campaignEnd != nil {
+			return m.updateCampaignEndDialog(msg)
+		}
 		if m.event != nil {
 			return m.updateEventDialog(msg)
 		}
@@ -438,8 +524,9 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return m, nil
 		case "q", "ctrl+c":
-			_ = store.Save(m.savePath, m.state)
-			m.saveMeta()
+			if err := store.Save(m.savePath, m.state); err == nil {
+				m.saveMeta()
+			}
 			return m, tea.Quit
 		case "t":
 			if m.page == PageModels || m.page == PageOverview {
@@ -476,8 +563,56 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			return m, nil
 		case "P":
 			if m.page == PageOverview || m.page == PageTech {
-				m.state = applyOK(m.state, model.PrestigeReset{}, m.cfg)
-				m.snapDisplay()
+				if d, ok := newCampaignEndDialog(m, campaignEndVictory); ok {
+					m.campaignEnd = &d
+					m.campaignError = ""
+				} else {
+					m.state = applyOK(m.state, model.PrestigeReset{}, m.cfg)
+					m.snapDisplay()
+				}
+			}
+			return m, nil
+		case "E":
+			if m.page == PageOverview {
+				if d, ok := newCampaignEndDialog(m, campaignEndExit); ok {
+					m.campaignEnd = &d
+					m.campaignError = ""
+				} else {
+					m.campaignError = campaignErrorText(sim.ErrStrategyExitLocked)
+				}
+			}
+			return m, nil
+		case "c":
+			if m.page == PageOverview {
+				if d, ok := newDoctrineDialog(m, false); ok {
+					m.doctrineDialog = &d
+					m.campaignError = ""
+				} else {
+					m.campaignError = "此策略目前無法執行"
+				}
+			}
+			return m, nil
+		case "C":
+			if m.page == PageOverview {
+				if d, ok := newDoctrineDialog(m, true); ok {
+					m.doctrineDialog = &d
+					m.campaignError = ""
+				} else if m.state.Campaign.Stage == model.CampaignStageShowdown ||
+					m.state.Campaign.Stage == model.CampaignStageWon {
+					m.campaignError = campaignErrorText(sim.ErrPivotLocked)
+				} else {
+					m.campaignError = "此策略目前無法執行"
+				}
+			}
+			return m, nil
+		case "d":
+			if m.page == PageOverview {
+				if d, ok := newDirectiveDialog(m); ok {
+					m.directiveDialog = &d
+					m.campaignError = ""
+				} else {
+					m.campaignError = "此策略目前無法執行"
+				}
 			}
 			return m, nil
 		case "r", "R", "i", "I":
@@ -627,6 +762,83 @@ func (m Model) updateEventDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) updateDoctrineDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
+	d, confirm, cancel := m.doctrineDialog.update(msg)
+	if cancel {
+		m.doctrineDialog = nil
+		m.campaignError = ""
+		return m, nil
+	}
+	if confirm {
+		cmd := d.command(m)
+		ns, err := sim.Apply(m.state, cmd, m.cfg)
+		if err != nil {
+			m.campaignError = campaignErrorText(err)
+			m.doctrineDialog = &d
+			return m, nil
+		}
+		m.state = ns
+		m.campaignError = ""
+		m.doctrineDialog = nil
+		if _, ok := cmd.(model.ChooseDoctrine); ok {
+			// Task 8 hard gate: overwrite any pre-armed clock at selection time.
+			// Preserve economic LastRealUnix (Task 8 C1) — only campaign clock moves.
+			m.lastCampaignUnix = time.Now().Unix()
+			m.saveMetaAt(m.lastRealUnix)
+		}
+		return m, nil
+	}
+	m.doctrineDialog = &d
+	return m, nil
+}
+
+func (m Model) updateDirectiveDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
+	d, confirm, cancel := m.directiveDialog.update(msg)
+	if cancel {
+		m.directiveDialog = nil
+		m.campaignError = ""
+		return m, nil
+	}
+	if confirm {
+		ns, err := sim.Apply(m.state, d.command(m), m.cfg)
+		if err != nil {
+			m.campaignError = campaignErrorText(err)
+			m.directiveDialog = &d
+			return m, nil
+		}
+		m.state = ns
+		m.campaignError = ""
+		m.directiveDialog = nil
+		return m, nil
+	}
+	m.directiveDialog = &d
+	return m, nil
+}
+
+func (m Model) updateCampaignEndDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
+	d, confirm, cancel := m.campaignEnd.update(msg)
+	if cancel {
+		m.campaignEnd = nil
+		m.campaignError = ""
+		return m, nil
+	}
+	if confirm {
+		ns, err := sim.Apply(m.state, d.command(), m.cfg)
+		if err != nil {
+			m.campaignError = campaignErrorText(err)
+			m.campaignEnd = &d
+			return m, nil
+		}
+		m.state = ns
+		m.campaignError = ""
+		m.campaignEnd = nil
+		m.snapDisplay()
+		return m, nil
+	}
+	m.campaignEnd = &d
+	return m, nil
+}
+
 // resize updates terminal dimensions and viewport content region size.
 func (m *Model) resize(w, h int) {
 	if w < 1 {
@@ -681,6 +893,10 @@ func (m Model) chromeRows() int {
 	if m.notice != "" {
 		n++
 	}
+	// campaignError outside an open dialog is shown as a banner line.
+	if m.campaignError != "" && m.doctrineDialog == nil && m.directiveDialog == nil && m.campaignEnd == nil {
+		n++
+	}
 	n++    // resource bar
 	n++    // tabs
 	n++    // footer
@@ -690,6 +906,16 @@ func (m Model) chromeRows() int {
 
 // contentBody is the scrollable region: dialog or active page (no footer).
 func (m Model) contentBody() string {
+	// Campaign dialogs before event/publish/train.
+	if m.doctrineDialog != nil {
+		return renderDoctrineDialog(*m.doctrineDialog, m)
+	}
+	if m.directiveDialog != nil {
+		return renderDirectiveDialog(*m.directiveDialog, m)
+	}
+	if m.campaignEnd != nil {
+		return renderCampaignEndDialog(*m.campaignEnd, m)
+	}
 	if m.event != nil {
 		return renderEventDialog(*m.event, m)
 	}
@@ -746,7 +972,8 @@ func (m Model) tryScroll(msg tea.KeyMsg) (bool, Model) {
 
 // pageKeys returns page-specific help text for the fixed shell footer.
 func pageKeys(m Model) string {
-	if m.publish != nil || m.dialog != nil || m.event != nil {
+	if m.publish != nil || m.dialog != nil || m.event != nil ||
+		m.doctrineDialog != nil || m.directiveDialog != nil || m.campaignEnd != nil {
 		return "" // dialogs embed their own help
 	}
 	switch m.page {
@@ -763,11 +990,18 @@ func pageKeys(m Model) string {
 		return "[h]雇研究員 [e]雇工程 [o]雇營運 [k]雇行銷 [s]簽明星"
 	case PageTech:
 		return "[↑↓]選節點 [Enter]解鎖"
-	default: // overview
+	default: // overview — campaign keys are hints only (dialogs land in Task 10)
 		hint := "[t]訓練 [X]重來"
-		if m.state.PeakValuation >= m.cfg.PrestigeUnlockValuation {
+		if m.state.Campaign.Victory != model.DoctrineNone {
+			hint = "[t]訓練 [P]勝利結算 [X]重來"
+		} else if m.state.PeakValuation >= m.cfg.PrestigeUnlockValuation {
 			hint = "[t]訓練 [P]傳承重開 [X]重來"
 		}
+		if m.state.Campaign.Cycle >= m.cfg.Campaign.StrategyExitCycle ||
+			m.state.Campaign.FinancialDistressCycles >= 2 {
+			hint += " [E]策略退出"
+		}
+		hint += " [c]公司策略 [d]高層指令"
 		if len(m.state.Events.Pending) > 0 {
 			hint = "[e]事件決策 " + hint
 		}
@@ -926,6 +1160,20 @@ func pressures(m Model) []string {
 	if draftN > 0 {
 		out = append(out, fmt.Sprintf("待發佈模型 %d 個 — 模型頁按 p", draftN))
 	}
+	// Campaign pressures (append only; keep existing warnings above).
+	// Distress=1 may warn about approaching exit eligibility but must not
+	// advertise [E] (pageKeys only unlocks E at distress>=2 or cycle>=18).
+	if n := s.Campaign.FinancialDistressCycles; n >= 2 {
+		out = append(out, fmt.Sprintf("⚠ 財務困境已連續 %d 個董事會週期——可按 [E]策略退出或止血", n))
+	} else if n == 1 {
+		out = append(out, "⚠ 財務困境 1 個董事會週期——接近策略退出條件，請先止血")
+	}
+	if s.Campaign.Doctrine == model.DoctrineNone && hasOnline {
+		out = append(out, "⚠ 尚未選擇公司戰略——總覽頁按 c")
+	}
+	if s.Campaign.PerkTierPending > 0 {
+		out = append(out, fmt.Sprintf("⚠ 可選第 %d 階路線能力——總覽頁按 c", s.Campaign.PerkTierPending))
+	}
 	return out
 }
 
@@ -979,6 +1227,11 @@ func (m Model) View() string {
 		}
 		top = append(top, notice)
 	}
+	// Show campaignError as a shell banner when no campaign dialog is open
+	// (in-dialog errors render inside the modal). Tick must not clear it.
+	if m.campaignError != "" && m.doctrineDialog == nil && m.directiveDialog == nil && m.campaignEnd == nil {
+		top = append(top, styleWarn.Render(m.campaignError))
+	}
 	top = append(top, renderResourceBar(m))
 	top = append(top, renderTabBar(m.page))
 
@@ -1001,6 +1254,9 @@ func offlineBanner(s Summary) string {
 		}
 	} else if s.EventsAutoResolved > 0 {
 		msg += fmt.Sprintf(" · %d 起待決事件已自動決議", s.EventsAutoResolved)
+	}
+	if s.CampaignCycles > 0 {
+		msg += fmt.Sprintf(" · 董事會週期 %d 次", s.CampaignCycles)
 	}
 	return tabActiveStyle.Render(msg) + helpStyle.Render("  （按任意鍵關閉）")
 }

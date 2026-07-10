@@ -72,6 +72,9 @@ func TestNewAtSeedsRandState(t *testing.T) {
 	if m.state.Events.RandState == 0 {
 		t.Fatal("a fresh game must get a nonzero RNG seed")
 	}
+	if m.state.Campaign.RandState == 0 {
+		t.Fatal("a fresh game must get a nonzero campaign RNG seed")
+	}
 }
 
 func TestOfflineBannerAutoResolvedOnly(t *testing.T) {

@@ -50,6 +50,39 @@ func TestRestartUngatedBanksPatentsAndResets(t *testing.T) {
 	}
 }
 
+func TestActiveCampaignRestartDoesNotFullBank(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Models = []model.Model{{Online: true, Users: 100}}
+	s.PeakValuation = 1e10 // would bank 10 patents if full bank applied
+	s.Prestige.Patents = 3
+	s.Prestige.RouteBadges = []model.Doctrine{model.DoctrineEnterprise}
+	s.Events.RandState = 42
+	s.Campaign = model.CampaignState{
+		Doctrine:  model.DoctrineConsumer,
+		Cycle:     5,
+		RandState: 99,
+		Victory:   model.DoctrineNone,
+	}
+	ns := Restart(s, b)
+	if ns.Prestige.Patents != 3 {
+		t.Fatalf("active-campaign Restart must not bank patents: got %v want 3", ns.Prestige.Patents)
+	}
+	if len(ns.Prestige.RouteBadges) != 1 || ns.Prestige.RouteBadges[0] != model.DoctrineEnterprise {
+		t.Fatalf("Restart must not grant/alter badges: %+v", ns.Prestige.RouteBadges)
+	}
+	if ns.Prestige.PendingLegacy.Kind != model.LegacyNone || ns.Campaign.Legacy.Kind != model.LegacyNone {
+		t.Fatalf("Restart must not grant Legacy: pending=%+v campaign=%+v", ns.Prestige.PendingLegacy, ns.Campaign.Legacy)
+	}
+	if len(ns.Models) != 0 {
+		t.Fatalf("Restart should still abandon run (clear models), got %d", len(ns.Models))
+	}
+	if ns.Events.RandState != 42 || ns.Campaign.RandState != 99 {
+		t.Fatalf("RNG not preserved: events=%d campaign=%d", ns.Events.RandState, ns.Campaign.RandState)
+	}
+	// Pre-campaign behavior remains covered by TestRestartUngatedBanksPatentsAndResets.
+}
+
 func TestFreshRun(t *testing.T) {
 	b := balance.Default()
 	p := model.Prestige{Patents: 5, UnlockedPrestige: []string{"start-cash-1"}} // +100k cash
@@ -77,5 +110,50 @@ func TestFreshRun(t *testing.T) {
 	}
 	if !approx(ns.Resources.RnD, b.StartingRnD) { // start-cash-1 adds no R&D
 		t.Errorf("R&D not reseeded: %v, want %v", ns.Resources.RnD, b.StartingRnD)
+	}
+}
+
+func TestFreshRunTransfersAndConsumesPendingLegacy(t *testing.T) {
+	b := balance.Default()
+	// Secondary: transfer to Campaign.Legacy, clear PendingLegacy, no tech unlock.
+	p := model.Prestige{
+		Patents:       3,
+		PendingLegacy: model.LegacyChoice{Kind: model.LegacySecondary, Doctrine: model.DoctrineDeveloper, PerkID: "developer-open"},
+	}
+	ns := freshRun(p, b)
+	if ns.Campaign.Legacy.Kind != model.LegacySecondary || ns.Campaign.Legacy.PerkID != "developer-open" {
+		t.Fatalf("secondary not transferred: %+v", ns.Campaign.Legacy)
+	}
+	if ns.Prestige.PendingLegacy.Kind != model.LegacyNone {
+		t.Fatalf("pending not cleared: %+v", ns.Prestige.PendingLegacy)
+	}
+	// Tech: apply UnlockedTech and clear pending; tech is one-shot so Campaign.Legacy is cleared after apply.
+	p2 := model.Prestige{
+		Patents:       1,
+		PendingLegacy: model.LegacyChoice{Kind: model.LegacyTech, TechID: "algo-cap-1"},
+	}
+	ns2 := freshRun(p2, b)
+	if len(ns2.UnlockedTech) != 1 || ns2.UnlockedTech[0] != "algo-cap-1" {
+		t.Fatalf("tech not applied: %v", ns2.UnlockedTech)
+	}
+	if ns2.Prestige.PendingLegacy.Kind != model.LegacyNone {
+		t.Fatalf("pending not cleared after tech: %+v", ns2.Prestige.PendingLegacy)
+	}
+	// Repeating freshRun on resulting prestige must not re-apply.
+	ns3 := freshRun(ns2.Prestige, b)
+	if len(ns3.UnlockedTech) != 0 {
+		t.Fatalf("tech re-applied on second freshRun: %v", ns3.UnlockedTech)
+	}
+}
+
+func TestFreshRunBadgeUniquenessViaAddDoctrine(t *testing.T) {
+	// addDoctrineUnique is exercised via prestige banking; unit-check uniqueness helper path.
+	got := addDoctrineUnique([]model.Doctrine{model.DoctrineConsumer}, model.DoctrineConsumer)
+	if len(got) != 1 {
+		t.Fatalf("duplicate badge added: %v", got)
+	}
+	got = addDoctrineUnique(got, model.DoctrineDeveloper)
+	if len(got) != 2 || got[1] != model.DoctrineDeveloper {
+		t.Fatalf("unique append failed: %v", got)
 	}
 }

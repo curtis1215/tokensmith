@@ -51,22 +51,29 @@ func patentsFor(peak float64, b balance.Config) float64 {
 	return math.Floor(math.Sqrt(peak / b.PatentK))
 }
 
-// Restart abandons the current run, banking patents earned from its peak
-// valuation, and returns a fresh run preserving prestige. Unlike the
-// PrestigeReset command it is NOT gated by a minimum valuation — it backs both
-// voluntary restarts and bankruptcy game-overs.
+// Restart abandons the current run and returns a fresh run preserving prestige.
+// Pre-campaign (no doctrine): banks full patents from peak valuation.
+// Active campaign: hard abandon with no patent bank, badge, or Legacy — use
+// CampaignPrestige / CampaignExit for settlement rewards. Unlike PrestigeReset
+// it is NOT gated by a minimum valuation.
 func Restart(s model.GameState, b balance.Config) model.GameState {
 	p := s.Prestige
-	p.Patents += patentsFor(s.PeakValuation, b)
+	if s.Campaign.Doctrine == model.DoctrineNone {
+		p.Patents += patentsFor(s.PeakValuation, b)
+	}
 	ns := freshRun(p, b)
-	ns.Events.RandState = s.Events.RandState
+	ns.Events.RandState, ns.Campaign.RandState = s.Events.RandState, s.Campaign.RandState
 	return ns
 }
 
 // freshRun produces a new run's starting state, preserving prestige.
+// PendingLegacy is transferred into Campaign.Legacy (one-run), tech is applied
+// immediately, then PendingLegacy is cleared so a second restart cannot re-apply it.
 func freshRun(p model.Prestige, b balance.Config) model.GameState {
 	pe := PrestigeEffects(p.UnlockedPrestige, b)
 	var ns model.GameState
+	pending := p.PendingLegacy
+	p.PendingLegacy = model.LegacyChoice{}
 	ns.Prestige = p
 	ns.Competitors = balance.DefaultCompetitors()
 	ns.Research.EfficiencyMult = 1
@@ -74,5 +81,13 @@ func freshRun(p model.Prestige, b balance.Config) model.GameState {
 	// Compute starts empty (nil maps → 0), same as a brand-new run.
 	ns.Resources.Cash = b.StartingCash + pe.StartCash
 	ns.Resources.RnD = b.StartingRnD + pe.StartRnD
+	if pending.Kind == model.LegacyTech {
+		// One-shot: unlock tech now; leave Campaign.Legacy empty (already consumed).
+		if pending.TechID != "" {
+			ns.UnlockedTech = append([]string(nil), pending.TechID)
+		}
+	} else if pending.Kind != model.LegacyNone {
+		ns.Campaign.Legacy = pending
+	}
 	return ns
 }

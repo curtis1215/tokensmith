@@ -12,6 +12,11 @@ func renderOverview(m Model) string {
 	s := m.state
 	rank, field := sim.MarketRank(s, m.cfg, model.SegConsumer)
 
+	// CEO war room: campaign cards first (before existing KPI rows).
+	cw := m.contentWidth()
+	campaignRow := ResponsiveRow(cw, 2, renderCampaignStatusCard(m), renderRivalRoadmapCard(m))
+	reportCard := renderBoardReportCard(m)
+
 	// 1. Company card (users/valuation use approached display values when ready)
 	val := sim.Valuation(s, m.cfg)
 	totalUsers := sim.TotalUsers(s)
@@ -110,12 +115,11 @@ func renderOverview(m Model) string {
 	powerMilestoneCard := Card("里程碑 & 算力", powerMilestoneBody)
 
 	// Combine into rows (layout to viewport content width, not full terminal)
-	cw := m.contentWidth()
 	row1 := ResponsiveRow(cw, 2, companyCard, trainCard)
 	row2 := ResponsiveRow(cw, 2, shareCard, powerMilestoneCard)
 
 	var rows []string
-	rows = append(rows, row1, row2)
+	rows = append(rows, campaignRow, reportCard, row1, row2)
 	rows = append(rows, renderEventsCard(m))
 
 	// 5. Pressures (footer lives in the fixed shell)

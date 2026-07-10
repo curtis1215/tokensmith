@@ -129,6 +129,8 @@ type Config struct {
 	EventHitChance   float64 // probability a roll fires an event
 	EventCooldownSec float64 // per-event quiet window after it resolves
 	EventLogCap      int     // history entries kept in EventsState.Log
+	// Strategic campaign (phase A).
+	Campaign CampaignConfig
 }
 
 // Default returns the v0 calibration (spec §12).
@@ -217,6 +219,7 @@ func Default() Config {
 	c.EventHitChance = 0.35     // → mean one event per ~85 real-sec online
 	c.EventCooldownSec = 60 * 86400
 	c.EventLogCap = 20
+	c.Campaign = DefaultCampaign()
 	return c
 }
 

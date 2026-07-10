@@ -40,6 +40,24 @@ var (
 	ErrInvalidName         = errors.New("sim: model name must be 1–24 characters")
 	ErrInvalidEventIndex   = errors.New("sim: invalid pending-event index")
 	ErrInvalidEventChoice  = errors.New("sim: invalid event choice")
+
+	ErrCampaignNeedsModel    = errors.New("sim: campaign needs an online model")
+	ErrInvalidDoctrine       = errors.New("sim: invalid campaign doctrine")
+	ErrDoctrineAlreadyChosen = errors.New("sim: doctrine already chosen")
+	ErrInvalidDoctrinePerk   = errors.New("sim: invalid doctrine perk")
+	ErrPerkChoiceNotReady    = errors.New("sim: doctrine perk choice not ready")
+	ErrSecondaryNotReady     = errors.New("sim: secondary doctrine not ready")
+	ErrPivotAlreadyUsed      = errors.New("sim: doctrine pivot already used")
+	ErrPivotLocked           = errors.New("sim: doctrine pivot locked during showdown")
+
+	ErrDirectiveUsed         = errors.New("sim: executive directive already used this cycle")
+	ErrInvalidDirective      = errors.New("sim: invalid executive directive")
+	ErrInvalidRivalTarget    = errors.New("sim: invalid rival target")
+	ErrRivalAlreadyCountered = errors.New("sim: rival action already countered")
+
+	ErrCampaignNotWon     = errors.New("sim: campaign has not been won")
+	ErrInvalidLegacy      = errors.New("sim: invalid legacy choice")
+	ErrStrategyExitLocked = errors.New("sim: strategy exit not unlocked")
 )
 
 // Apply validates and applies a single player command, returning the new
@@ -72,6 +90,22 @@ func Apply(s model.GameState, cmd model.Command, b balance.Config) (model.GameSt
 		return applyPublishModel(s, c)
 	case model.ResolveEvent:
 		return resolveChoice(s, c.PendingIndex, c.Choice, false, b)
+	case model.ChooseDoctrine:
+		return applyChooseDoctrine(s, c, b)
+	case model.ChooseDoctrinePerk:
+		return applyChooseDoctrinePerk(s, c, b)
+	case model.ChooseSecondaryDoctrine:
+		return applyChooseSecondaryDoctrine(s, c, b)
+	case model.PivotDoctrine:
+		return applyPivotDoctrine(s, c, b)
+	case model.IssueDirective:
+		return applyIssueDirective(s, c, b)
+	case model.CampaignPrestige:
+		return applyCampaignPrestige(s, c, b)
+	case model.CampaignContinue:
+		return applyCampaignContinue(s)
+	case model.CampaignExit:
+		return applyCampaignExit(s, b)
 	default:
 		return s, ErrUnknownCommand
 	}
@@ -335,6 +369,11 @@ func applyBuyPrestigeNode(s model.GameState, c model.BuyPrestigeNode, b balance.
 }
 
 func applyPrestigeReset(s model.GameState, b balance.Config) (model.GameState, error) {
+	// Active campaigns must settle via CampaignPrestige/Exit; old valuation gate
+	// remains only for pre-campaign (no-doctrine) saves.
+	if s.Campaign.Doctrine != model.DoctrineNone {
+		return s, ErrCampaignNotWon
+	}
 	if s.PeakValuation < b.PrestigeUnlockValuation {
 		return s, ErrPrestigeLocked
 	}

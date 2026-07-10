@@ -15,6 +15,10 @@ type Summary struct {
 	TokensOut          int
 	EventsFired        int
 	EventsAutoResolved int
+	// CampaignCycles is the number of board cycles advanced during offline
+	// catch-up (capped). The banner only reports the count; board reports
+	// hold the detailed source of truth.
+	CampaignCycles int
 }
 
 const (

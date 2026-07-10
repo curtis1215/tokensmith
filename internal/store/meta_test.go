@@ -16,9 +16,11 @@ func TestMetaRoundTrip(t *testing.T) {
 		ConsumedSources: map[string]model.SourceTotals{
 			"claude-code": {In: 10, Out: 5},
 		},
-		LastRealUnix:   42,
-		LastActiveDate: "2026-07-10",
-		StreakDays:     3,
+		LastRealUnix:      42,
+		LastActiveDate:    "2026-07-10",
+		StreakDays:        3,
+		LastCampaignUnix:  84,
+		LastCampaignCycle: 7,
 	}
 	if err := SaveMeta(p, in); err != nil {
 		t.Fatal(err)
@@ -32,5 +34,11 @@ func TestMetaRoundTrip(t *testing.T) {
 	}
 	if got.LastRealUnix != 42 || got.LastActiveDate != "2026-07-10" || got.StreakDays != 3 {
 		t.Fatalf("meta round-trip mismatch: %+v", got)
+	}
+	if got.LastCampaignUnix != 84 {
+		t.Fatalf("LastCampaignUnix not round-tripped: %d", got.LastCampaignUnix)
+	}
+	if got.LastCampaignCycle != 7 {
+		t.Fatalf("LastCampaignCycle not round-tripped: %d", got.LastCampaignCycle)
 	}
 }
