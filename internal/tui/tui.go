@@ -70,7 +70,7 @@ type Model struct {
 	// Harvest-daemon integration (§10.2).
 	ledgerPath     string
 	metaPath       string
-	daemonMode     bool // consume the daemon ledger instead of the built-in poller
+	daemonMode     bool                          // consume the daemon ledger instead of the built-in poller
 	consumed       map[string]model.SourceTotals // per-source ledger tokens already applied
 	lastRealUnix   int64
 	metaMissing    bool
@@ -85,13 +85,17 @@ type Model struct {
 	// so every tick can read the current streak multiplier cheaply.
 	streakDays     int
 	lastActiveDate string
-	notice         string // transient one-line banner, dismissed by any key
-	pendingRestart bool   // armed manual restart; a second X confirms it
-	width          int    // terminal width
-	height         int    // terminal height
-	vp             viewport.Model
-	disp           displayState
-	dispReady      bool // false until first snap after new game / restart
+	// lastCampaignUnix mirrors store.Meta.LastCampaignUnix — wall-clock of the
+	// last board cycle (or the session that armed the clock). Task 8 will use
+	// campaignCyclesDue against this field; Task 2 only load/saves it.
+	lastCampaignUnix int64
+	notice           string // transient one-line banner, dismissed by any key
+	pendingRestart   bool   // armed manual restart; a second X confirms it
+	width            int    // terminal width
+	height           int    // terminal height
+	vp               viewport.Model
+	disp             displayState
+	dispReady        bool // false until first snap after new game / restart
 }
 
 // New returns the game model wired to the real save/ledger/meta locations,
@@ -122,22 +126,28 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 		// New game or pre-events save: seed once, outside the pure sim.
 		state.Events.RandState = uint64(time.Now().UnixNano())
 	}
+	if state.Campaign.RandState == 0 {
+		// Campaign RNG is independent of event RNG; XOR a golden ratio constant
+		// so a shared UnixNano seed cannot leave both streams identical.
+		state.Campaign.RandState = uint64(time.Now().UnixNano()) ^ 0x9e3779b97f4a7c15
+	}
 	meta, metaOK, _ := store.LoadMeta(metaPath)
 	m := Model{
-		state:          state,
-		cfg:            balance.Default(),
-		poller:         ingest.NewDefaultPoller(),
-		savePath:       savePath,
-		ledgerPath:     ledgerPath,
-		metaPath:       metaPath,
-		consumed:       meta.ConsumedSources,
-		lastRealUnix:   meta.LastRealUnix,
-		metaMissing:    !metaOK,
-		streakDays:     meta.StreakDays,
-		lastActiveDate: meta.LastActiveDate,
-		width:          100,
-		height:         40,
-		vp:             viewport.New(80, 20),
+		state:            state,
+		cfg:              balance.Default(),
+		poller:           ingest.NewDefaultPoller(),
+		savePath:         savePath,
+		ledgerPath:       ledgerPath,
+		metaPath:         metaPath,
+		consumed:         meta.ConsumedSources,
+		lastRealUnix:     meta.LastRealUnix,
+		metaMissing:      !metaOK,
+		streakDays:       meta.StreakDays,
+		lastActiveDate:   meta.LastActiveDate,
+		lastCampaignUnix: meta.LastCampaignUnix,
+		width:            100,
+		height:           40,
+		vp:               viewport.New(80, 20),
 	}
 	m.resize(m.width, m.height)
 	m.refreshViewport()
@@ -231,14 +241,15 @@ const (
 	streakBonusPerDay = 0.06 // +6%/day, so day 5 = ×1.3 and the day-10 cap = ×1.6
 )
 
-// saveMeta persists the consumed watermark, streak state, and the current
-// wall-clock time.
+// saveMeta persists the consumed watermark, streak state, campaign clock,
+// and the current wall-clock time.
 func (m Model) saveMeta() {
 	_ = store.SaveMeta(m.metaPath, store.Meta{
-		ConsumedSources: m.consumed,
-		LastRealUnix:    time.Now().Unix(),
-		LastActiveDate:  m.lastActiveDate,
-		StreakDays:      m.streakDays,
+		ConsumedSources:  m.consumed,
+		LastRealUnix:     time.Now().Unix(),
+		LastActiveDate:   m.lastActiveDate,
+		StreakDays:       m.streakDays,
+		LastCampaignUnix: m.lastCampaignUnix,
 	})
 }
 

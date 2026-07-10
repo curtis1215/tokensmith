@@ -16,12 +16,16 @@ import (
 // progress). The sim itself never sees wall-clock.
 type Meta struct {
 	ConsumedSources map[string]model.SourceTotals `json:"consumedSources"`
-	LastRealUnix    int64                          `json:"lastRealUnix"`
+	LastRealUnix    int64                         `json:"lastRealUnix"`
 	// LastActiveDate is "YYYY-MM-DD" in local time — the last calendar day any
 	// tokens were harvested. StreakDays counts consecutive such days; a
 	// skipped day resets it to 1 on the next active day.
 	LastActiveDate string `json:"lastActiveDate"`
 	StreakDays     int    `json:"streakDays"`
+	// LastCampaignUnix is the wall-clock time of the last completed board
+	// cycle (or the session that armed the clock). Used only by the TUI to
+	// compute catch-up cycles; the pure sim never sees this field.
+	LastCampaignUnix int64 `json:"lastCampaignUnix"`
 }
 
 // DefaultMetaPath is the standard meta-file location.
