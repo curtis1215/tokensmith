@@ -2,16 +2,16 @@ package tui
 
 import "github.com/charmbracelet/lipgloss"
 
+// 舊樣式名 rebind 到 theme.go 的 HUD 調色盤，呼叫端逐步遷移。
 var (
-	styleAccent    = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-	styleWarn      = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
+	styleAccent    = styleCyan
+	styleWarn      = styleLoss
 	styleMuted     = lipgloss.NewStyle().Faint(true)
-	styleTitle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
-	styleTabActive = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).Underline(true)
+	styleTitle     = lipgloss.NewStyle().Bold(true).Foreground(colorCyan)
+	styleTabActive = lipgloss.NewStyle().Bold(true).Foreground(colorCyan).Underline(true)
 
-	// Existing styles in tui.go re-exported here to avoid duplication
 	titleStyle     = styleTitle
-	boxStyle       = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
+	boxStyle       = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colorDim).Padding(0, 1)
 	helpStyle      = styleMuted
 	tabActiveStyle = styleTabActive
 )

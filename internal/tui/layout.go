@@ -8,8 +8,7 @@ import (
 
 // Card renders a styled box with a title and body.
 func Card(title, body string) string {
-	inner := styleTitle.Render(title) + "\n" + body
-	return boxStyle.Render(inner)
+	return CardIn(CardDefault, 0, title, body)
 }
 
 // cardFrameWidth is horizontal chrome of boxStyle: border + padding on each side.
