@@ -121,6 +121,19 @@ func renderCampaignStatusCard(m Model, w int) string {
 		KV("董事會週期", fmt.Sprintf("%d", camp.Cycle)),
 		fmt.Sprintf("下一目標 %s %.0f%%", Bar(status.Progress, 12), status.Progress*100),
 	)
+	kind := CardAccent
+	if status.Stage == model.CampaignStageShowdown {
+		kind = CardThreat
+		line := fmt.Sprintf("⚔ 決勝中——已頂住 %d/2 次宿敵攻勢", camp.ShowdownHeld)
+		if camp.ShowdownAttempts > 0 {
+			line += fmt.Sprintf("（第 %d 次嘗試）", camp.ShowdownAttempts+1)
+		}
+		st := styleLoss.Bold(true)
+		if m.blink {
+			st = styleAmber.Bold(true)
+		}
+		lines = append(lines, st.Render(line))
+	}
 	if len(camp.Perks) > 0 {
 		var names []string
 		for _, id := range camp.Perks {
@@ -151,31 +164,39 @@ func renderCampaignStatusCard(m Model, w int) string {
 	if status.Victory || camp.Victory != model.DoctrineNone {
 		lines = append(lines, styleAccent.Render("✓ 路線勝利 — 按 P 結算"))
 	}
-	return CardIn(CardAccent, w, "公司戰略", VStack(lines...))
+	return CardIn(kind, w, "公司戰略", VStack(lines...))
 }
 
 // renderRivalRoadmapCard shows primary + wildcard confirmed/rumored actions.
 func renderRivalRoadmapCard(m Model, w int) string {
 	var blocks []string
 	if primary, ok := sim.CampaignRivalIntel(m.state, m.cfg, true); ok {
-		blocks = append(blocks, renderRivalIntelBlock("主要宿敵", primary, m.cfg))
+		blocks = append(blocks, renderRivalIntelBlock("主要宿敵", primary, m.cfg, m.blink))
 	} else {
 		blocks = append(blocks, styleMuted.Render("主要宿敵：尚無情報"))
 	}
 	if wildcard, ok := sim.CampaignRivalIntel(m.state, m.cfg, false); ok {
-		blocks = append(blocks, renderRivalIntelBlock("攪局者", wildcard, m.cfg))
+		blocks = append(blocks, renderRivalIntelBlock("攪局者", wildcard, m.cfg, m.blink))
 	} else {
 		blocks = append(blocks, styleMuted.Render("攪局者：尚無情報"))
 	}
 	return CardIn(CardThreat, w, "宿敵路線", VStack(blocks...))
 }
 
-func renderRivalIntelBlock(role string, intel sim.RivalIntelView, cfg balance.Config) string {
+func renderRivalIntelBlock(role string, intel sim.RivalIntelView, cfg balance.Config, blink bool) string {
 	var lines []string
 	lines = append(lines, fmt.Sprintf("%s %s", role, intel.Company))
 	if intel.ConfirmedActionID != "" {
-		lines = append(lines, fmt.Sprintf("  已確認 %s · %d 週期後",
-			rivalActionLabel(intel.ConfirmedActionID), intel.CyclesUntilAction))
+		line := fmt.Sprintf("  已確認 %s · %d 週期後",
+			rivalActionLabel(intel.ConfirmedActionID), intel.CyclesUntilAction)
+		if intel.CyclesUntilAction <= 1 {
+			st := styleLoss.Bold(true)
+			if blink {
+				st = styleAmber.Bold(true)
+			}
+			line = st.Render(line + " ⚠")
+		}
+		lines = append(lines, line)
 		lines = append(lines, formatActionIntelDetail(intel.ConfirmedActionID, intel.IntelFull, cfg, "  "))
 	}
 	if intel.RumoredActionID != "" {

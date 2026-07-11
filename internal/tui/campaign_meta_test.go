@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -79,7 +80,7 @@ func TestRivalIntelFullVsPartialDisclosure(t *testing.T) {
 	partial := renderRivalIntelBlock("主要宿敵", sim.RivalIntelView{
 		Company: "OpenAI", ConfirmedActionID: "openai-flagship",
 		RumoredActionID: "openai-platform", CyclesUntilAction: 1, IntelFull: false,
-	}, cfg)
+	}, cfg, false)
 	if !strings.Contains(partial, "方向") || !strings.Contains(partial, "消費者") {
 		t.Fatalf("partial intel must show direction+segment:\n%s", partial)
 	}
@@ -93,7 +94,7 @@ func TestRivalIntelFullVsPartialDisclosure(t *testing.T) {
 	full := renderRivalIntelBlock("主要宿敵", sim.RivalIntelView{
 		Company: "OpenAI", ConfirmedActionID: "openai-flagship",
 		RumoredActionID: "openai-platform", CyclesUntilAction: 1, IntelFull: true,
-	}, cfg)
+	}, cfg, false)
 	for _, want := range []string{"能力+", "價格×", "前置"} {
 		if !strings.Contains(full, want) {
 			t.Fatalf("full intel must disclose %q:\n%s", want, full)
@@ -151,5 +152,30 @@ func TestBoardReportShowsNewestFourOnly(t *testing.T) {
 		if !strings.Contains(card, want) {
 			t.Fatalf("newest-four missing %q:\n%s", want, card)
 		}
+	}
+}
+
+func TestShowdownProgressVisible(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	m.state.Campaign.Doctrine = model.DoctrineConsumer
+	m.state.Campaign.Stage = model.CampaignStageShowdown
+	m.state.Campaign.ShowdownHeld = 1
+	out := renderCampaignStatusCard(m, 60)
+	if !strings.Contains(out, "1/2") {
+		t.Fatalf("showdown held progress missing: %q", out)
+	}
+	if !strings.Contains(out, "決勝中") {
+		t.Fatalf("showdown banner missing: %q", out)
+	}
+}
+
+func TestShowdownRetryCounterVisible(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	m.state.Campaign.Doctrine = model.DoctrineConsumer
+	m.state.Campaign.Stage = model.CampaignStageShowdown
+	m.state.Campaign.ShowdownAttempts = 2
+	out := renderCampaignStatusCard(m, 60)
+	if !strings.Contains(out, "第 3 次嘗試") {
+		t.Fatalf("retry counter missing: %q", out)
 	}
 }

@@ -126,6 +126,7 @@ type Model struct {
 	banners     []Moment
 	bannerTicks int
 	epic        *Moment
+	blink       bool // 每 tick 翻轉；威脅行明暗交替
 }
 
 // pushBanner queues a Major banner, dropping the oldest beyond maxBanners.
@@ -457,6 +458,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 				m.lastRank[seg] = r
 			}
 		}
+		m.blink = !m.blink
 		m.advanceDisplay()
 		m.ticksSinceSave++
 		if m.ticksSinceSave >= 40 {
@@ -1260,12 +1262,9 @@ func pressures(m Model) []string {
 		out = append(out, fmt.Sprintf("待發佈模型 %d 個 — 模型頁按 p", draftN))
 	}
 	// Campaign pressures (append only; keep existing warnings above).
-	// Distress=1 may warn about approaching exit eligibility but must not
-	// advertise [E] (pageKeys only unlocks E at distress>=2 or cycle>=18).
-	if n := s.Campaign.FinancialDistressCycles; n >= 2 {
-		out = append(out, fmt.Sprintf("⚠ 財務困境已連續 %d 個董事會週期——可按 [E]策略退出或止血", n))
-	} else if n == 1 {
-		out = append(out, "⚠ 財務困境 1 個董事會週期——接近策略退出條件，請先止血")
+	if c := s.Campaign.FinancialDistressCycles; c >= 1 {
+		out = append(out, styleLoss.Bold(true).Render(
+			fmt.Sprintf("🩸 財務危機 第 %d 週期——連續 2 週期可策略退出 [E]", c)))
 	}
 	if s.Campaign.Doctrine == model.DoctrineNone && hasOnline {
 		out = append(out, "⚠ 尚未選擇公司戰略——總覽頁按 c")
