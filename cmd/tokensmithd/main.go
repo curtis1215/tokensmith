@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"tokensmith/internal/dailyusage"
 	"tokensmith/internal/daemon"
 	"tokensmith/internal/ingest"
 	"tokensmith/internal/ledger"
@@ -48,13 +49,17 @@ func main() {
 	}
 	defer release()
 
-	h := daemon.NewWithSources(claudeRoots, codexRoots, snapshots, lp)
+	dailyPath := dailyusage.DefaultPath()
+	dailyStore := dailyusage.New(dailyPath)
+	h := daemon.NewWithSourcesAndDaily(claudeRoots, codexRoots, snapshots,
+		dailyusage.NewBuffer(dailyStore), lp)
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 
 	log.Printf("tokensmithd harvesting → %s", lp)
+	log.Printf("tokensmithd daily usage → %s", dailyPath)
 	_ = h.Step(time.Now().Unix())
 	for {
 		select {

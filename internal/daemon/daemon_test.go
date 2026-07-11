@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
+	"tokensmith/internal/dailyusage"
 	"tokensmith/internal/ingest"
 	"tokensmith/internal/ledger"
 	"tokensmith/internal/model"
@@ -275,5 +277,183 @@ func TestHarvesterSnapshotAbsencePreservesPersistedWatermark(t *testing.T) {
 	}
 	if got := h2.Ledger().Sources["opencode"]; got != (model.SourceTotals{In: 10, Out: 5}) {
 		t.Fatalf("restored source replayed history: %+v", got)
+	}
+}
+
+// dailySink is a test double for dailyusage.Sink.
+type dailySink struct {
+	mu    sync.Mutex
+	saved []dailyusage.Batch
+	fail  int // remaining failures before success
+	err   error
+}
+
+func (s *dailySink) Add(b dailyusage.Batch) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err != nil {
+		return s.err
+	}
+	if s.fail > 0 {
+		s.fail--
+		return errors.New("daily sink temporary failure")
+	}
+	s.saved = append(s.saved, b)
+	return nil
+}
+
+func TestHarvesterDailyAppendDeltas(t *testing.T) {
+	old := time.Local
+	time.Local = time.FixedZone("UTC+8", 8*3600)
+	t.Cleanup(func() { time.Local = old })
+
+	claude, codex := t.TempDir(), t.TempDir()
+	lp := filepath.Join(t.TempDir(), "ledger.json")
+	claudeFile := filepath.Join(claude, "s.jsonl")
+	codexFile := filepath.Join(codex, "s.jsonl")
+
+	// Prime history so first write is a true delta.
+	writeLine(t, claudeFile, "OLD")
+	writeCodexLine(t, codexFile, 1, 1)
+
+	sink := &dailySink{}
+	h := NewWithSourcesAndDaily([]string{claude}, []string{codex}, nil,
+		dailyusage.NewBuffer(sink), lp)
+
+	// First step primes append sources to EOF (no award for pre-existing lines).
+	at := time.Date(2026, 7, 12, 23, 59, 0, 0, time.Local)
+	if err := h.Step(at.Unix()); err != nil {
+		t.Fatal(err)
+	}
+	// No new events after prime — daily may have empty flush only.
+	if len(sink.saved) != 0 {
+		// Empty batch is not enqueued; nothing should be saved from prime.
+		t.Fatalf("prime should not record daily: %+v", sink.saved)
+	}
+
+	writeLine(t, claudeFile, "A")
+	writeCodexLine(t, codexFile, 30, 15)
+	if err := h.Step(at.Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.saved) != 1 {
+		t.Fatalf("want 1 daily batch, got %d: %+v", len(sink.saved), sink.saved)
+	}
+	batch := sink.saved[0]
+	if batch.Day != "2026-07-12" {
+		t.Fatalf("day=%q", batch.Day)
+	}
+	if got := batch.Sources["claude-code"]; got != (model.SourceTotals{In: 100, Out: 50}) {
+		t.Fatalf("claude-code daily=%+v", got)
+	}
+	if got := batch.Sources["codex"]; got != (model.SourceTotals{In: 30, Out: 15}) {
+		t.Fatalf("codex daily=%+v", got)
+	}
+	// Ledger still updated.
+	if l := h.Ledger(); l.Sources["claude-code"].In != 100 || l.Sources["codex"].In != 30 {
+		t.Fatalf("ledger=%+v", l.Sources)
+	}
+}
+
+func TestHarvesterDailySnapshotPrimeThenGrowth(t *testing.T) {
+	old := time.Local
+	time.Local = time.FixedZone("UTC+8", 8*3600)
+	t.Cleanup(func() { time.Local = old })
+
+	lp := filepath.Join(t.TempDir(), "ledger.json")
+	grok := &fakeSnapshotSource{source: "grok", totals: model.SourceTotals{In: 1000}}
+	opencode := &fakeSnapshotSource{source: "opencode", totals: model.SourceTotals{In: 200, Out: 50}}
+	sink := &dailySink{}
+	h := NewWithSourcesAndDaily(nil, nil, []ingest.SnapshotSource{grok, opencode},
+		dailyusage.NewBuffer(sink), lp)
+
+	at := time.Date(2026, 7, 12, 12, 0, 0, 0, time.Local)
+	if err := h.Step(at.Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.saved) != 0 {
+		t.Fatalf("first observation must prime only, daily=%+v", sink.saved)
+	}
+
+	grok.totals = model.SourceTotals{In: 1120}
+	opencode.totals = model.SourceTotals{In: 230, Out: 59}
+	if err := h.Step(at.Unix() + 1); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.saved) != 1 {
+		t.Fatalf("want 1 growth batch, got %d", len(sink.saved))
+	}
+	b := sink.saved[0]
+	if got := b.Sources["grok"]; got != (model.SourceTotals{In: 120}) {
+		t.Fatalf("grok daily=%+v", got)
+	}
+	if got := b.Sources["opencode"]; got != (model.SourceTotals{In: 30, Out: 9}) {
+		t.Fatalf("opencode daily=%+v", got)
+	}
+}
+
+func TestHarvesterDailyFailureStillSavesLedgerAndRetries(t *testing.T) {
+	old := time.Local
+	time.Local = time.FixedZone("UTC+8", 8*3600)
+	t.Cleanup(func() { time.Local = old })
+
+	claude, codex := t.TempDir(), t.TempDir()
+	lp := filepath.Join(t.TempDir(), "ledger.json")
+	claudeFile := filepath.Join(claude, "s.jsonl")
+	// Empty start so first line is a true delta after PrimeUnknown.
+	sink := &dailySink{fail: 1}
+	h := NewWithSourcesAndDaily([]string{claude}, []string{codex}, nil,
+		dailyusage.NewBuffer(sink), lp)
+
+	at := time.Date(2026, 7, 12, 10, 0, 0, 0, time.Local)
+	// Prime empty.
+	if err := h.Step(at.Unix()); err != nil {
+		// daily failure with empty batch returns nil from Record; but wait —
+		// no events → empty Record → Flush with nothing → nil. ledger save ok.
+		t.Fatal(err)
+	}
+
+	writeLine(t, claudeFile, "A")
+	err := h.Step(at.Unix() + 1)
+	// Daily fail is joined into Step error, but ledger must still be saved.
+	if err == nil {
+		t.Fatal("want daily error joined into Step")
+	}
+	got, ok, lerr := ledger.Load(lp)
+	if lerr != nil || !ok {
+		t.Fatalf("ledger not saved: ok=%v err=%v", ok, lerr)
+	}
+	if got.Sources["claude-code"].In != 100 {
+		t.Fatalf("ledger totals=%+v", got.Sources)
+	}
+	if len(sink.saved) != 0 {
+		t.Fatalf("sink should not have accepted failed batch: %+v", sink.saved)
+	}
+
+	// Next no-event Step retries pending daily exactly once.
+	if err := h.Step(at.Unix() + 2); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.saved) != 1 {
+		t.Fatalf("retry saved=%d, want 1", len(sink.saved))
+	}
+	if sink.saved[0].Sources["claude-code"] != (model.SourceTotals{In: 100, Out: 50}) {
+		t.Fatalf("retried batch=%+v", sink.saved[0])
+	}
+	// Another empty step must not duplicate.
+	if err := h.Step(at.Unix() + 3); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.saved) != 1 {
+		t.Fatalf("duplicate daily write: %d", len(sink.saved))
+	}
+}
+
+func TestNewWithSourcesInstallsDisabledDaily(t *testing.T) {
+	// Compatibility: constructors without daily must not panic on Step.
+	lp := filepath.Join(t.TempDir(), "ledger.json")
+	h := NewWithSources(nil, nil, nil, lp)
+	if err := h.Step(1000); err != nil {
+		t.Fatal(err)
 	}
 }

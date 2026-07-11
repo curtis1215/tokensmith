@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
+	"tokensmith/internal/dailyusage"
 	"tokensmith/internal/ingest"
 	"tokensmith/internal/ledger"
 	"tokensmith/internal/model"
@@ -22,6 +24,7 @@ type Harvester struct {
 	snapshots  []ingest.SnapshotSource
 	ledgerPath string
 	cur        ledger.Ledger
+	daily      *dailyusage.Buffer
 }
 
 // New loads any existing ledger and resumes from its persisted cursors, then
@@ -32,10 +35,22 @@ func New(claudeDir, codexDir, ledgerPath string) *Harvester {
 }
 
 // NewWithSources builds a harvester over multiple append-only roots plus
-// cumulative snapshot sources such as Grok and OpenCode.
+// cumulative snapshot sources such as Grok and OpenCode. A disabled daily
+// buffer is installed for compatibility.
 func NewWithSources(
 	claudeDirs, codexDirs []string,
 	snapshots []ingest.SnapshotSource,
+	ledgerPath string,
+) *Harvester {
+	return NewWithSourcesAndDaily(claudeDirs, codexDirs, snapshots, dailyusage.NewBuffer(nil), ledgerPath)
+}
+
+// NewWithSourcesAndDaily is NewWithSources with an explicit daily-usage buffer.
+// Pass dailyusage.NewBuffer(nil) to disable daily recording.
+func NewWithSourcesAndDaily(
+	claudeDirs, codexDirs []string,
+	snapshots []ingest.SnapshotSource,
+	daily *dailyusage.Buffer,
 	ledgerPath string,
 ) *Harvester {
 	p := ingest.NewPollerWithRoots(claudeDirs, codexDirs)
@@ -44,15 +59,23 @@ func NewWithSources(
 		p.ImportCursors(cur.Cursors)
 	}
 	p.PrimeUnknown()
-	return &Harvester{poller: p, snapshots: snapshots, ledgerPath: ledgerPath, cur: cur}
+	if daily == nil {
+		daily = dailyusage.NewBuffer(nil)
+	}
+	return &Harvester{poller: p, snapshots: snapshots, ledgerPath: ledgerPath, cur: cur, daily: daily}
 }
 
 // Step polls for new usage, folds it into the cumulative per-source totals,
-// and persists the ledger stamped with now (unix seconds), keeping only
-// recently-active cursors so the file stays small.
+// records exact positive deltas into the daily-usage store, and persists the
+// ledger stamped with now (unix seconds), keeping only recently-active cursors
+// so the file stays small.
+//
+// Daily-stat failure never blocks ledger persistence: both errors are joined.
 func (h *Harvester) Step(now int64) error {
+	var harvested []model.TokenEvent
 	for _, e := range h.poller.Poll() {
 		h.add(e.Source, model.SourceTotals{In: e.InputTokens, Out: e.OutputTokens})
+		harvested = append(harvested, e)
 	}
 	var snapshotErrors []error
 	for _, source := range h.snapshots {
@@ -64,11 +87,22 @@ func (h *Harvester) Step(now int64) error {
 		if !present {
 			continue
 		}
-		h.applySnapshot(source.Source(), current)
+		if delta, ok := h.applySnapshot(source.Source(), current); ok {
+			harvested = append(harvested, model.TokenEvent{
+				Source:       source.Source(),
+				InputTokens:  delta.In,
+				OutputTokens: delta.Out,
+			})
+		}
 	}
 	h.cur.UpdatedAt = now
 	h.cur.Cursors = pruneCursors(h.poller.ExportCursors(), now)
-	snapshotErrors = append(snapshotErrors, ledger.Save(h.ledgerPath, h.cur))
+
+	batch := dailyusage.BatchFromEvents(time.Unix(now, 0), harvested)
+	dailyErr := h.daily.Record(batch) // empty batch also flushes pending work
+
+	ledgerErr := ledger.Save(h.ledgerPath, h.cur)
+	snapshotErrors = append(snapshotErrors, dailyErr, ledgerErr)
 	return errors.Join(snapshotErrors...)
 }
 
@@ -85,9 +119,12 @@ func (h *Harvester) add(source string, delta model.SourceTotals) {
 	h.cur.Sources[source] = total
 }
 
-func (h *Harvester) applySnapshot(source string, current model.SourceTotals) {
+// applySnapshot updates the snapshot watermark and returns a positive delta
+// only for known, non-decreasing sources. First observation primes without
+// awarding; decreases rebaseline without awarding.
+func (h *Harvester) applySnapshot(source string, current model.SourceTotals) (model.SourceTotals, bool) {
 	if source == "" {
-		return
+		return model.SourceTotals{}, false
 	}
 	if h.cur.Snapshots == nil {
 		h.cur.Snapshots = map[string]model.SourceTotals{}
@@ -95,9 +132,14 @@ func (h *Harvester) applySnapshot(source string, current model.SourceTotals) {
 	previous, known := h.cur.Snapshots[source]
 	h.cur.Snapshots[source] = current
 	if !known || current.In < previous.In || current.Out < previous.Out {
-		return
+		return model.SourceTotals{}, false
 	}
-	h.add(source, model.SourceTotals{In: current.In - previous.In, Out: current.Out - previous.Out})
+	delta := model.SourceTotals{In: current.In - previous.In, Out: current.Out - previous.Out}
+	if delta.In == 0 && delta.Out == 0 {
+		return model.SourceTotals{}, false
+	}
+	h.add(source, delta)
+	return delta, true
 }
 
 // pruneCursors keeps only cursors for files modified within cursorMaxAgeSec.
