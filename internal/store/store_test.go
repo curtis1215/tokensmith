@@ -180,13 +180,28 @@ func TestLoadLegacyShape(t *testing.T) {
 	if got.Resources.Cash != 111 || got.Resources.RnD != 222 || got.GameTime != 3600 {
 		t.Fatalf("legacy not restored: %+v", got)
 	}
-	// Load must not rewrite the file (still legacy shape on disk).
+	// Migration rewrites to the versioned envelope; original bytes are in .v0.bak.
 	onDisk, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(onDisk) != raw {
-		t.Fatalf("legacy file was rewritten:\n got %s\nwant %s", onDisk, raw)
+	var env SaveFile
+	if err := json.Unmarshal(onDisk, &env); err != nil {
+		t.Fatalf("expected envelope after migrate: %v raw=%s", err, onDisk)
+	}
+	if env.SchemaVersion != CurrentSchemaVersion || env.State.Resources.Cash != 111 {
+		t.Fatalf("envelope wrong: %+v", env)
+	}
+	bak, err := os.ReadFile(path + ".v0.bak")
+	if err != nil || string(bak) != raw {
+		t.Fatalf("v0 backup missing or wrong: err=%v bak=%s", err, bak)
+	}
+	// IndustryTime migrated from GameTime.
+	if got.Progression.IndustryTime != 3600 {
+		t.Fatalf("IndustryTime = %v, want 3600", got.Progression.IndustryTime)
+	}
+	if got.Progression.MaxUnlockedGen < 1 {
+		t.Fatalf("MaxUnlockedGen = %d", got.Progression.MaxUnlockedGen)
 	}
 }
 

@@ -9,12 +9,12 @@ import (
 	"os"
 	"path/filepath"
 
+	"tokensmith/internal/balance"
 	"tokensmith/internal/model"
 )
 
 // CurrentSchemaVersion is written on every Save. Load accepts this envelope
-// or a legacy bare GameState (no schemaVersion). Migration of legacy fields
-// is Task 13.
+// or a legacy bare GameState (no schemaVersion), migrating v0 → current.
 const CurrentSchemaVersion = 1
 
 // SaveFile is the versioned on-disk envelope.
@@ -50,11 +50,16 @@ func Save(path string, s model.GameState) error {
 	return os.Rename(tmp, path)
 }
 
-// Load reads the state from path. Returns ok=false if the file does not exist.
-// Versioned envelopes (top-level schemaVersion) unwrap State; absent
-// schemaVersion means a legacy bare GameState. Corrupt bytes are never
-// rewritten — the original file is left untouched and an error is returned.
+// Load reads the state from path using balance.Default().
+// Returns ok=false if the file does not exist.
 func Load(path string) (model.GameState, bool, error) {
+	return LoadWithConfig(path, balance.Default())
+}
+
+// LoadWithConfig is the explicit-config load path (tests / custom balance).
+// Legacy bare GameState (schema 0) is backed up once, migrated, validated, and
+// rewritten as a versioned envelope. On any failure the original bytes remain.
+func LoadWithConfig(path string, b balance.Config) (model.GameState, bool, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return model.GameState{}, false, nil
@@ -62,11 +67,47 @@ func Load(path string) (model.GameState, bool, error) {
 	if err != nil {
 		return model.GameState{}, false, err
 	}
+	legacy := !hasSchemaVersion(data)
 	s, err := decodeSaveBytes(data)
 	if err != nil {
 		return model.GameState{}, false, err
 	}
-	return s, true, nil
+	if !legacy {
+		// Soft-repair zero-value progression on v1 saves from older test fixtures
+		// / mid-feature states; hard validation still rejects NaN/negatives.
+		if s.Progression.MaxUnlockedGen < 1 {
+			s.Progression.MaxUnlockedGen = 1
+		}
+		if err := validateState(s, b); err != nil {
+			return model.GameState{}, false, err
+		}
+		return s, true, nil
+	}
+	// Schema 0 → migrate under explicit config.
+	if err := backupV0(path, data); err != nil {
+		return model.GameState{}, false, err
+	}
+	migrated, err := migrateV0(s, b)
+	if err != nil {
+		return model.GameState{}, false, err
+	}
+	if err := validateState(migrated, b); err != nil {
+		return model.GameState{}, false, err
+	}
+	if err := Save(path, migrated); err != nil {
+		return model.GameState{}, false, err
+	}
+	return migrated, true, nil
+}
+
+func hasSchemaVersion(data []byte) bool {
+	var probe struct {
+		SchemaVersion *int `json:"schemaVersion"`
+	}
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return false
+	}
+	return probe.SchemaVersion != nil
 }
 
 // decodeSaveBytes probes raw JSON for a top-level schemaVersion key.

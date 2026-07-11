@@ -11,6 +11,14 @@ const (
 	leaderBonusPct = 0.04
 )
 
+// EnsureRivalEraState selects era leaders when the player's generation era
+// changes. Leaders are persisted in Progression.Rivals so unrelated RNG use
+// cannot reshuffle them. Era transitions clear rival momentum.
+// Exported for store v0 migration to initialize RivalEraState.
+func EnsureRivalEraState(s model.GameState, b balance.Config) model.GameState {
+	return ensureRivalEraState(s, b)
+}
+
 // ensureRivalEraState selects era leaders when the player's generation era
 // changes. Leaders are persisted in Progression.Rivals so unrelated RNG use
 // cannot reshuffle them. Era transitions clear rival momentum.
