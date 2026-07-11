@@ -214,3 +214,21 @@ func TestRealSecCompressionMatchesTickRate(t *testing.T) {
 		t.Fatalf("balance.RealSecCompression = %v, want %v (tui tickDT/tickInterval changed without updating balance.RealSecCompression)", balance.RealSecCompression, want)
 	}
 }
+
+func TestResourceBarSegments(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	bar := renderResourceBar(m)
+	if !strings.Contains(bar, "│") {
+		t.Fatalf("resource bar should use │ separators: %q", bar)
+	}
+	if !strings.Contains(bar, "💰") || !strings.Contains(bar, "📈") {
+		t.Fatalf("segments missing: %q", bar)
+	}
+}
+
+func TestTabBarMarksActive(t *testing.T) {
+	got := renderTabBar(PageMarket)
+	if !strings.Contains(got, "3 市場") {
+		t.Fatalf("tab bar labels changed unexpectedly: %q", got)
+	}
+}

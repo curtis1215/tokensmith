@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"tokensmith/internal/balance"
 	"tokensmith/internal/game"
@@ -1068,9 +1069,15 @@ func renderResourceBar(m Model) string {
 		rndSeg = styleAccent.Render(rndSeg)
 	}
 
-	bar := fmt.Sprintf("%s   ⚡R&D %s   🖥訓練%.0f%% %s   📈估值 $%s",
-		cashStr, rndSeg,
-		trainUtil*100, infStr, human(val))
+	valStr := stylePurple.Render(fmt.Sprintf("📈估值 $%s", human(val)))
+	sep := styleMuted.Render(" │ ")
+	segs := []string{
+		cashStr,
+		"⚡R&D " + rndSeg,
+		fmt.Sprintf("🖥訓練%.0f%% %s", trainUtil*100, infStr),
+		valStr,
+	}
+	bar := strings.Join(segs, sep)
 
 	if m.disp.PulseToken > 0 && len(m.lastTokenRnD) > 0 {
 		parts := make([]string, 0, len(m.lastTokenRnD)+1)
@@ -1180,13 +1187,14 @@ func pressures(m Model) []string {
 func renderTabBar(p Page) string {
 	var parts []string
 	for i, name := range pageNames {
-		label := fmt.Sprintf("[%d]%s", i+1, name)
+		label := fmt.Sprintf(" %d %s ", i+1, name)
 		if Page(i) == p {
-			label = tabActiveStyle.Render(label)
+			parts = append(parts, lipgloss.NewStyle().Bold(true).Foreground(colorInk).Background(colorCyan).Render(label))
+		} else {
+			parts = append(parts, styleMuted.Render(label))
 		}
-		parts = append(parts, label)
 	}
-	return strings.Join(parts, "  ")
+	return strings.Join(parts, " ")
 }
 
 func (m Model) renderPage() string {
