@@ -11,6 +11,7 @@ import (
 func renderOverview(m Model) string {
 	cw := m.contentWidth()
 	rows := []string{
+		renderHQ(m, cw),
 		Grid(cw, 2,
 			func(w int) string { return renderCampaignStatusCard(m, w) },
 			func(w int) string { return renderRivalRoadmapCard(m, w) },

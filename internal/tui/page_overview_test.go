@@ -29,6 +29,15 @@ func TestOverviewShowsCampaignWarRoom(t *testing.T) {
 	}
 }
 
+func TestOverviewShowsHQ(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	mm, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 42})
+	m = mm.(Model)
+	if out := renderOverview(m); !strings.Contains(out, "總部") {
+		t.Fatal("overview should show HQ card")
+	}
+}
+
 func TestOverviewPreCampaignGuidance(t *testing.T) {
 	m := testModel(t)
 	m.state.Campaign = model.CampaignState{}
