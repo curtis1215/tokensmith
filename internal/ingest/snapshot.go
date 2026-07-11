@@ -7,5 +7,5 @@ import "tokensmith/internal/model"
 // the daemon persists and subtracts a high-water mark before crediting R&D.
 type SnapshotSource interface {
 	Source() string
-	Totals() (model.SourceTotals, error)
+	Totals() (totals model.SourceTotals, present bool, err error)
 }

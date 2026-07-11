@@ -56,9 +56,12 @@ func (h *Harvester) Step(now int64) error {
 	}
 	var snapshotErrors []error
 	for _, source := range h.snapshots {
-		current, err := source.Totals()
+		current, present, err := source.Totals()
 		if err != nil {
 			snapshotErrors = append(snapshotErrors, fmt.Errorf("%s snapshot: %w", source.Source(), err))
+			continue
+		}
+		if !present {
 			continue
 		}
 		h.applySnapshot(source.Source(), current)

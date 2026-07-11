@@ -2,7 +2,6 @@ package ingest
 
 import (
 	"encoding/json"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -22,7 +21,6 @@ type grokSignalCache struct {
 type GrokSnapshotSource struct {
 	root  string
 	cache map[string]grokSignalCache
-	seen  bool
 }
 
 func NewGrokSnapshotSource(grokHome string) *GrokSnapshotSource {
@@ -34,12 +32,12 @@ func NewGrokSnapshotSource(grokHome string) *GrokSnapshotSource {
 
 func (*GrokSnapshotSource) Source() string { return "grok" }
 
-func (s *GrokSnapshotSource) Totals() (model.SourceTotals, error) {
+func (s *GrokSnapshotSource) Totals() (model.SourceTotals, bool, error) {
 	if _, err := os.Stat(s.root); err != nil {
-		if os.IsNotExist(err) && !s.seen {
-			return model.SourceTotals{}, nil
+		if os.IsNotExist(err) {
+			return model.SourceTotals{}, false, nil
 		}
-		return model.SourceTotals{}, fmt.Errorf("Grok sessions unavailable: %w", err)
+		return model.SourceTotals{}, false, err
 	}
 	next := make(map[string]grokSignalCache, len(s.cache))
 	total := 0
@@ -64,6 +62,10 @@ func (s *GrokSnapshotSource) Totals() (model.SourceTotals, error) {
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
+			if cached, ok := s.cache[path]; ok {
+				next[path] = cached
+				total += cached.tokens
+			}
 			return nil
 		}
 		var signal struct {
@@ -71,6 +73,10 @@ func (s *GrokSnapshotSource) Totals() (model.SourceTotals, error) {
 			ContextUsed      int `json:"contextTokensUsed"`
 		}
 		if err := json.Unmarshal(data, &signal); err != nil {
+			if cached, ok := s.cache[path]; ok {
+				next[path] = cached
+				total += cached.tokens
+			}
 			return nil
 		}
 		tokens := max(0, signal.BeforeCompaction) + max(0, signal.ContextUsed)
@@ -80,9 +86,8 @@ func (s *GrokSnapshotSource) Totals() (model.SourceTotals, error) {
 		return nil
 	})
 	if err != nil && !os.IsNotExist(err) {
-		return model.SourceTotals{}, err
+		return model.SourceTotals{}, false, err
 	}
 	s.cache = next
-	s.seen = true
-	return model.SourceTotals{In: total}, nil
+	return model.SourceTotals{In: total}, true, nil
 }

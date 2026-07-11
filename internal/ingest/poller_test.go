@@ -186,6 +186,39 @@ func TestPollerDoesNotDoubleReadHardLinkedSessionAcrossRoots(t *testing.T) {
 	}
 }
 
+func TestPollerInheritsCursorWhenHardLinkAppearsInEarlierRootLater(t *testing.T) {
+	codexA, codexB := t.TempDir(), t.TempDir()
+	original := filepath.Join(codexB, "shared.jsonl")
+	lateLink := filepath.Join(codexA, "shared.jsonl")
+	line := `{"timestamp":"2026-07-07T10:59:19Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":30,"output_tokens":15}}}}` + "\n"
+	if err := os.WriteFile(original, []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := NewPollerWithRoots(nil, []string{codexA, codexB})
+	if got := p.Poll(); len(got) != 1 {
+		t.Fatalf("initial poll = %d events, want 1", len(got))
+	}
+	if err := os.Link(original, lateLink); err != nil {
+		t.Skipf("hard links unavailable: %v", err)
+	}
+	if got := p.Poll(); len(got) != 0 {
+		t.Fatalf("late hard link replayed %d historical events, want 0", len(got))
+	}
+	af, err := os.OpenFile(original, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := af.WriteString(line); err != nil {
+		t.Fatal(err)
+	}
+	if err := af.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Poll(); len(got) != 1 {
+		t.Fatalf("new data through hard links emitted %d events, want 1", len(got))
+	}
+}
+
 func TestSnapshotSourcePathsRespectEnvironment(t *testing.T) {
 	home := t.TempDir()
 	env := map[string]string{

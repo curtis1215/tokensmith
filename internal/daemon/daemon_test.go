@@ -16,12 +16,13 @@ import (
 type fakeSnapshotSource struct {
 	source string
 	totals model.SourceTotals
+	absent bool
 	err    error
 }
 
 func (s *fakeSnapshotSource) Source() string { return s.source }
-func (s *fakeSnapshotSource) Totals() (model.SourceTotals, error) {
-	return s.totals, s.err
+func (s *fakeSnapshotSource) Totals() (model.SourceTotals, bool, error) {
+	return s.totals, !s.absent, s.err
 }
 
 func TestHarvesterSnapshotErrorStillPersistsHealthySources(t *testing.T) {
@@ -241,5 +242,38 @@ func TestHarvesterSnapshotSourcesPrimeDeltaAndRebaseline(t *testing.T) {
 	}
 	if got := h2.Ledger().Sources["grok"]; got != (model.SourceTotals{In: 130}) {
 		t.Fatalf("restart snapshot delta = %+v, want In=130", got)
+	}
+}
+
+func TestHarvesterSnapshotAbsencePreservesPersistedWatermark(t *testing.T) {
+	lp := filepath.Join(t.TempDir(), "ledger.json")
+	source := &fakeSnapshotSource{source: "opencode", totals: model.SourceTotals{In: 100, Out: 20}}
+	h := NewWithSources(nil, nil, []ingest.SnapshotSource{source}, lp)
+	if err := h.Step(1000); err != nil {
+		t.Fatal(err)
+	}
+	source.totals = model.SourceTotals{In: 110, Out: 25}
+	if err := h.Step(1001); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate a daemon restart while an optional source is unmounted. Its
+	// persisted high-water mark must remain intact rather than becoming zero.
+	source.absent = true
+	h2 := NewWithSources(nil, nil, []ingest.SnapshotSource{source}, lp)
+	if err := h2.Step(1002); err != nil {
+		t.Fatal(err)
+	}
+	if got := h2.Ledger().Snapshots["opencode"]; got != (model.SourceTotals{In: 110, Out: 25}) {
+		t.Fatalf("absence changed watermark to %+v", got)
+	}
+
+	// Restoring the same database must not replay all of its history.
+	source.absent = false
+	if err := h2.Step(1003); err != nil {
+		t.Fatal(err)
+	}
+	if got := h2.Ledger().Sources["opencode"]; got != (model.SourceTotals{In: 10, Out: 5}) {
+		t.Fatalf("restored source replayed history: %+v", got)
 	}
 }

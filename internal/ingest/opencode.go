@@ -3,7 +3,6 @@ package ingest
 import (
 	"database/sql"
 	"errors"
-	"fmt"
 	"io/fs"
 	"net/url"
 	"os"
@@ -37,40 +36,33 @@ func NewOpenCodeSnapshotSource(path string) *OpenCodeSnapshotSource {
 
 func (*OpenCodeSnapshotSource) Source() string { return "opencode" }
 
-func (s *OpenCodeSnapshotSource) Totals() (model.SourceTotals, error) {
+func (s *OpenCodeSnapshotSource) Totals() (model.SourceTotals, bool, error) {
 	dbFingerprint, err := fingerprint(s.path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			if s.loaded && s.lastDB.exists {
-				return model.SourceTotals{}, fmt.Errorf("OpenCode database disappeared: %w", err)
-			}
-			s.loaded = true
-			s.lastDB = fileFingerprint{}
-			s.lastWAL = fileFingerprint{}
-			s.lastTotals = model.SourceTotals{}
-			return model.SourceTotals{}, nil
+			return model.SourceTotals{}, false, nil
 		}
-		return model.SourceTotals{}, err
+		return model.SourceTotals{}, false, err
 	}
 	walFingerprint, err := fingerprint(s.path + "-wal")
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return model.SourceTotals{}, err
+		return model.SourceTotals{}, false, err
 	}
 	if !dbFingerprint.exists {
-		return model.SourceTotals{}, nil
+		return model.SourceTotals{}, false, nil
 	}
 	if s.loaded && dbFingerprint == s.lastDB && walFingerprint == s.lastWAL {
-		return s.lastTotals, nil
+		return s.lastTotals, true, nil
 	}
 
 	dsn := (&url.URL{Scheme: "file", Path: filepath.Clean(s.path), RawQuery: "mode=ro"}).String()
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
-		return model.SourceTotals{}, err
+		return model.SourceTotals{}, false, err
 	}
 	defer db.Close()
 	if _, err := db.Exec(`PRAGMA busy_timeout = 250`); err != nil {
-		return model.SourceTotals{}, err
+		return model.SourceTotals{}, false, err
 	}
 	const query = `
 		SELECT
@@ -84,14 +76,14 @@ func (s *OpenCodeSnapshotSource) Totals() (model.SourceTotals, error) {
 	`
 	var in, out int64
 	if err := db.QueryRow(query).Scan(&in, &out); err != nil {
-		return model.SourceTotals{}, err
+		return model.SourceTotals{}, false, err
 	}
 	totals := model.SourceTotals{In: int(max(int64(0), in)), Out: int(max(int64(0), out))}
 	s.lastDB = dbFingerprint
 	s.lastWAL = walFingerprint
 	s.lastTotals = totals
 	s.loaded = true
-	return totals, nil
+	return totals, true, nil
 }
 
 func fingerprint(path string) (fileFingerprint, error) {

@@ -44,7 +44,7 @@ OpenCode DB ──┘                 ┘
 Snapshots map[string]model.SourceTotals `json:"snapshots,omitempty"`
 ```
 
-On the first observation of a snapshot source, the daemon records the current total without awarding it. Later positive deltas are credited. A decreasing total (session cleanup, DB rebuild, or source reset) re-baselines without producing a negative event or waiting for the old total to be exceeded.
+On the first observation of a snapshot source, the daemon records the current total without awarding it. Later positive deltas are credited. A decreasing total (session cleanup, DB rebuild, or source reset) re-baselines without producing a negative event or waiting for the old total to be exceeded. Snapshot collectors distinguish an absent store from a present store whose total is genuinely zero; absence leaves the persisted watermark untouched.
 
 ## 4. Source details
 
@@ -60,7 +60,7 @@ The Codex source locator returns a deduplicated set of session roots:
 2. `~/.codex/sessions`.
 3. Orca's `~/Library/Application Support/orca/codex-runtime-home/home/sessions` on macOS.
 
-Each root uses the same `token_count` parser. A rollout path is only visited once even if roots resolve to the same directory. New roots are primed to EOF, so discovery never replays history.
+Each root uses the same `token_count` parser. A rollout path is only visited once even if roots resolve to the same directory. New roots are primed to EOF, so discovery never replays history. Durable cursors include device/inode identity, and a later path or hard link to an already-tailed file inherits that physical file's cursor across polls.
 
 ### Grok CLI
 
@@ -70,7 +70,7 @@ Use `$GROK_HOME` or `~/.grok`, then recursively inspect `sessions/**/signals.jso
 estimated tokens = totalTokensBeforeCompaction + contextTokensUsed
 ```
 
-The aggregate is stored as `SourceTotals.In`; `Out` remains zero because the file does not expose a reliable input/output split. The TUI labels Grok as estimated. File mtime/size caching avoids re-reading unchanged snapshots.
+The aggregate is stored as `SourceTotals.In`; `Out` remains zero because the file does not expose a reliable input/output split. The TUI labels Grok as estimated. File mtime/size caching avoids re-reading unchanged snapshots, and a transient malformed rewrite retains the last valid cached value until the file becomes readable again.
 
 Grok billing RPC values are monetary cents, not token counts, and are not used for R&D.
 
@@ -86,6 +86,7 @@ Cache-read, cache-write, and reasoning subtotals are deliberately excluded in th
 - A temporarily locked OpenCode DB leaves the previous snapshot intact and retries later.
 - A malformed Grok file is skipped without blocking other sources.
 - Collector errors are logged by the daemon but do not prevent ledger persistence for healthy sources.
+- Standalone TUI mode polls mutable snapshots every five seconds instead of on the 250 ms render loop.
 - All collection remains local and read-only; no browser, Keychain, OAuth, or provider API access is introduced.
 
 ## 6. Display
@@ -105,6 +106,6 @@ Unknown source keys continue to fall back to their raw string.
 - Multi-root append poller: events from two Codex homes are both harvested once.
 - Grok snapshot: multi-file sum, malformed file skip, unchanged-cache behavior.
 - OpenCode snapshot: assistant-only filtering, input/output extraction, absent/locked database behavior.
-- Daemon watermark: first observation primes, growth credits only the delta, decrease re-baselines.
+- Daemon watermark: first observation primes, growth credits only the delta, decrease re-baselines, and source absence preserves the watermark across restart.
 - TUI source labels include Grok's estimated marker.
 - Full validation: `gofmt`, `go test ./...`, `go vet ./...`, and `go build ./...`.

@@ -23,11 +23,14 @@ func ingestEmptyPoller(t *testing.T) *ingest.Poller {
 type fakeSnapshotSource struct {
 	source string
 	totals model.SourceTotals
+	absent bool
+	calls  int
 }
 
 func (s *fakeSnapshotSource) Source() string { return s.source }
-func (s *fakeSnapshotSource) Totals() (model.SourceTotals, error) {
-	return s.totals, nil
+func (s *fakeSnapshotSource) Totals() (model.SourceTotals, bool, error) {
+	s.calls++
+	return s.totals, !s.absent, nil
 }
 
 func TestUpdateTickAdvancesState(t *testing.T) {
@@ -105,8 +108,10 @@ func TestStandaloneSnapshotSourcesPrimeThenEmitDelta(t *testing.T) {
 	m.snapshotSources = []ingest.SnapshotSource{grok}
 	m.primeSnapshotSources()
 
-	if got := m.pollTokens(); len(got) != 0 {
-		t.Fatalf("primed snapshot emitted history: %+v", got)
+	for range snapshotPollEveryTicks - 1 {
+		if got := m.pollTokens(); len(got) != 0 {
+			t.Fatalf("primed snapshot emitted history: %+v", got)
+		}
 	}
 	grok.totals = model.SourceTotals{In: 135}
 	got := m.pollTokens()
@@ -124,9 +129,33 @@ func TestInitPrimesStandaloneSnapshotMapAcrossValueReceiver(t *testing.T) {
 	_ = m.Init()
 
 	grok.totals = model.SourceTotals{In: 425}
-	got := m.pollTokens()
+	var got []model.TokenEvent
+	for range snapshotPollEveryTicks {
+		got = m.pollTokens()
+	}
 	if len(got) != 1 || got[0].InputTokens != 25 {
 		t.Fatalf("Init baseline did not survive value receiver: %+v", got)
+	}
+}
+
+func TestStandaloneSnapshotPollingIsThrottled(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "s.json"))
+	m.poller = ingestEmptyPoller(t)
+	source := &fakeSnapshotSource{source: "opencode", totals: model.SourceTotals{In: 100}}
+	m.snapshotSources = []ingest.SnapshotSource{source}
+	m.primeSnapshotSources()
+	if source.calls != 1 {
+		t.Fatalf("prime calls = %d, want 1", source.calls)
+	}
+	for range snapshotPollEveryTicks - 1 {
+		m.pollTokens()
+	}
+	if source.calls != 1 {
+		t.Fatalf("snapshot queried during throttle window: %d calls", source.calls)
+	}
+	m.pollTokens()
+	if source.calls != 2 {
+		t.Fatalf("snapshot not queried after throttle window: %d calls", source.calls)
 	}
 }
 

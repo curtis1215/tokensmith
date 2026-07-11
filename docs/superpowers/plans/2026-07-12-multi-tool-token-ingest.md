@@ -47,3 +47,12 @@
 - [x] Run `go vet ./...`.
 - [x] Run `go build ./...`.
 - [x] Run local read-only fixture probes against the installed Grok/OpenCode data and confirm no historical tokens are credited on first observation.
+
+## Task 7: Claude review follow-up
+
+- [x] Preserve a physical JSONL file's cursor when a hard link/path appears in an earlier root on a later poll.
+- [x] Distinguish absent snapshot stores from real zero totals so restarts cannot erase watermarks and replay history.
+- [x] Retain Grok's last valid per-file total during transient malformed rewrites.
+- [x] Throttle standalone snapshot collection to five seconds while keeping append-only polling responsive.
+- [x] Re-run the full verification suite.
+- [ ] Request Claude re-review.

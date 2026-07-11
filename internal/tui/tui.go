@@ -30,6 +30,10 @@ const tickInterval = 250 * time.Millisecond
 // ticksPerRealSec is the tick frequency (250ms interval).
 const ticksPerRealSec = 4
 
+// snapshotPollEveryTicks keeps standalone SQLite/filesystem snapshots off the
+// 250ms render loop. Append-only JSONL polling remains per tick.
+const snapshotPollEveryTicks = 5 * ticksPerRealSec
+
 // gameSecPerRealSec converts a per-game-second rate to the per-real-second rate
 // the player actually perceives (each real second advances several ticks of
 // tickDT game-seconds).
@@ -64,25 +68,26 @@ var pageNames = [numPages]string{"總覽", "模型", "市場", "算力", "團隊
 
 // Model is the Bubble Tea root model.
 type Model struct {
-	state           model.GameState
-	cfg             balance.Config
-	poller          *ingest.Poller
-	snapshotSources []ingest.SnapshotSource
-	snapshotTotals  map[string]model.SourceTotals
-	savePath        string
-	ticksSinceSave  int
-	page            Page
-	dialog          *trainDialog       // non-nil while the training modal is open
-	publish         *publishDialog     // non-nil while the publish/price modal is open
-	event           *eventDialog       // non-nil while the event-choice modal is open
-	doctrineDialog  *doctrineDialog    // non-nil while doctrine/perk/secondary/pivot modal is open
-	directiveDialog *directiveDialog   // non-nil while executive-directive modal is open
-	campaignEnd     *campaignEndDialog // non-nil while victory/exit modal is open
-	campaignError   string             // last rejected campaign command; survives ticks
-	techCursor      int                // visible tech-entry index on the tech page
-	techEra         int                // selected era (1-based); 0 = current era
-	procCursor      int                // selected process node on the compute page
-	modelCursor     int                // selected index into state.Models on models page
+	state             model.GameState
+	cfg               balance.Config
+	poller            *ingest.Poller
+	snapshotSources   []ingest.SnapshotSource
+	snapshotTotals    map[string]model.SourceTotals
+	snapshotPollTicks int
+	savePath          string
+	ticksSinceSave    int
+	page              Page
+	dialog            *trainDialog       // non-nil while the training modal is open
+	publish           *publishDialog     // non-nil while the publish/price modal is open
+	event             *eventDialog       // non-nil while the event-choice modal is open
+	doctrineDialog    *doctrineDialog    // non-nil while doctrine/perk/secondary/pivot modal is open
+	directiveDialog   *directiveDialog   // non-nil while executive-directive modal is open
+	campaignEnd       *campaignEndDialog // non-nil while victory/exit modal is open
+	campaignError     string             // last rejected campaign command; survives ticks
+	techCursor        int                // visible tech-entry index on the tech page
+	techEra           int                // selected era (1-based); 0 = current era
+	procCursor        int                // selected process node on the compute page
+	modelCursor       int                // selected index into state.Models on models page
 	// Harvest-daemon integration (§10.2).
 	ledgerPath     string
 	metaPath       string
@@ -394,6 +399,11 @@ func (m Model) Init() tea.Cmd {
 func (m *Model) pollTokens() []model.TokenEvent {
 	if !m.daemonMode {
 		events := m.poller.Poll()
+		m.snapshotPollTicks++
+		if m.snapshotPollTicks < snapshotPollEveryTicks {
+			return events
+		}
+		m.snapshotPollTicks = 0
 		return append(events, m.pollSnapshotSources()...)
 	}
 	l, ok, _ := ledger.Load(m.ledgerPath)
@@ -418,11 +428,12 @@ func (m *Model) pollTokens() []model.TokenEvent {
 }
 
 func (m *Model) primeSnapshotSources() {
+	m.snapshotPollTicks = 0
 	if m.snapshotTotals == nil {
 		m.snapshotTotals = make(map[string]model.SourceTotals, len(m.snapshotSources))
 	}
 	for _, source := range m.snapshotSources {
-		if totals, err := source.Totals(); err == nil {
+		if totals, present, err := source.Totals(); err == nil && present {
 			m.snapshotTotals[source.Source()] = totals
 		}
 	}
@@ -434,8 +445,8 @@ func (m *Model) pollSnapshotSources() []model.TokenEvent {
 	}
 	var events []model.TokenEvent
 	for _, source := range m.snapshotSources {
-		current, err := source.Totals()
-		if err != nil {
+		current, present, err := source.Totals()
+		if err != nil || !present {
 			continue
 		}
 		name := source.Source()

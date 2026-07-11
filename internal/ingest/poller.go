@@ -23,6 +23,7 @@ type dirSource struct {
 // identity so a rotated file (new inode at the same path) restarts from 0 even
 // if the replacement has already grown past the old byte offset.
 type fileCursor struct {
+	device uint64
 	inode  uint64
 	offset int64
 }
@@ -160,7 +161,8 @@ func (p *Poller) prime(onlyUnknown bool) {
 				}
 			}
 			if fi, statErr := os.Stat(path); statErr == nil {
-				p.cursors[path] = fileCursor{inode: inodeOf(fi), offset: fi.Size()}
+				identity := identityOf(fi)
+				p.cursors[path] = fileCursor{device: identity.device, inode: identity.inode, offset: fi.Size()}
 			}
 			return nil
 		})
@@ -172,16 +174,16 @@ func (p *Poller) tailFile(path string, parse parser) []model.TokenEvent {
 	if err != nil {
 		return nil
 	}
-	ino := inodeOf(fi)
-	cur := p.cursors[path]
+	identity := identityOf(fi)
+	cur, found := p.cursorForFile(path, identity, fi.Size())
 	off := cur.offset
 	// A different inode at this path (rotation) or a file now shorter than our
 	// cursor (truncation) means the old file is gone — restart from the start.
-	if cur.inode != ino || fi.Size() < off {
+	if !found || !cursorMatchesIdentity(cur, identity) || fi.Size() < off {
 		off = 0
 	}
 	if fi.Size() <= off {
-		p.cursors[path] = fileCursor{inode: ino, offset: off}
+		p.cursors[path] = fileCursor{device: identity.device, inode: identity.inode, offset: off}
 		return nil
 	}
 	f, err := os.Open(path)
@@ -217,6 +219,38 @@ func (p *Poller) tailFile(path string, parse parser) []model.TokenEvent {
 			events = append(events, ev)
 		}
 	}
-	p.cursors[path] = fileCursor{inode: ino, offset: off + int64(lastNL) + 1}
+	p.cursors[path] = fileCursor{device: identity.device, inode: identity.inode, offset: off + int64(lastNL) + 1}
 	return events
+}
+
+// cursorForFile first prefers the cursor stored for path. If the same file
+// later appears at another path (for example, a hard link is created in an
+// earlier-discovered Codex home), it inherits the furthest valid cursor for
+// that physical file instead of replaying the session from byte zero.
+func (p *Poller) cursorForFile(path string, identity fileIdentity, size int64) (fileCursor, bool) {
+	if cur, ok := p.cursors[path]; ok && cursorMatchesIdentity(cur, identity) && cur.offset <= size {
+		return cur, true
+	}
+
+	var best fileCursor
+	found := false
+	for _, cur := range p.cursors {
+		if !cursorMatchesIdentity(cur, identity) || cur.offset > size {
+			continue
+		}
+		if !found || cur.offset > best.offset {
+			best = cur
+			found = true
+		}
+	}
+	return best, found
+}
+
+func cursorMatchesIdentity(cur fileCursor, identity fileIdentity) bool {
+	if identity.inode == 0 || cur.inode != identity.inode {
+		return false
+	}
+	// Device was not persisted by older Tokensmith releases. Treat a zero
+	// device as a legacy wildcard; newly exported cursors always include it.
+	return cur.device == 0 || identity.device == 0 || cur.device == identity.device
 }
