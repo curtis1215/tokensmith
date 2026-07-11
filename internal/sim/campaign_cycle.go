@@ -35,9 +35,14 @@ func AdvanceCampaignCycle(s model.GameState, b balance.Config) model.GameState {
 	ns := s
 	ns.Campaign.Cycle++
 	ns.Campaign.Active = ageCampaignModifiers(ns.Campaign.Active)
+	// Age roadmap momentum before new actions so a just-set cycle is not
+	// immediately decayed on the same board tick that applied it.
+	ns = ageRivalMomentum(ns)
 	var entries []model.CampaignReportEntry
 	ns, entries = advanceRivalRoadmap(ns, true, b, entries)
 	ns, entries = advanceRivalRoadmap(ns, false, b, entries)
+	// Board-cycle public update: re-assert the global-frontier band for all rivals.
+	ns = clampAllRivalsToBand(ns, b)
 	var progress []model.CampaignReportEntry
 	ns, progress = advanceCampaignProgress(ns, b)
 	entries = append(entries, progress...)

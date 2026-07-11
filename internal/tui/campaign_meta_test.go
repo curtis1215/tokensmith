@@ -76,7 +76,7 @@ func TestCampaignMetaUnknownFallback(t *testing.T) {
 
 func TestRivalIntelFullVsPartialDisclosure(t *testing.T) {
 	cfg := balance.Default()
-	// openai-flagship: capability +15%, ref price ×1, lead 2, consumer segment.
+	// openai-flagship: capability gap-close 15%, ref price ×1, lead 2, consumer segment.
 	partial := renderRivalIntelBlock("主要宿敵", sim.RivalIntelView{
 		Company: "OpenAI", ConfirmedActionID: "openai-flagship",
 		RumoredActionID: "openai-platform", CyclesUntilAction: 1, IntelFull: false,
@@ -85,7 +85,7 @@ func TestRivalIntelFullVsPartialDisclosure(t *testing.T) {
 		t.Fatalf("partial intel must show direction+segment:\n%s", partial)
 	}
 	// Must not disclose quality %, price mult, or lead-cycle stats.
-	for _, leak := range []string{"能力+", "價格×", "前置"} {
+	for _, leak := range []string{"能力追趕", "價格×", "前置"} {
 		if strings.Contains(partial, leak) {
 			t.Fatalf("partial intel must not disclose %q:\n%s", leak, partial)
 		}
@@ -95,7 +95,7 @@ func TestRivalIntelFullVsPartialDisclosure(t *testing.T) {
 		Company: "OpenAI", ConfirmedActionID: "openai-flagship",
 		RumoredActionID: "openai-platform", CyclesUntilAction: 1, IntelFull: true,
 	}, cfg, false)
-	for _, want := range []string{"能力+", "價格×", "前置"} {
+	for _, want := range []string{"能力追趕", "價格×", "前置"} {
 		if !strings.Contains(full, want) {
 			t.Fatalf("full intel must disclose %q:\n%s", want, full)
 		}

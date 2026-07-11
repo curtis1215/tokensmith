@@ -221,8 +221,8 @@ func formatActionIntelDetail(actionID string, full bool, cfg balance.Config, ind
 	var dims []string
 	dimNames := [model.NumQualityDims]string{"能力", "成本", "安全", "速度"}
 	for i := 0; i < model.NumQualityDims; i++ {
-		if spec.QualityPct[i] != 0 {
-			dims = append(dims, fmt.Sprintf("%s%+.0f%%", dimNames[i], spec.QualityPct[i]*100))
+		if spec.FrontierProgress[i] != 0 {
+			dims = append(dims, fmt.Sprintf("%s追趕%.0f%%", dimNames[i], spec.FrontierProgress[i]*100))
 		}
 	}
 	if len(dims) == 0 {

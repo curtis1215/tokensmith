@@ -160,6 +160,24 @@ func clampRivalToBand(q float64, frontier float64) float64 {
 	return q
 }
 
+// clampAllRivalsToBand re-applies the 85%–115% global-frontier band to every
+// rival. Used after public rival updates (board cycles, league ticks).
+func clampAllRivalsToBand(s model.GameState, b balance.Config) model.GameState {
+	if len(s.Competitors) == 0 {
+		return s
+	}
+	ns := s
+	gf := GlobalFrontier(ns, b)
+	comps := append([]model.Competitor(nil), ns.Competitors...)
+	for i := range comps {
+		for d := range model.NumQualityDims {
+			comps[i].Quality[d] = clampRivalToBand(comps[i].Quality[d], gf[d])
+		}
+	}
+	ns.Competitors = comps
+	return ns
+}
+
 // advanceRivalLeague rubber-bands every rival toward its bounded global-frontier
 // target. Used for both campaign and non-campaign play (no Tick freeze).
 func advanceRivalLeague(s model.GameState, dt float64, b balance.Config) model.GameState {

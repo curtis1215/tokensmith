@@ -33,3 +33,18 @@ func TestCampaignLookupsRejectUnknownIDs(t *testing.T) {
 		t.Fatal("unknown action resolved")
 	}
 }
+
+func TestRivalActionsUseFrontierProgress(t *testing.T) {
+	c := DefaultCampaign()
+	a, ok := RivalActionByID(c, "openai-flagship")
+	if !ok {
+		t.Fatal("openai-flagship missing")
+	}
+	if a.FrontierProgress[model.DimCapability] != 0.15 || a.MomentumCycles <= 0 {
+		t.Fatalf("flagship contract: %+v", a)
+	}
+	// No legacy QualityPct field — compile-time check via FrontierProgress only.
+	if a.RefPriceMult != 1 || a.LeadCycles != 2 {
+		t.Fatalf("flagship meta: %+v", a)
+	}
+}

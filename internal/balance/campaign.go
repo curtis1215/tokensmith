@@ -11,13 +11,17 @@ type DoctrinePerkSpec struct {
 }
 
 // RivalActionSpec is a scheduled rival action entry.
+// FrontierProgress is the fraction of remaining distance to the rival's
+// bounded global-frontier target closed on execution (per dimension).
+// MomentumCycles ages MomentumPct linearly on subsequent board cycles.
 type RivalActionSpec struct {
-	ID             string
-	Segment        model.Segment
-	LeadCycles     int
-	QualityPct     [model.NumQualityDims]float64
-	RefPriceMult   float64
-	DurationCycles int
+	ID               string
+	Segment          model.Segment
+	LeadCycles       int
+	FrontierProgress [model.NumQualityDims]float64
+	MomentumCycles   int
+	RefPriceMult     float64
+	DurationCycles   int
 }
 
 // RivalProfile maps a rival company to doctrine primary roles and action IDs.
@@ -128,34 +132,37 @@ func defaultCampaignPerks() []DoctrinePerkSpec {
 	}
 }
 
-func rivalAction(id string, seg model.Segment, lead int, quality [model.NumQualityDims]float64, refPriceMult float64, duration int) RivalActionSpec {
+func rivalAction(id string, seg model.Segment, lead int, progress [model.NumQualityDims]float64, momentumCycles int, refPriceMult float64, duration int) RivalActionSpec {
 	return RivalActionSpec{
-		ID:             id,
-		Segment:        seg,
-		LeadCycles:     lead,
-		QualityPct:     quality,
-		RefPriceMult:   refPriceMult,
-		DurationCycles: duration,
+		ID:               id,
+		Segment:          seg,
+		LeadCycles:       lead,
+		FrontierProgress: progress,
+		MomentumCycles:   momentumCycles,
+		RefPriceMult:     refPriceMult,
+		DurationCycles:   duration,
 	}
 }
 
 func defaultRivalActions() []RivalActionSpec {
-	// QualityPct is fractional gain (e.g. 0.15 = +15%).
+	// FrontierProgress is the fraction of remaining target distance closed
+	// (e.g. 0.15 closes 15% of the gap). Momentum lasts a few board cycles.
+	const mom = 3
 	return []RivalActionSpec{
-		rivalAction("openai-flagship", model.SegConsumer, 2, qvec(0.15, 0, 0, 0), 1, 0),
-		rivalAction("openai-platform", model.SegConsumer, 3, qvec(0.08, 0, 0, 0.08), 1, 0),
-		rivalAction("anthropic-trust", model.SegEnterprise, 2, qvec(0.08, 0, 0.15, 0), 1, 0),
-		rivalAction("anthropic-enterprise-suite", model.SegEnterprise, 3, qvec(0, 0.08, 0.10, 0), 1, 0),
-		rivalAction("xai-scale", model.SegConsumer, 2, qvec(0.12, 0, 0, 0.15), 1, 0),
-		rivalAction("xai-compute-rush", model.SegConsumer, 3, qvec(0.10, 0, 0, 0.12), 1, 0),
-		rivalAction("deepseek-price-war", model.SegDeveloper, 2, qvec(0, 0.15, 0, 0.10), 0.85, 2),
-		rivalAction("deepseek-distill", model.SegDeveloper, 3, qvec(0, 0.12, 0, 0), 1, 0),
-		rivalAction("qwen-ecosystem", model.SegDeveloper, 2, qvec(0, 0.10, 0, 0.10), 1, 0),
-		rivalAction("qwen-release-wave", model.SegDeveloper, 3, qvec(0.05, 0.08, 0, 0.08), 1, 0),
-		rivalAction("zhipu-enterprise", model.SegEnterprise, 3, qvec(0, 0.12, 0.12, 0), 1, 0),
-		rivalAction("zhipu-contract", model.SegEnterprise, 3, qvec(0, 0, 0.10, 0.06), 1, 0),
-		rivalAction("gemini-balanced", model.SegConsumer, 3, qvec(0.08, 0.08, 0.08, 0.08), 1, 0),
-		rivalAction("gemini-multimodal", model.SegConsumer, 3, qvec(0.10, 0, 0.06, 0.08), 1, 0),
+		rivalAction("openai-flagship", model.SegConsumer, 2, qvec(0.15, 0, 0, 0), mom, 1, 0),
+		rivalAction("openai-platform", model.SegConsumer, 3, qvec(0.08, 0, 0, 0.08), mom, 1, 0),
+		rivalAction("anthropic-trust", model.SegEnterprise, 2, qvec(0.08, 0, 0.15, 0), mom, 1, 0),
+		rivalAction("anthropic-enterprise-suite", model.SegEnterprise, 3, qvec(0, 0.08, 0.10, 0), mom, 1, 0),
+		rivalAction("xai-scale", model.SegConsumer, 2, qvec(0.12, 0, 0, 0.15), mom, 1, 0),
+		rivalAction("xai-compute-rush", model.SegConsumer, 3, qvec(0.10, 0, 0, 0.12), mom, 1, 0),
+		rivalAction("deepseek-price-war", model.SegDeveloper, 2, qvec(0, 0.15, 0, 0.10), mom, 0.85, 2),
+		rivalAction("deepseek-distill", model.SegDeveloper, 3, qvec(0, 0.12, 0, 0), mom, 1, 0),
+		rivalAction("qwen-ecosystem", model.SegDeveloper, 2, qvec(0, 0.10, 0, 0.10), mom, 1, 0),
+		rivalAction("qwen-release-wave", model.SegDeveloper, 3, qvec(0.05, 0.08, 0, 0.08), mom, 1, 0),
+		rivalAction("zhipu-enterprise", model.SegEnterprise, 3, qvec(0, 0.12, 0.12, 0), mom, 1, 0),
+		rivalAction("zhipu-contract", model.SegEnterprise, 3, qvec(0, 0, 0.10, 0.06), mom, 1, 0),
+		rivalAction("gemini-balanced", model.SegConsumer, 3, qvec(0.08, 0.08, 0.08, 0.08), mom, 1, 0),
+		rivalAction("gemini-multimodal", model.SegConsumer, 3, qvec(0.10, 0, 0.06, 0.08), mom, 1, 0),
 	}
 }
 
