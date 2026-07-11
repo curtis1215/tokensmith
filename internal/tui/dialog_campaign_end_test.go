@@ -289,6 +289,22 @@ func TestMomentTitleDefault(t *testing.T) {
 	}
 }
 
+func TestNewRunEpicContent(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	m.state.Prestige.Patents = 12
+	m.state.Prestige.RouteBadges = []model.Doctrine{model.DoctrineConsumer}
+	m.state.Prestige.PendingLegacy = model.LegacyChoice{Kind: model.LegacyIntel}
+	mo := newRunEpic(m)
+	if mo == nil || mo.Title != "🔄 傳承開局" {
+		t.Fatalf("bad epic: %+v", mo)
+	}
+	for _, want := range []string{"專利 ×12", "消費者霸主", "宿敵完整情報"} {
+		if !strings.Contains(mo.Text, want) {
+			t.Fatalf("epic text missing %q: %q", want, mo.Text)
+		}
+	}
+}
+
 func TestCampaignDialogsRouteBeforeEvent(t *testing.T) {
 	m := onlineCampaignModel(t)
 	m = pendingChipShortage(m)

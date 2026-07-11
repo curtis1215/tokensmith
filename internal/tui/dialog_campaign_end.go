@@ -271,3 +271,22 @@ func legacyChoiceLabel(leg model.LegacyChoice) string {
 		return string(leg.Kind)
 	}
 }
+
+// newRunEpic builds the fresh-run opening overlay after prestige/exit.
+func newRunEpic(m Model) *Moment {
+	p := m.state.Prestige
+	lines := []string{fmt.Sprintf("帶入專利 ×%.0f", p.Patents)}
+	if len(p.RouteBadges) > 0 {
+		var badges []string
+		for _, d := range p.RouteBadges {
+			badges = append(badges, doctrineLabel(d))
+		}
+		lines = append(lines, "徽章："+strings.Join(badges, "、"))
+	}
+	if p.PendingLegacy.Kind != "" {
+		lines = append(lines, "Legacy："+legacyChoiceLabel(p.PendingLegacy))
+	}
+	lines = append(lines, "", "新的輪迴開始——祝這次更快。")
+	mo := Moment{Level: LevelEpic, Text: strings.Join(lines, "\n"), Title: "🔄 傳承開局"}
+	return &mo
+}

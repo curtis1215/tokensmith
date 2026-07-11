@@ -904,7 +904,8 @@ func (m Model) updateCampaignEndDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	if confirm {
-		ns, err := sim.Apply(m.state, d.command(), m.cfg)
+		cmd := d.command()
+		ns, err := sim.Apply(m.state, cmd, m.cfg)
 		if err != nil {
 			m.campaignError = campaignErrorText(err)
 			m.campaignEnd = &d
@@ -914,6 +915,10 @@ func (m Model) updateCampaignEndDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.campaignError = ""
 		m.campaignEnd = nil
 		m.snapDisplay()
+		switch cmd.(type) {
+		case model.CampaignPrestige, model.CampaignExit:
+			m.epic = newRunEpic(m)
+		}
 		return m, nil
 	}
 	m.campaignEnd = &d
