@@ -57,10 +57,11 @@ const (
 	PageCompute
 	PageTeam
 	PageTech
+	PageAchievements
 	numPages
 )
 
-var pageNames = [numPages]string{"總覽", "模型", "市場", "算力", "團隊", "科技"}
+var pageNames = [numPages]string{"總覽", "模型", "市場", "算力", "團隊", "科技", "成就"}
 
 // Model is the Bubble Tea root model.
 type Model struct {
@@ -541,7 +542,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			m.page = (m.page + numPages - 1) % numPages
 			m.vp.GotoTop()
 			return m, nil
-		case "1", "2", "3", "4", "5", "6":
+		case "1", "2", "3", "4", "5", "6", "7":
 			m.page = Page(msg.String()[0] - '1')
 			m.vp.GotoTop()
 			return m, nil
@@ -1076,6 +1077,8 @@ func pageKeys(m Model) string {
 		return "[h]雇研究員 [e]雇工程 [o]雇營運 [k]雇行銷 [s]簽明星"
 	case PageTech:
 		return "[↑↓]選節點 [Enter]解鎖"
+	case PageAchievements:
+		return "[↑↓]捲動"
 	default: // overview — campaign keys are hints only (dialogs land in Task 10)
 		hint := "[t]訓練 [X]重來"
 		if m.state.Campaign.Victory != model.DoctrineNone {
@@ -1315,6 +1318,8 @@ func (m Model) renderPage() string {
 		return renderTeam(m)
 	case PageTech:
 		return renderTech(m)
+	case PageAchievements:
+		return renderAchievements(m)
 	default:
 		return renderOverview(m)
 	}
