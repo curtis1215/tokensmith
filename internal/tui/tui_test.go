@@ -232,3 +232,21 @@ func TestTabBarMarksActive(t *testing.T) {
 		t.Fatalf("tab bar labels changed unexpectedly: %q", got)
 	}
 }
+
+func TestResourceBarShowsCashArrowAndStreak(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	m.dispReady = true
+	m.cashRate = 42
+	m.streakDays = 5
+	bar := renderResourceBar(m)
+	if !strings.Contains(bar, "▲") {
+		t.Fatalf("positive cashRate should show ▲: %q", bar)
+	}
+	if !strings.Contains(bar, "🔥5天") {
+		t.Fatalf("streak should be persistent in bar: %q", bar)
+	}
+	m.cashRate = -42
+	if bar = renderResourceBar(m); !strings.Contains(bar, "▼") {
+		t.Fatalf("negative cashRate should show ▼: %q", bar)
+	}
+}

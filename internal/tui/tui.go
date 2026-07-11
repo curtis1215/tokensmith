@@ -28,6 +28,9 @@ const tickDT = 3600.0
 // tickInterval is the real time between ticks.
 const tickInterval = 250 * time.Millisecond
 
+// ticksPerRealSec is the tick frequency (250ms interval).
+const ticksPerRealSec = 4
+
 // gameSecPerRealSec converts a per-game-second rate to the per-real-second rate
 // the player actually perceives (each real second advances several ticks of
 // tickDT game-seconds).
@@ -110,6 +113,7 @@ type Model struct {
 	sparkUsers     spark
 	sparkRnD       spark
 	sparkTick      int
+	cashRate       float64 // smoothed display cash delta, $/real-second
 }
 
 // New returns the game model wired to the real save/ledger/meta locations,
@@ -1063,8 +1067,13 @@ func renderResourceBar(m Model) string {
 	rndPerRealSec := sim.RnDRatePerSec(s, m.cfg) * gameSecPerRealSec
 
 	cashStr := fmt.Sprintf("💰 $%s", human(cash))
-	if cash < 0 {
-		cashStr = styleWarn.Render(cashStr)
+	switch {
+	case cash < 0:
+		cashStr = styleLoss.Render(cashStr)
+	case m.cashRate > 0.5:
+		cashStr += styleGain.Render(fmt.Sprintf(" ▲$%s/s", human(m.cashRate)))
+	case m.cashRate < -0.5:
+		cashStr += styleLoss.Render(fmt.Sprintf(" ▼$%s/s", human(-m.cashRate)))
 	}
 
 	infStr := fmt.Sprintf("推理%.0f%%", infUtil*100)
@@ -1085,17 +1094,23 @@ func renderResourceBar(m Model) string {
 		fmt.Sprintf("🖥訓練%.0f%% %s", trainUtil*100, infStr),
 		valStr,
 	}
+	if m.streakDays >= 2 {
+		streak := fmt.Sprintf("🔥%d天 ×%.2f", m.streakDays, m.currentStreakMult())
+		if m.disp.PulseToken > 0 {
+			segs = append(segs, styleGold.Bold(true).Render(streak))
+		} else {
+			segs = append(segs, styleAmber.Render(streak))
+		}
+	}
 	bar := strings.Join(segs, sep)
 
 	if m.disp.PulseToken > 0 && len(m.lastTokenRnD) > 0 {
-		parts := make([]string, 0, len(m.lastTokenRnD)+1)
+		parts := make([]string, 0, len(m.lastTokenRnD))
 		for _, src := range sourceKeysOrdered(m.lastTokenRnD) {
-			parts = append(parts, fmt.Sprintf("⚡ %s +%s R&D", sourceLabel(src), human(m.lastTokenRnD[src])))
+			chip := fmt.Sprintf(" ⚡%s +%s R&D ", sourceLabel(src), human(m.lastTokenRnD[src]))
+			parts = append(parts, lipgloss.NewStyle().Bold(true).Foreground(colorInk).Background(colorCyan).Render(chip))
 		}
-		if m.streakDays > 0 {
-			parts = append(parts, fmt.Sprintf("🔥連續%d天 ×%.2f", m.streakDays, m.currentStreakMult()))
-		}
-		bar += "   " + strings.Join(parts, "   ")
+		bar += "  " + strings.Join(parts, " ")
 	}
 	return bar
 }

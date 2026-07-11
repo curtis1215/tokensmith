@@ -155,7 +155,7 @@ func TestRenderResourceBarShowsStreakBadge(t *testing.T) {
 	m.disp.PulseToken = 5
 	m.streakDays = 3
 	bar := renderResourceBar(m)
-	if !strings.Contains(bar, "連續3天") || !strings.Contains(bar, "×1.18") {
+	if !strings.Contains(bar, "🔥3天") || !strings.Contains(bar, "×1.18") {
 		t.Fatalf("expected streak badge, got:\n%s", bar)
 	}
 }
@@ -213,5 +213,17 @@ func TestCompanyCardShowsTrend(t *testing.T) {
 	out := companyCard(m, 50)
 	if !strings.Contains(out, "趨勢") {
 		t.Fatalf("company card missing trend line: %q", out)
+	}
+}
+
+func TestAdvanceDisplayTracksCashRate(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	m.snapDisplay()
+	m.state.Resources.Cash += 1000 // 下一 tick 現金上升
+	for i := 0; i < 20; i++ {
+		m.advanceDisplay()
+	}
+	if m.cashRate <= 0 {
+		t.Fatalf("cashRate = %f, want > 0 after cash increase", m.cashRate)
 	}
 }
