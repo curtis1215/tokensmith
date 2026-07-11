@@ -439,26 +439,38 @@ func TestCompetitorCatchupRespectsGen1FarmWindow(t *testing.T) {
 }
 
 func rival(cap float64) model.Competitor {
+	// All dims filled: hard band floor would otherwise lift zeroed dims and
+	// inflate multi-dim appeal in share tests that only intend capability parity.
 	c := model.Competitor{Name: "Rival"}
-	c.Quality[model.DimCapability] = cap
-	c.Skill[model.DimCapability] = 1.0 // at-frontier: no meaningful rubber-band drift in these tests
+	c.Quality = q(cap, cap, cap, cap)
+	c.Skill = q(1.0, 1.0, 1.0, 1.0)
 	return c
 }
 
 func TestTickCompetitorHalvesUserTarget(t *testing.T) {
 	b := balance.Default()
 	pinLegacyBalance(&b)
-	// Equal appeal on capability only; skill=1 so league target matches player.
-	// Disable industry catch-up for this micro-step so quality stays put.
+	// Equal multi-dim quality so hard band floor cannot asymmetrically lift
+	// zeroed rival dimensions (TimeFrontier / GF floor). skill=1; catch-up off.
 	b.CompetitorCatchupRate = 0
+	pm := onlineModel(50, b.RefPrice)
+	pm.Quality = q(50, 50, 50, 50)
 	s := model.GameState{
-		Models:      []model.Model{onlineModel(50, b.RefPrice)},
-		Competitors: []model.Competitor{rival(50)}, // appeal 20
+		Models:      []model.Model{pm},
+		Competitors: []model.Competitor{rival(50)},
 	}
 	ns := Tick(s, 1, nil, b)
+	// appeal equals rival → share 0.5; target half of monopoly.
 	want := 10000.0 * (1.0 - math.Exp(-b.UserGrowthRate*1))
+	// Monopoly target for full quality would be larger; pinLegacy SegmentTargetScale
+	// with equal share: use the same historical want when cap-weight only was
+	// considered. With full quality both sides, recompute from post-tick GF band.
+	// Equal rivals → users must be half of a no-competitor control.
+	solo := Tick(model.GameState{Models: []model.Model{pm}}, 1, nil, b)
+	want = solo.Models[0].Users * 0.5
 	if !approx(ns.Models[0].Users, want) {
-		t.Fatalf("Users = %v, want %v (halved by equal competitor)", ns.Models[0].Users, want)
+		t.Fatalf("Users = %v, want %v (halved by equal competitor; solo=%v)",
+			ns.Models[0].Users, want, solo.Models[0].Users)
 	}
 }
 

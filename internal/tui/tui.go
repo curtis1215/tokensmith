@@ -1117,7 +1117,7 @@ func pageKeys(m Model) string {
 	case PageTeam:
 		return "[h]雇研究員 [e]雇工程 [o]雇營運 [k]雇行銷 [s]簽明星"
 	case PageTech:
-		return "[↑↓]條目 [[]時代 [Enter]執行 [+]/[-]前沿分配"
+		return "[↑↓]條目 [ ]時代 [Enter]執行 [+]/[-]前沿分配"
 	case PageAchievements:
 		return "[↑↓]捲動"
 	default: // overview — campaign keys are hints only (dialogs land in Task 10)

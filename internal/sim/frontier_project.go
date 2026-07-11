@@ -23,9 +23,10 @@ func diminishedFrontierCompute(allocated, recommended float64) float64 {
 }
 
 // advanceFrontierProject streams R&D in proportion to completed work using the
-// allocated training-pool share. Insufficient R&D stalls work progress; idle
-// reserved compute is never redirected. On completion, MaxUnlockedGen becomes
-// TargetGen and the project is cleared.
+// allocated training-pool share. Insufficient wallet R&D stalls only while
+// frontier R&D is still owed; when RnDRemaining is already paid, work advances
+// on compute alone. Idle reserved compute is never redirected. On completion,
+// MaxUnlockedGen becomes TargetGen and the project is cleared.
 func advanceFrontierProject(s model.GameState, dt, allocated float64) model.GameState {
 	if !s.Progression.Frontier.Active {
 		return s
@@ -34,9 +35,30 @@ func advanceFrontierProject(s model.GameState, dt, allocated float64) model.Game
 	if fp.WorkRemaining <= 0 {
 		return completeFrontierProject(s)
 	}
-	if fp.RnDRemaining <= simEpsilon || s.Resources.RnD <= simEpsilon {
-		// Stall: neither work nor frontier R&D advances without wallet R&D.
+	// Stall only when R&D is still required but the wallet is empty.
+	if fp.RnDRemaining > simEpsilon && s.Resources.RnD <= simEpsilon {
 		return s
+	}
+	// R&D already paid: advance remaining work from compute only.
+	if fp.RnDRemaining <= simEpsilon {
+		eff := diminishedFrontierCompute(allocated, fp.RecommendedCompute)
+		workDone := eff * dt
+		if fp.WorkRemaining < workDone {
+			workDone = fp.WorkRemaining
+		}
+		if workDone <= 0 {
+			return s
+		}
+		ns := s
+		ns.Progression.Frontier.RnDRemaining = 0
+		ns.Progression.Frontier.WorkRemaining -= workDone
+		if ns.Progression.Frontier.WorkRemaining < 0 {
+			ns.Progression.Frontier.WorkRemaining = 0
+		}
+		if ns.Progression.Frontier.WorkRemaining <= simEpsilon {
+			return completeFrontierProject(ns)
+		}
+		return ns
 	}
 	rndPerWork := fp.RnDRemaining / fp.WorkRemaining
 	if rndPerWork <= 0 {

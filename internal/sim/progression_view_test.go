@@ -92,7 +92,7 @@ func TestProgressionViewUnavailableReasons(t *testing.T) {
 		t.Fatalf("no-compute reason = %q", got)
 	}
 
-	// No R&D (compute present, alloc > 0).
+	// No R&D (compute present, alloc > 0) while frontier still owes R&D.
 	noRnD := base
 	noRnD.Servers = []model.Server{{Pool: model.PoolTraining, Compute: 50}}
 	noRnD.Resources.RnD = 0
@@ -102,6 +102,15 @@ func TestProgressionViewUnavailableReasons(t *testing.T) {
 	}
 	if v.ETASec != 0 {
 		t.Fatalf("stalled ETA should be 0, got %v", v.ETASec)
+	}
+
+	// R&D paid (remaining ≤ ε) with empty wallet: not a no-rnd stall.
+	paid := base
+	paid.Servers = []model.Server{{Pool: model.PoolTraining, Compute: 50}}
+	paid.Resources.RnD = 0
+	paid.Progression.Frontier.RnDRemaining = 0
+	if got := FrontierProgressView(paid, b).UnavailableReason; got != "" {
+		t.Fatalf("R&D-paid empty wallet reason = %q, want empty", got)
 	}
 }
 

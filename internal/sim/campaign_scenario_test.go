@@ -9,16 +9,29 @@ import (
 
 // winningCampaignFixture builds a late-showdown state that should win within
 // cycles 9–21 for balance scenarios (fixed seed + route-ready model).
+//
+// Hard global-frontier band (85%–115%) means idle rivals cannot sit far below
+// the player-defined frontier. With the full 7-rival roster snapped to the
+// floor, player segment share tops out near 1/(1+7×0.85)≈14% — below win
+// gates (30–35%). The win-path fixture therefore uses two in-band rivals so
+// share and rank gates remain attainable while the band invariant still holds.
 func winningCampaignFixture(d model.Doctrine, seed uint64, b balance.Config) model.GameState {
 	seg := doctrineSegment(d)
 	price := b.SegmentRefPrice[seg]
 	if d == model.DoctrineDeveloper {
 		price *= 0.85
 	}
+	// Player quality 100 → GF≈100; two rivals parked at the hard floor (85).
+	// Share ≈ 100/(100+85+85) ≈ 37% > Consumer/Developer win share 0.35.
+	floorQ := [4]float64{85, 85, 85, 85}
+	comps := []model.Competitor{
+		{Name: "OpenAI", Quality: floorQ, Skill: q(1.0, 1.0, 1.0, 1.0)},
+		{Name: "DeepSeek", Quality: floorQ, Skill: q(1.0, 1.0, 1.0, 1.0)},
+	}
 	s := model.GameState{
 		Resources:   model.Resources{Cash: 1e7, RnD: 1e7},
 		Models:      []model.Model{{Online: true, Segment: seg, Price: price, Users: 100000, Quality: [4]float64{100, 100, 100, 100}}},
-		Competitors: balance.DefaultCompetitors(),
+		Competitors: comps,
 		Ops:         2,
 	}
 	s.Compute.RentedInference = map[string]int{balance.EntryProcessID: 1000}

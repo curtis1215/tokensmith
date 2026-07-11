@@ -366,6 +366,63 @@ func TestFrontierProjectAllocationPreservesTotals(t *testing.T) {
 	}
 }
 
+func TestFrontierProjectAdvancesWhenRnDPaidButWorkRemains(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Servers = []model.Server{{Pool: model.PoolTraining, Compute: 500}}
+	s.Resources.RnD = 1e9
+	s.Progression.MaxUnlockedGen = 5
+	// R&D fully paid (within ε) but work still remaining — must not permanently stall.
+	s.Progression.Frontier = model.FrontierProject{
+		Active:             true,
+		TargetGen:          6,
+		RnDTotal:           1000,
+		RnDRemaining:       1e-10,
+		WorkTotal:          100,
+		WorkRemaining:      5,
+		RecommendedCompute: 50,
+		AllocationPct:      100,
+	}
+	ns := Tick(s, 1, nil, b)
+	if ns.Progression.Frontier.Active {
+		// Partial progress also OK if compute insufficient; must have reduced work.
+		if ns.Progression.Frontier.WorkRemaining >= 5-1e-9 {
+			t.Fatalf("work did not advance with R&D paid: %+v", ns.Progression.Frontier)
+		}
+	} else if ns.Progression.MaxUnlockedGen != 6 {
+		t.Fatalf("completed without unlock: gen=%d", ns.Progression.MaxUnlockedGen)
+	}
+	// Wallet R&D should be untouched when frontier R&D is already paid.
+	if ns.Resources.RnD != s.Resources.RnD {
+		t.Fatalf("wallet RnD changed when frontier R&D was paid: %v → %v", s.Resources.RnD, ns.Resources.RnD)
+	}
+}
+
+func TestFrontierProjectCompletesWhenRnDPaid(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Servers = []model.Server{{Pool: model.PoolTraining, Compute: 500}}
+	s.Resources.RnD = 0 // empty wallet is fine once frontier R&D is paid
+	s.Progression.MaxUnlockedGen = 5
+	s.Progression.Frontier = model.FrontierProject{
+		Active:             true,
+		TargetGen:          6,
+		RnDTotal:           1000,
+		RnDRemaining:       0,
+		WorkTotal:          10,
+		WorkRemaining:      5,
+		RecommendedCompute: 50,
+		AllocationPct:      100,
+	}
+	ns := Tick(s, 1, nil, b) // 500 compute >> 5 work
+	if ns.Progression.Frontier.Active {
+		t.Fatalf("should complete when R&D paid and work finishes: %+v", ns.Progression.Frontier)
+	}
+	if ns.Progression.MaxUnlockedGen != 6 {
+		t.Fatalf("MaxUnlockedGen = %d, want 6", ns.Progression.MaxUnlockedGen)
+	}
+}
+
 func TestTickFrontierPurityNestedInputs(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{HasTraining: true}

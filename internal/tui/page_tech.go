@@ -187,7 +187,6 @@ func renderTech(m Model) string {
 	inner := m.cardInnerWidth()
 	cur := techCurrentEra(m)
 	sel := techSelectedEra(m)
-	entries := techVisibleEntries(m)
 
 	var rows []string
 	// Header: R&D + frontier allocation
@@ -199,13 +198,10 @@ func renderTech(m Model) string {
 	rows = append(rows, TruncateWidth(head, cw))
 
 	// Era ladder strip: past collapsed, current expanded, next preview.
+	// Always render each card's own era entries; cursor only on the selected era.
 	maxShow := cur + 1
 	if maxShow < 2 {
 		maxShow = 2 // always show at least I–II structure
-	}
-	// Ensure Era II appears even early game.
-	if maxShow < 2 {
-		maxShow = 2
 	}
 	for era := 1; era <= maxShow; era++ {
 		title := eraTitle(era)
@@ -216,26 +212,35 @@ func renderTech(m Model) string {
 		switch {
 		case era < cur:
 			// Collapsed past summary.
-			unlocked, total := eraFixedUnlockCounts(m, era)
-			sum := fmt.Sprintf("%s %s  ·  已完成  %d/%d 已解鎖", marker, title, unlocked, total)
+			sum := fmt.Sprintf("%s %s  ·  已完成  %s", marker, title, eraProgressSummary(m, era))
 			rows = append(rows, CardIn(CardDefault, cw, sum, styleMuted.Render("（收合 · [ ] 瀏覽）")))
 		case era == cur:
-			body := renderTechEntryLines(m, entries, inner)
+			// Current era always shows its own entries (not selected-era entries).
+			curEntries := techEraEntries(m, cur)
+			body := renderTechEntryLines(m, curEntries, inner, sel == cur)
 			if body == "" {
 				body = styleMuted.Render("（無條目）")
 			}
 			rows = append(rows, CardIn(CardAccent, cw, fmt.Sprintf("%s %s  ·  當前", marker, title), body))
 		case era == cur+1:
-			// One-level next preview.
+			// One-level next: interactive list when selected, muted preview otherwise.
 			preview := techEraEntries(m, era)
-			body := renderTechPreviewLines(m, preview, inner)
+			var body string
+			if sel == cur+1 {
+				body = renderTechEntryLines(m, preview, inner, true)
+			} else {
+				body = renderTechPreviewLines(m, preview, inner)
+			}
+			if body == "" {
+				body = styleMuted.Render("（尚無預覽）")
+			}
 			cond := nextEraUnlockHint(m, era)
 			hdr := fmt.Sprintf("%s %s  ·  預覽", marker, title)
 			rows = append(rows, CardIn(CardDefault, cw, hdr, VStack(styleMuted.Render(cond), body)))
 		}
 	}
 
-	help := styleMuted.Render("[↑↓]條目  [[]時代  [Enter]執行  [+]/[-]前沿分配±10%  [P]傳承")
+	help := styleMuted.Render("[↑↓]條目  [ ]時代  [Enter]執行  [+]/[-]前沿分配±10%  [P]傳承")
 	rows = append(rows, TruncateWidth(help, cw))
 	return VStack(rows...)
 }
@@ -253,6 +258,40 @@ func eraFixedUnlockCounts(m Model, era int) (unlocked, total int) {
 	return unlocked, total
 }
 
+// eraProgressSummary formats the collapsed-past line. Eras I–II use fixed
+// catalog nodes; Era III+ uses generation unlock counts plus breakthrough bits.
+func eraProgressSummary(m Model, era int) string {
+	if era < 3 {
+		unlocked, total := eraFixedUnlockCounts(m, era)
+		return fmt.Sprintf("%d/%d 已解鎖", unlocked, total)
+	}
+	genU, genT := 0, 0
+	if start, err1 := balance.EraStartGen(era); err1 == nil {
+		if end, err2 := balance.EraEndGen(era); err2 == nil {
+			max := sim.MaxUnlockedGen(m.state, m.cfg)
+			for g := start; g <= end; g++ {
+				genT++
+				if g <= max {
+					genU++
+				}
+			}
+		}
+	}
+	btU := 0
+	for _, ep := range m.state.Progression.Eras {
+		if ep.Era != era {
+			continue
+		}
+		for b := 0; b < model.NumBranches; b++ {
+			if ep.UnlockedMask&(1<<b) != 0 {
+				btU++
+			}
+		}
+		break
+	}
+	return fmt.Sprintf("世代 %d/%d · 突破 %d/%d", genU, genT, btU, model.NumBranches)
+}
+
 func nextEraUnlockHint(m Model, era int) string {
 	if sim.EraOpen(m.state, era) {
 		return "已可進入"
@@ -268,14 +307,14 @@ func nextEraUnlockHint(m Model, era int) string {
 	return fmt.Sprintf("需 Gen%d + 上時代至少 2 項突破", end)
 }
 
-func renderTechEntryLines(m Model, entries []techEntry, inner int) string {
+func renderTechEntryLines(m Model, entries []techEntry, inner int, showCursor bool) string {
 	if len(entries) == 0 {
 		return ""
 	}
 	var lines []string
 	for i, e := range entries {
 		cursor := " "
-		if i == m.techCursor {
+		if showCursor && i == m.techCursor {
 			cursor = "▸"
 		}
 		state, muted := techEntryState(m, e)

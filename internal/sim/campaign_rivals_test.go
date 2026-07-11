@@ -83,9 +83,13 @@ func TestPivotReseedsRoadmaps(t *testing.T) {
 
 func TestRoadmapNeverCompoundsBeyondFrontier(t *testing.T) {
 	b := balance.Default()
-	// Fixed player frontier; spam OpenAI flagship/platform for 100k cycles.
+	// Fixed player frontier; spam OpenAI flagship/platform for 100k cycles
+	// with the full default roster so idle rivals also stay in the hard band.
 	pm := onlineModel(100, b.RefPrice)
 	comps := balance.DefaultCompetitors()
+	if len(comps) < 7 {
+		t.Fatalf("default roster too small: %d", len(comps))
+	}
 	s := model.GameState{
 		Models:      []model.Model{pm},
 		Competitors: comps,
@@ -96,16 +100,6 @@ func TestRoadmapNeverCompoundsBeyondFrontier(t *testing.T) {
 			Wildcard: model.RivalRoadmap{Company: "DeepSeek", ActionIndex: 0, CyclesUntilAction: 1000000}, // keep quiet
 		},
 	}
-	// Single acting rival — ceiling invariant under repeated gap-close spam.
-	// (Idle roster members are not hard floor-snapped on board cycles.)
-	var openai model.Competitor
-	for _, c := range s.Competitors {
-		if c.Name == "OpenAI" {
-			openai = c
-			break
-		}
-	}
-	s.Competitors = []model.Competitor{openai}
 	const cycles = 100000
 	for i := 0; i < cycles; i++ {
 		// Force OpenAI action every cycle (lead already 1).
@@ -116,20 +110,10 @@ func TestRoadmapNeverCompoundsBeyondFrontier(t *testing.T) {
 			t.Fatal("player model lost")
 		}
 	}
-	gf := GlobalFrontier(s, b)
-	for _, c := range s.Competitors {
-		for d := range model.NumQualityDims {
-			if gf[d] <= 0 {
-				continue
-			}
-			hi := gf[d] * rivalCeilPct
-			got := c.Quality[d]
-			if got > hi+1e-3 || got < 0 {
-				t.Fatalf("after %d cycles %s dim %d = %v above ceiling %v (gf=%v)",
-					cycles, c.Name, d, got, hi, gf[d])
-			}
-		}
+	if len(s.Competitors) != len(comps) {
+		t.Fatalf("roster size changed: got %d want %d", len(s.Competitors), len(comps))
 	}
+	assertRivalsInsideBand(t, s, b, "after 100k campaign cycles")
 }
 
 func TestExecuteRivalActionClosesGapNotMultiplies(t *testing.T) {

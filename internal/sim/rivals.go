@@ -129,8 +129,8 @@ func isRivalLeader(s model.GameState, name string) bool {
 
 // rivalTarget is the per-dimension quality the rival approaches this tick:
 // GlobalFrontier[d] × clamp(Skill[d] + leaderBonus + MomentumPct[d], 0.85, 1.15).
-func rivalTarget(s model.GameState, rival model.Competitor, b balance.Config) [model.NumQualityDims]float64 {
-	gf := GlobalFrontier(s, b)
+// Callers pass a precomputed GlobalFrontier to avoid O(gen) recompute per rival.
+func rivalTarget(s model.GameState, rival model.Competitor, gf [model.NumQualityDims]float64) [model.NumQualityDims]float64 {
 	var out [model.NumQualityDims]float64
 	lead := 0.0
 	if isRivalLeader(s, rival.Name) {
@@ -149,10 +149,8 @@ func rivalTarget(s model.GameState, rival model.Competitor, b balance.Config) [m
 	return out
 }
 
-// clampRivalToBand enforces the anti-runaway ceiling GlobalFrontier×1.15 and
-// non-negative quality. The 85% floor is enforced softly via rivalTarget
-// (targets never sit below the band); hard floor-snapping would yank idle
-// rivals up to the frontier in one board cycle and break market shares.
+// clampRivalToBand enforces the hard GlobalFrontier × [0.85, 1.15] band and
+// non-negative quality. Every public rival update re-applies this invariant.
 func clampRivalToBand(q float64, frontier float64) float64 {
 	if q < 0 || (q != q) { // neg or NaN
 		q = 0
@@ -160,15 +158,19 @@ func clampRivalToBand(q float64, frontier float64) float64 {
 	if frontier <= 0 {
 		return q
 	}
+	lo := frontier * rivalFloorPct
 	hi := frontier * rivalCeilPct
+	if q < lo {
+		return lo
+	}
 	if q > hi {
 		return hi
 	}
 	return q
 }
 
-// clampAllRivalsToBand re-applies the anti-runaway ceiling after public rival
-// updates (board cycles). Full band approach still happens via Tick league.
+// clampAllRivalsToBand re-applies the hard 85%–115% band after public rival
+// updates (board cycles). Tick league also clamps after each catch-up step.
 func clampAllRivalsToBand(s model.GameState, b balance.Config) model.GameState {
 	if len(s.Competitors) == 0 {
 		return s
@@ -201,7 +203,7 @@ func advanceRivalLeague(s model.GameState, dt float64, b balance.Config) model.G
 	}
 	comps := append([]model.Competitor(nil), ns.Competitors...)
 	for i := range comps {
-		target := rivalTarget(ns, comps[i], b)
+		target := rivalTarget(ns, comps[i], gf)
 		for d := range model.NumQualityDims {
 			comps[i].Quality[d] += (target[d] - comps[i].Quality[d]) * factor
 			comps[i].Quality[d] = clampRivalToBand(comps[i].Quality[d], gf[d])

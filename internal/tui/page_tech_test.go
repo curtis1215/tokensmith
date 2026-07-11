@@ -207,6 +207,81 @@ func TestTechUnlockInsufficientRnDNotice(t *testing.T) {
 	}
 }
 
+// TestTechNextEraEntriesRenderInPreviewCard locks the M2 layout invariant:
+// when browsing the next era, interactive entries (with cursor) live in the
+// preview card; the current-era card keeps its own entries (no cursor).
+func TestTechNextEraEntriesRenderInPreviewCard(t *testing.T) {
+	m := testModel(t)
+	m.page = PageTech
+	// Gen6 → Era III current; next is Era IV (Gen8–10 + breakthroughs).
+	m.state.Progression.MaxUnlockedGen = 6
+	m.techEra = 3
+	m.techCursor = 0
+
+	// Select next era via ].
+	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{']'}})
+	m = nm.(Model)
+	if m.techEra != 4 {
+		t.Fatalf("techEra = %d, want 4", m.techEra)
+	}
+	v := renderTech(m)
+	plain := stripANSI(v)
+
+	// Era IV entries (e.g. Gen8 frontier) must appear once under 預覽 context,
+	// not as the sole contents of the 當前 (Era III) card.
+	if !strings.Contains(plain, "前沿研究 · Gen8") {
+		t.Fatalf("next-era Gen8 entry missing from render:\n%s", plain)
+	}
+	// Current era (III) still shows its own frontier gens (Gen6/7), not empty.
+	if !strings.Contains(plain, "前沿研究 · Gen6") && !strings.Contains(plain, "前沿研究 · Gen7") {
+		t.Fatalf("current era III entries disappeared when browsing IV:\n%s", plain)
+	}
+	// Structural markers still present.
+	if !strings.Contains(plain, "當前") || !strings.Contains(plain, "預覽") {
+		t.Fatalf("missing 當前/預覽 markers:\n%s", plain)
+	}
+	// Help shows [ ]時代 (both brackets), not the broken [[]時代 typo.
+	if strings.Contains(plain, "[[]時代") {
+		t.Fatalf("footer still has [[]時代 typo:\n%s", plain)
+	}
+	if !strings.Contains(plain, "[ ]時代") && !strings.Contains(pageKeys(m), "[ ]時代") {
+		// page_tech help and/or pageKeys
+		if !strings.Contains(plain, "時代") {
+			t.Fatalf("missing era nav help:\n%s", plain)
+		}
+	}
+}
+
+func TestTechPastProceduralEraSummary(t *testing.T) {
+	m := testModel(t)
+	m.page = PageTech
+	// Era IV current (Gen8); Era III is past procedural.
+	m.state.Progression.MaxUnlockedGen = 8
+	m.state.Progression.Eras = []model.EraProgress{{
+		Era: 3, HasPrimary: true, Primary: model.BranchAlgo,
+		UnlockedMask: (1 << model.BranchAlgo) | (1 << model.BranchAlignment),
+	}}
+	m.techEra = 4
+	sum := eraProgressSummary(m, 3)
+	// Era III gens are 5–7 → 3 gens, all unlocked at MaxUnlockedGen=8; 2/4 breakthroughs.
+	if !strings.Contains(sum, "世代") || !strings.Contains(sum, "突破") {
+		t.Fatalf("procedural summary missing gen/breakthrough: %q", sum)
+	}
+	if !strings.Contains(sum, "3/3") && !strings.Contains(sum, "世代 3/") {
+		// All three era-III gens unlocked.
+		if !strings.Contains(sum, "世代 3/3") {
+			t.Fatalf("want 世代 3/3 in %q", sum)
+		}
+	}
+	if !strings.Contains(sum, "突破 2/4") {
+		t.Fatalf("want 突破 2/4 in %q", sum)
+	}
+	v := renderTech(m)
+	if !strings.Contains(stripANSI(v), "世代") {
+		t.Fatalf("collapsed past should show procedural summary:\n%s", stripANSI(v))
+	}
+}
+
 // stripANSI removes common lipgloss/ANSI sequences for width checks.
 func stripANSI(s string) string {
 	var b strings.Builder

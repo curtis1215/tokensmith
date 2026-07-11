@@ -149,8 +149,10 @@ func longRunHasTrainedGen(s model.GameState, gen int) bool {
 }
 
 // ensureLongRunEraGates grants two breakthroughs on the previous era so the
-// next frontier target's era is open. Effects are irrelevant for work rates
-// (no train-work mult); this only clears the gate.
+// next frontier target's era is open. Uses Algo+Alignment only — neither
+// multiplies effective training compute (Infra would via EraEffects.InfraMult),
+// preserving the "no optional multipliers / exactly recommended compute"
+// calibration premise.
 func ensureLongRunEraGates(s model.GameState) model.GameState {
 	max := MaxUnlockedGen(s, balance.Config{})
 	next := max + 1
@@ -165,12 +167,12 @@ func ensureLongRunEraGates(s model.GameState) model.GameState {
 		return s
 	}
 	prev := era - 1
-	// Two branches unlocked on previous era.
+	// Two branches unlocked on previous era (work-rate neutral).
 	ep := model.EraProgress{
 		Era:          prev,
 		HasPrimary:   true,
 		Primary:      model.BranchAlgo,
-		UnlockedMask: (1 << model.BranchAlgo) | (1 << model.BranchInfra),
+		UnlockedMask: (1 << model.BranchAlgo) | (1 << model.BranchAlignment),
 	}
 	// Replace or insert.
 	found := false
@@ -187,4 +189,48 @@ func ensureLongRunEraGates(s model.GameState) model.GameState {
 	}
 	s.Progression.Eras = eras
 	return s
+}
+
+// TestLongRunFrontierStreamingSmoke completes Gen6 frontier via many small
+// ticks at recommended compute and checks wall duration ≈ WorkTotal/rec.
+func TestLongRunFrontierStreamingSmoke(t *testing.T) {
+	b := balance.Default()
+	spec, err := balance.Generation(6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := longRunReferenceStart(b)
+	s, err = Apply(s, model.StartFrontierProject{TargetGen: 6}, b)
+	if err != nil {
+		t.Fatalf("start frontier: %v", err)
+	}
+	rec := s.Progression.Frontier.RecommendedCompute
+	if rec <= 0 {
+		t.Fatalf("recommended compute = %v", rec)
+	}
+	s.Servers = []model.Server{{Pool: model.PoolTraining, Compute: rec}}
+	s.Progression.Frontier.AllocationPct = 100
+	wantDT := s.Progression.Frontier.WorkTotal / rec
+	const ticks = 100
+	dt := wantDT / float64(ticks)
+	startT := s.GameTime
+	for i := 0; i < ticks+5; i++ { // small pad for float residuals
+		if !s.Progression.Frontier.Active {
+			break
+		}
+		s.Resources.RnD = 1e30
+		s = Tick(s, dt, nil, b)
+	}
+	if s.Progression.Frontier.Active {
+		t.Fatalf("frontier still active after streaming ticks: %+v", s.Progression.Frontier)
+	}
+	if s.Progression.MaxUnlockedGen != 6 {
+		t.Fatalf("MaxUnlockedGen = %d, want 6", s.Progression.MaxUnlockedGen)
+	}
+	elapsed := s.GameTime - startT
+	// Allow 5% slack around theoretical duration (Euler + pad).
+	if elapsed < wantDT*0.95 || elapsed > wantDT*1.10 {
+		t.Fatalf("stream duration = %v, want ~%v (spec work=%v rec=%v)",
+			elapsed, wantDT, spec.FrontierWork, rec)
+	}
 }

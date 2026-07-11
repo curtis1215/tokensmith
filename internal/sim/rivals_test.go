@@ -9,27 +9,65 @@ import (
 
 func TestRivalLeagueBandInvariant(t *testing.T) {
 	b := balance.Default()
-	// Player frontier high; rivals start near target so approach stays in band.
+	// Player frontier high; rivals start mixed (below floor + near target).
 	pm := onlineModel(100, b.RefPrice)
 	comps := balance.DefaultCompetitors()
 	for i := range comps {
-		comps[i].Quality = q(90, 90, 90, 90)
+		// Leave some far below the band so hard floor must snap them.
+		comps[i].Quality = q(10, 10, 10, 10)
+	}
+	if len(comps) > 0 {
+		comps[0].Quality = q(90, 90, 90, 90)
 	}
 	s := model.GameState{Models: []model.Model{pm}, Competitors: comps}
 	s.Progression.IndustryTime = 0
-	// Full catch-up then ceiling clamp — no one may exceed GF×1.15.
+	// Full catch-up then hard band clamp — every dim in [GF×0.85, GF×1.15].
 	b.CompetitorCatchupRate = 1
 	ns := advanceRivalLeague(s, 1, b)
-	gf := GlobalFrontier(ns, b)
-	for _, c := range ns.Competitors {
+	assertRivalsInsideBand(t, ns, b, "after full catch-up")
+}
+
+func TestClampRivalToBandHardFloorAndCeiling(t *testing.T) {
+	// Unit: floor and ceiling are hard, not soft approach only.
+	if got := clampRivalToBand(50, 100); !approx(got, 85) {
+		t.Fatalf("floor clamp = %v, want 85", got)
+	}
+	if got := clampRivalToBand(200, 100); !approx(got, 115) {
+		t.Fatalf("ceil clamp = %v, want 115", got)
+	}
+	if got := clampRivalToBand(100, 100); !approx(got, 100) {
+		t.Fatalf("in-band = %v, want 100", got)
+	}
+	if got := clampRivalToBand(-3, 100); !approx(got, 85) {
+		t.Fatalf("neg then floor = %v, want 85", got)
+	}
+	if got := clampRivalToBand(50, 0); got != 50 {
+		t.Fatalf("zero frontier leaves q: got %v", got)
+	}
+}
+
+// assertRivalsInsideBand fails if any rival dimension is outside GF×[0.85,1.15]
+// (or negative when GF is non-positive).
+func assertRivalsInsideBand(t *testing.T, s model.GameState, b balance.Config, label string) {
+	t.Helper()
+	gf := GlobalFrontier(s, b)
+	if len(s.Competitors) == 0 {
+		t.Fatalf("%s: empty rival roster", label)
+	}
+	for _, c := range s.Competitors {
 		for d := range model.NumQualityDims {
+			got := c.Quality[d]
 			if gf[d] <= 0 {
+				if got < 0 {
+					t.Fatalf("%s: %s dim %d = %v negative (gf=%v)", label, c.Name, d, got, gf[d])
+				}
 				continue
 			}
+			lo := gf[d] * rivalFloorPct
 			hi := gf[d] * rivalCeilPct
-			got := c.Quality[d]
-			if got > hi+1e-6 || got < 0 {
-				t.Fatalf("%s dim %d = %v above ceiling %v or negative (gf=%v)", c.Name, d, got, hi, gf[d])
+			if got < lo-1e-6 || got > hi+1e-6 {
+				t.Fatalf("%s: %s dim %d = %v outside [%v, %v] (gf=%v)",
+					label, c.Name, d, got, lo, hi, gf[d])
 			}
 		}
 	}
@@ -200,8 +238,9 @@ func TestRivalTargetLeaderBonus(t *testing.T) {
 			Rivals:         model.RivalEraState{Era: 1, Leaders: []string{"Lead"}},
 		},
 	}
-	lt := rivalTarget(s, leader, b)
-	ot := rivalTarget(s, other, b)
+	gf := GlobalFrontier(s, b)
+	lt := rivalTarget(s, leader, gf)
+	ot := rivalTarget(s, other, gf)
 	// Leader target higher by leaderBonusPct on capability (both skill 1.0).
 	if lt[model.DimCapability] <= ot[model.DimCapability] {
 		t.Fatalf("leader target %v should exceed other %v", lt[model.DimCapability], ot[model.DimCapability])

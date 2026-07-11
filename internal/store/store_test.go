@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"tokensmith/internal/model"
@@ -221,5 +222,29 @@ func TestLoadCorruptUntouched(t *testing.T) {
 	}
 	if string(onDisk) != garbage {
 		t.Fatalf("corrupt file was rewritten: %q", onDisk)
+	}
+}
+
+func TestLoadRejectsFutureSchemaVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "future.json")
+	// Future envelope must not load as v1 (would drop unknown fields on autosave).
+	raw := `{"schemaVersion":999,"state":{"Resources":{"Cash":1,"RnD":2}},"futureOnlyField":true}`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := Load(path)
+	if err == nil || ok {
+		t.Fatalf("future schema loaded: ok=%v err=%v state=%+v", ok, err, got)
+	}
+	if err != nil && !strings.Contains(err.Error(), "unsupported schema") {
+		t.Fatalf("error = %v, want unsupported schema", err)
+	}
+	// Original bytes untouched — no rewrite/downgrade.
+	onDisk, err2 := os.ReadFile(path)
+	if err2 != nil {
+		t.Fatal(err2)
+	}
+	if string(onDisk) != raw {
+		t.Fatalf("future save was rewritten: %q", onDisk)
 	}
 }

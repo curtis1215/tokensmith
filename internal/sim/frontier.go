@@ -47,8 +47,11 @@ func TimeFrontier(s model.GameState, b balance.Config) [model.NumQualityDims]flo
 }
 
 // SecondsUntilNextTimeGeneration is game-seconds of industry clock until the
-// next generation TimeBaselineDay is reached (one generation of time-frontier
-// movement). Returns 0 when no further baseline is resolvable.
+// next generation TimeBaselineDay is reached. Offline industry allowance uses
+// this residual (not the full current generation interval width), so a settle
+// never crosses the next baseline in one go — a conservative reading of
+// design §8.2 "at most one generation of time-frontier movement".
+// Returns 0 when no further baseline is resolvable.
 func SecondsUntilNextTimeGeneration(s model.GameState, _ balance.Config) float64 {
 	day := s.Progression.IndustryTime / 86400
 	if day < 0 {

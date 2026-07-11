@@ -111,6 +111,8 @@ func hasSchemaVersion(data []byte) bool {
 }
 
 // decodeSaveBytes probes raw JSON for a top-level schemaVersion key.
+// Future schema versions (schemaVersion > CurrentSchemaVersion) are rejected so
+// older builds never silently drop unknown fields and autosave a downgraded file.
 func decodeSaveBytes(data []byte) (model.GameState, error) {
 	// Reject empty / non-object payloads early so corrupt files stay put.
 	trim := bytes.TrimSpace(data)
@@ -126,6 +128,9 @@ func decodeSaveBytes(data []byte) (model.GameState, error) {
 		return model.GameState{}, err
 	}
 	if probe.SchemaVersion != nil {
+		if *probe.SchemaVersion > CurrentSchemaVersion {
+			return model.GameState{}, errors.New("store: unsupported schema version")
+		}
 		var env SaveFile
 		if err := json.Unmarshal(data, &env); err != nil {
 			return model.GameState{}, err

@@ -101,7 +101,9 @@ func Settle(s model.GameState, b balance.Config, elapsedSec float64, offIn, offO
 }
 
 // offlineIndustryAllowance is min(elapsed×compression, 8h×compression,
-// seconds until next time-baseline generation). Pure helper for Settle.
+// seconds until the next TimeBaselineDay). The third term is the residual to
+// the next baseline (not the full interval width of the current generation),
+// matching design §8.2 as "never cross the next time-baseline in one settle".
 func offlineIndustryAllowance(s model.GameState, b balance.Config, elapsedSec float64) float64 {
 	if elapsedSec <= 0 {
 		return 0

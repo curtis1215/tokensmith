@@ -332,9 +332,9 @@ If the player advances faster than time, the industry begins catching up to the 
 Player economy settlement continues to use the existing offline path. Global-frontier and rival catch-up receive a separate cap:
 
 - at most eight real hours converted through `RealSecCompression`; and
-- at most one generation of time-frontier movement.
+- at most the residual industry time until the next generation `TimeBaselineDay` (never cross the next baseline in one settle — not the full current-generation interval width).
 
-The smaller allowance wins. Excess offline time is not replayed later.
+The smaller allowance wins. Excess offline time is not replayed later. Across successive sessions the residual ratchets forward, so progress continues without banking dropped backlog.
 
 ## 9. Rival League
 

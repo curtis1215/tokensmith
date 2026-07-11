@@ -161,3 +161,44 @@ func approxIndustry(a, b float64) bool {
 	}
 	return d <= 1e-3*b || d < 1
 }
+
+// TestSettleIndustryCapIsResidualToNextBaseline documents that the "one
+// generation" offline cap is residual-to-next-TimeBaselineDay, not the full
+// current generation interval width (design §8.2 clarified).
+func TestSettleIndustryCapIsResidualToNextBaseline(t *testing.T) {
+	b := balance.Default()
+	// Place IndustryTime just before Gen2 baseline so residual ≪ full interval.
+	g2, err := balance.Generation(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 99% of the way from Gen1 baseline to Gen2 baseline.
+	g1, _ := balance.Generation(1)
+	spanDays := g2.TimeBaselineDay - g1.TimeBaselineDay
+	if spanDays <= 0 {
+		t.Fatalf("unexpected baselines g1=%v g2=%v", g1.TimeBaselineDay, g2.TimeBaselineDay)
+	}
+	s := model.GameState{}
+	s.Progression.IndustryTime = (g1.TimeBaselineDay + 0.99*spanDays) * 86400
+	residual := sim.SecondsUntilNextTimeGeneration(s, b)
+	if residual <= 0 || residual >= spanDays*86400*0.5 {
+		t.Fatalf("residual = %v days-equiv, want small fraction of span %v", residual/86400, spanDays)
+	}
+	// Huge offline window — industry still stops at residual (or 8h if smaller).
+	const elapsed = 30 * 86400.0
+	ns, _ := Settle(s, b, elapsed, 0, 0)
+	delta := ns.Progression.IndustryTime - s.Progression.IndustryTime
+	cap8h := 8 * 3600 * balance.RealSecCompression
+	want := residual
+	if cap8h < want {
+		want = cap8h
+	}
+	if !approxIndustry(delta, want) {
+		t.Fatalf("industry delta = %v, want residual/8h cap %v (residual=%v 8h=%v fullSpan=%v)",
+			delta, want, residual, cap8h, spanDays*86400)
+	}
+	// Must not have advanced a full generation interval.
+	if delta >= spanDays*86400*0.5 {
+		t.Fatalf("industry advanced full-ish interval %v; cap should be residual", delta)
+	}
+}

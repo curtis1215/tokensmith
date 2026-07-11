@@ -87,7 +87,8 @@ func frontierUnavailableReason(s model.GameState, allocated float64, allocPct in
 	if allocated <= simEpsilon {
 		return "no-compute"
 	}
-	if s.Resources.RnD <= simEpsilon {
+	// Wallet R&D only blocks when the project still owes frontier R&D.
+	if s.Progression.Frontier.RnDRemaining > simEpsilon && s.Resources.RnD <= simEpsilon {
 		return "no-rnd"
 	}
 	return ""
