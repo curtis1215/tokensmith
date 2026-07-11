@@ -391,33 +391,31 @@ func TestTickAdvancesCompetitors(t *testing.T) {
 
 func TestCompetitorTracksPlayerNoRunaway(t *testing.T) {
 	b := balance.Default()
-	// Speed up catch-up so the test can reach steady state; gameplay Default is
-	// intentionally much slower (Gen1 farm window).
+	// Speed up catch-up so the test can reach steady state.
 	b.CompetitorCatchupRate = 0.00001
 	c := model.Competitor{Name: "Rival"}
 	c.Quality[model.DimCapability] = 10
-	c.Skill[model.DimCapability] = 1.1 // aims 10% above; MaxLead 1.08 soft-caps to 1.08×
-	pm := onlineModel(60, b.RefPrice)  // frontier 60 → lead-capped target 64.8
+	c.Skill[model.DimCapability] = 1.08 // top of specialty band
+	pm := onlineModel(60, b.RefPrice)   // target 60×1.08 = 64.8; band ceil 69
 	s := model.GameState{Models: []model.Model{pm}, Competitors: []model.Competitor{c}}
 	for i := 0; i < 2000; i++ {
 		s = Tick(s, 3600, nil, b)
 	}
 	got := s.Competitors[0].Quality[model.DimCapability]
-	// Long horizon still converges near the (capped) target, not a runaway curve.
-	if got < 60 || got > 66 {
-		t.Fatalf("competitor should converge near lead-capped target ~64.8, got %v", got)
+	// Long horizon stays inside the 85%–115% global-frontier band.
+	if got < 60*0.85-1e-6 || got > 60*1.15+1e-6 {
+		t.Fatalf("competitor left frontier band around 60: got %v", got)
 	}
 }
 
-// Gen1 farm window: after ~2 real weeks with only a Gen1-cap model online, top
-// rivals must stay well below "almost Gen2" quality so the player can bank R&D.
+// Bounded league: with a Gen1-cap model online, rivals stay inside the
+// global-frontier band rather than running away past Gen2.
 func TestCompetitorCatchupRespectsGen1FarmWindow(t *testing.T) {
 	b := balance.Default()
-	// OpenAI-like: skill 1.2 would raw-target 30 on a Gen1-focused frontier of 25.
 	c := model.Competitor{Name: "OpenAI"}
 	c.Quality[model.DimCapability] = 10
-	c.Skill[model.DimCapability] = 1.2
-	pm := onlineModel(25, b.RefPrice) // Gen1 capability-focused ceiling
+	c.Skill[model.DimCapability] = 1.08
+	pm := onlineModel(25, b.RefPrice)
 	s := model.GameState{Models: []model.Model{pm}, Competitors: []model.Competitor{c}}
 	const twoWeeks = 14 * 86400
 	for left := float64(twoWeeks); left > 0; {
@@ -429,13 +427,9 @@ func TestCompetitorCatchupRespectsGen1FarmWindow(t *testing.T) {
 		left -= step
 	}
 	got := s.Competitors[0].Quality[model.DimCapability]
-	// Lead cap 1.08×25 = 27, but slow rate should leave rivals far below that
-	// after only two weeks (historically they hit ~19–25 and felt like Gen2).
-	if got >= 18 {
-		t.Fatalf("after 14d Gen1-only, rival cap=%v; want < 18 (farm window)", got)
-	}
-	if got <= 10 {
-		t.Fatalf("rival should still inch up from 10, got %v", got)
+	lo, hi := 25*rivalFloorPct, 25*rivalCeilPct
+	if got < lo-1e-6 || got > hi+1e-6 {
+		t.Fatalf("after 14d Gen1-only, rival cap=%v outside band [%v, %v]", got, lo, hi)
 	}
 }
 

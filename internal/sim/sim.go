@@ -310,49 +310,11 @@ func playerFrontier(ns model.GameState) [model.NumQualityDims]float64 {
 	return f
 }
 
-// advanceCompetitors rubber-bands each competitor's quality toward
-// Skill×max(playerFrontier, base), so rivals track the player's progress
-// instead of running away on a fixed curve. Pure: clones Competitors.
-//
-// When the player has an online model, targets are also soft-capped at
-// CompetitorMaxLead×frontier so Skill>1 rivals cannot jump a full generation
-// ahead during the Gen1→Gen2 R&D farm window.
+// advanceCompetitors runs the bounded rival league (global-frontier band).
+// Campaign and non-campaign play share the same engine — Tick no longer freezes
+// rivals during an active campaign (roadmap actions are additive in Task 10).
 func advanceCompetitors(ns model.GameState, dt float64, b balance.Config) model.GameState {
-	// Active campaign rivals advance only via board-cycle roadmap actions.
-	if ns.Campaign.Doctrine != model.DoctrineNone {
-		return ns
-	}
-	if len(ns.Competitors) == 0 {
-		return ns
-	}
-	frontier := playerFrontier(ns)
-	factor := b.CompetitorCatchupRate * dt
-	if factor > 1 {
-		factor = 1
-	} else if factor < 0 {
-		factor = 0
-	}
-	comps := append([]model.Competitor(nil), ns.Competitors...)
-	for i := range comps {
-		for d := range model.NumQualityDims {
-			ref := frontier[d]
-			if b.CompetitorBaseQuality > ref {
-				ref = b.CompetitorBaseQuality
-			}
-			target := comps[i].Skill[d] * ref
-			// Soft-cap lead only once the player has established a frontier on
-			// this dim — pre-product rivals still settle near Skill×base.
-			if frontier[d] > 0 && b.CompetitorMaxLead > 0 {
-				leadCap := frontier[d] * b.CompetitorMaxLead
-				if target > leadCap {
-					target = leadCap
-				}
-			}
-			comps[i].Quality[d] += (target - comps[i].Quality[d]) * factor
-		}
-	}
-	ns.Competitors = comps
-	return ns
+	return advanceRivalLeague(ns, dt, b)
 }
 
 // advanceServing computes inference load and, when provisioned inference

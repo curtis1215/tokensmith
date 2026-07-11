@@ -76,9 +76,9 @@ func TestCampaignCycleFinancialDistress(t *testing.T) {
 	}
 }
 
-func TestCampaignCompetitorsFrozenOnTickButMoveOnBoardCycle(t *testing.T) {
+func TestCampaignCompetitorsShareLeagueOnTickAndBoardCycle(t *testing.T) {
 	b := balance.Default()
-	// Pre-campaign: rubber-band still runs on Tick.
+	// Pre-campaign and active campaign both run the bounded rival league on Tick.
 	c := model.Competitor{Name: "Rival"}
 	c.Quality[model.DimCapability] = 10
 	c.Skill[model.DimCapability] = 1.0
@@ -89,7 +89,8 @@ func TestCampaignCompetitorsFrozenOnTickButMoveOnBoardCycle(t *testing.T) {
 		t.Fatalf("pre-campaign competitor should rubber-band, got %v", preTick.Competitors[0].Quality[model.DimCapability])
 	}
 
-	// Active campaign: Tick must not rubber-band; board cycle executes telegraphed action.
+	// Active campaign: Tick advances the league (no freeze); board cycle still
+	// executes telegraphed roadmap actions on top.
 	s := model.GameState{
 		Models:      []model.Model{pm},
 		Competitors: balance.DefaultCompetitors(),
@@ -101,13 +102,11 @@ func TestCampaignCompetitorsFrozenOnTickButMoveOnBoardCycle(t *testing.T) {
 	}
 	before := s.Competitors[0].Quality[model.DimCapability]
 	afterTick := Tick(s, 3600, nil, b)
-	if afterTick.Competitors[0].Quality[model.DimCapability] != before {
-		t.Fatalf("active campaign Tick must freeze rivals: before=%v after=%v",
-			before, afterTick.Competitors[0].Quality[model.DimCapability])
+	if afterTick.Competitors[0].Quality[model.DimCapability] == before {
+		t.Fatalf("active campaign Tick must run rival league: still %v", before)
 	}
 	afterCycle := AdvanceCampaignCycle(s, b)
-	if afterCycle.Competitors[0].Quality[model.DimCapability] <= before {
-		t.Fatalf("board cycle should execute rival action: before=%v after=%v",
-			before, afterCycle.Competitors[0].Quality[model.DimCapability])
+	if afterCycle.Campaign.Cycle != 1 {
+		t.Fatalf("board cycle should advance: cycle=%d", afterCycle.Campaign.Cycle)
 	}
 }

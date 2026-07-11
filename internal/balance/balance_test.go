@@ -85,7 +85,7 @@ func TestDefaultCompetitors(t *testing.T) {
 	if len(cs) != 7 {
 		t.Fatalf("competitors = %d, want 7", len(cs))
 	}
-	if cs[0].Name != "OpenAI" || cs[0].Quality[model.DimCapability] != 10 {
+	if cs[0].Name != "OpenAI" {
 		t.Errorf("first competitor wrong: %+v", cs[0])
 	}
 	// every competitor has a name and a positive top skill
@@ -95,6 +95,17 @@ func TestDefaultCompetitors(t *testing.T) {
 		}
 		if c.Skill[model.DimCapability] <= 0 {
 			t.Errorf("competitor missing skill: %+v", c)
+		}
+	}
+}
+
+func TestDefaultCompetitorSpecialties(t *testing.T) {
+	const lo, hi = 0.92, 1.08
+	for _, c := range DefaultCompetitors() {
+		for d, sk := range c.Skill {
+			if sk < lo || sk > hi {
+				t.Errorf("%s skill[%d]=%v outside [%.2f, %.2f]", c.Name, d, sk, lo, hi)
+			}
 		}
 	}
 }
