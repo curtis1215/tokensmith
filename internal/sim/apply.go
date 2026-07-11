@@ -59,6 +59,10 @@ var (
 	ErrCampaignNotWon     = errors.New("sim: campaign has not been won")
 	ErrInvalidLegacy      = errors.New("sim: invalid legacy choice")
 	ErrStrategyExitLocked = errors.New("sim: strategy exit not unlocked")
+
+	ErrEraNotOpen           = errors.New("sim: era not open")
+	ErrEraBreakthroughOwned = errors.New("sim: era breakthrough already unlocked")
+	ErrInvalidEraBranch     = errors.New("sim: invalid era branch")
 )
 
 // Apply validates and applies a single player command, returning the new
@@ -81,6 +85,8 @@ func Apply(s model.GameState, cmd model.Command, b balance.Config) (model.GameSt
 		return applyFireStaff(s, c)
 	case model.UnlockTech:
 		return applyUnlockTech(s, c, b)
+	case model.UnlockEraBreakthrough:
+		return applyUnlockEraBreakthrough(s, c, b)
 	case model.BuyPrestigeNode:
 		return applyBuyPrestigeNode(s, c, b)
 	case model.PrestigeReset:

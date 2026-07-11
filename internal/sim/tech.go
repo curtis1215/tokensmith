@@ -41,8 +41,9 @@ func MaxUnlockedGen(ns model.GameState, _ balance.Config) int {
 	return g
 }
 
-// techEffects aggregates the multipliers of all unlocked tech nodes.
-// Iterates the catalog (deterministic order); neutral when nothing unlocked.
+// techEffects aggregates fixed tech-tree multipliers and era breakthrough
+// effects once. Iterates the catalog (deterministic order); neutral when
+// nothing unlocked and no era progress.
 func techEffects(ns model.GameState, b balance.Config) model.TechEffects {
 	agg := model.NeutralTechEffects()
 	for _, node := range b.TechNodes {
@@ -59,5 +60,16 @@ func techEffects(ns model.GameState, b balance.Config) model.TechEffects {
 		agg.RefPriceMult *= node.Effects.RefPriceMult
 		agg.IncidentMult *= node.Effects.IncidentMult
 	}
+	// Era breakthroughs combine once with fixed tech (not per-node strings).
+	ee := EraEffects(ns)
+	for d := range agg.QualityMult {
+		agg.QualityMult[d] *= ee.QualityMult[d]
+	}
+	agg.TrainRnDMult *= ee.TrainRnDMult
+	agg.TrainWorkMult *= ee.TrainWorkMult
+	agg.InfraMult *= ee.InfraMult
+	agg.UserGrowthMult *= ee.UserGrowthMult
+	agg.RefPriceMult *= ee.RefPriceMult
+	agg.IncidentMult *= ee.IncidentMult
 	return agg
 }
