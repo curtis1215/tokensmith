@@ -30,23 +30,30 @@ func TestDefaultV0Values(t *testing.T) {
 
 func TestDefaultGenAndTrainValues(t *testing.T) {
 	c := Default()
-	if MaxGen != 5 {
-		t.Fatalf("MaxGen = %d, want 5", MaxGen)
-	}
-	if c.GenRnDCost[1] != 20000 || c.GenRnDCost[5] != 40000000 {
-		t.Errorf("GenRnDCost wrong: %v", c.GenRnDCost)
-	}
-	if c.GenTrainWorkGPUSec[1] != 900000 {
-		t.Errorf("GenTrainWorkGPUSec[1] = %v, want 900000", c.GenTrainWorkGPUSec[1])
-	}
-	if c.GenTrainWorkGPUSec[4] != 57600000 {
-		t.Errorf("GenTrainWorkGPUSec[4] = %v, want 57600000", c.GenTrainWorkGPUSec[4])
-	}
-	if c.GenQualityCap[1] != 25 || c.GenQualityCap[5] != 100 {
-		t.Errorf("GenQualityCap wrong: %v", c.GenQualityCap)
-	}
 	if c.TrainRentPerGPUSec != 0.01 {
 		t.Errorf("TrainRentPerGPUSec = %v, want 0.01", c.TrainRentPerGPUSec)
+	}
+	// Gen1–5 training values are owned by the generation catalog.
+	want := []struct {
+		gen                 int
+		trainRnD, trainWork float64
+		quality             float64
+	}{
+		{1, 20000, 900000, 25},
+		{2, 150000, 3600000, 45},
+		{3, 1000000, 14400000, 65},
+		{4, 6000000, 57600000, 82},
+		{5, 40000000, 230400000, 100},
+	}
+	for _, tc := range want {
+		g, err := Generation(tc.gen)
+		if err != nil {
+			t.Fatalf("Generation(%d): %v", tc.gen, err)
+		}
+		if g.TrainRnD != tc.trainRnD || g.TrainWork != tc.trainWork || g.QualityScale != tc.quality {
+			t.Errorf("catalog gen %d = TrainRnD/Work/Quality %v/%v/%v, want %v/%v/%v",
+				tc.gen, g.TrainRnD, g.TrainWork, g.QualityScale, tc.trainRnD, tc.trainWork, tc.quality)
+		}
 	}
 }
 
@@ -78,7 +85,7 @@ func TestDefaultCompetitors(t *testing.T) {
 	if len(cs) != 7 {
 		t.Fatalf("competitors = %d, want 7", len(cs))
 	}
-	if cs[0].Name != "OpenAI" || cs[0].Quality[model.DimCapability] != 10 {
+	if cs[0].Name != "OpenAI" {
 		t.Errorf("first competitor wrong: %+v", cs[0])
 	}
 	// every competitor has a name and a positive top skill
@@ -88,6 +95,17 @@ func TestDefaultCompetitors(t *testing.T) {
 		}
 		if c.Skill[model.DimCapability] <= 0 {
 			t.Errorf("competitor missing skill: %+v", c)
+		}
+	}
+}
+
+func TestDefaultCompetitorSpecialties(t *testing.T) {
+	const lo, hi = 0.92, 1.08
+	for _, c := range DefaultCompetitors() {
+		for d, sk := range c.Skill {
+			if sk < lo || sk > hi {
+				t.Errorf("%s skill[%d]=%v outside [%.2f, %.2f]", c.Name, d, sk, lo, hi)
+			}
 		}
 	}
 }

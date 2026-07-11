@@ -6,6 +6,25 @@ import (
 	"tokensmith/internal/sim"
 )
 
+// renderComputeFrontierLines shows training-pool split for frontier research.
+func renderComputeFrontierLines(m Model) []string {
+	v := sim.FrontierProgressView(m.state, m.cfg)
+	if !v.Active {
+		return []string{styleMuted.Render("前沿研究 未啟動（科技頁）")}
+	}
+	lines := []string{
+		fmt.Sprintf("前沿 Gen%d  分配 %d%% / 訓練 %d%%", v.TargetGen, v.AllocationPct, v.ModelAllocationPct),
+		fmt.Sprintf("有效%.0f → 折合%.0f · 建議%.0f", v.AllocatedCompute, v.DiminishedCompute, v.RecommendedCompute),
+		fmt.Sprintf("進度 %s %.0f%%", Bar(v.WorkFraction, 10), v.WorkFraction*100),
+	}
+	if v.UnavailableReason != "" {
+		lines = append(lines, styleWarn.Render("停滯 · "+frontierStallCopy(v.UnavailableReason)))
+	} else if v.ETASec > 0 {
+		lines = append(lines, KV("ETA", formatETASec(v.ETASec)))
+	}
+	return lines
+}
+
 func renderCompute(m Model) string {
 	s := m.state
 
@@ -48,6 +67,10 @@ func renderCompute(m Model) string {
 	} else if totalUsers > servable {
 		causalLines = append(causalLines, styleWarn.Render("超載 · 建議加推理"))
 	}
+
+	// Frontier allocation (authoritative sim view; keys for rent/build unchanged).
+	causalLines = append(causalLines, "")
+	causalLines = append(causalLines, renderComputeFrontierLines(m)...)
 
 	causalCard := CardIn(CardDefault, 0, "池狀態", VStack(causalLines...))
 

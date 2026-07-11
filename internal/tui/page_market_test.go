@@ -63,3 +63,41 @@ func TestMarketHighlightsYouRow(t *testing.T) {
 		t.Fatalf("market should contain your row: %q", out)
 	}
 }
+
+func TestMarketShowsFrontier(t *testing.T) {
+	m := testModel(t)
+	m.page = PageMarket
+	m.state.Models = []model.Model{{
+		Gen: 1, Online: true, Users: 100, Price: 12,
+		Quality: [model.NumQualityDims]float64{100, 100, 100, 100},
+	}}
+	m.state.Competitors = []model.Competitor{{
+		Name:           "OpenAI",
+		Quality:        [model.NumQualityDims]float64{110, 90, 100, 95},
+		Skill:          [model.NumQualityDims]float64{1.08, 1.00, 0.96, 1.04},
+		MomentumCycles: 3,
+	}}
+	m.state.Progression.Rivals = model.RivalEraState{Era: 3, Leaders: []string{"OpenAI"}}
+	m.state.Campaign.Active = []model.CampaignModifier{{
+		ID: "rival-deepseek-price-war-1", CyclesRemaining: 2,
+		Effects: func() model.CampaignEffects {
+			e := model.NeutralCampaignEffects()
+			e.RefPriceMult[model.SegDeveloper] = 0.85
+			return e
+		}(),
+	}}
+	v := renderMarket(m)
+	for _, want := range []string{
+		"全球前沿", "時代", "85%", "115%",
+		"OpenAI", "領袖", "專長", "威脅",
+		"市況修正", "剩餘 2 週期", "開發者價",
+	} {
+		if !strings.Contains(v, want) {
+			t.Errorf("market frontier missing %q:\n%s", want, v)
+		}
+	}
+	// Ranking surface still present (unchanged appeal path).
+	if !strings.Contains(v, "排名") {
+		t.Fatalf("rank display missing:\n%s", v)
+	}
+}

@@ -2,6 +2,7 @@ package sim
 
 import (
 	"fmt"
+	"math"
 
 	"tokensmith/internal/balance"
 	"tokensmith/internal/model"
@@ -92,8 +93,10 @@ func campaignRoadmapByCompany(s model.GameState, company string) (model.RivalRoa
 	return model.RivalRoadmap{}, false
 }
 
-// executeRivalAction applies one due roadmap action: quality mults, optional
-// ref-price modifier, counter consumption, action-index advance, and report.
+// executeRivalAction applies one due roadmap action: closes a fraction of the
+// remaining distance to the rival's bounded global-frontier target, records
+// capped momentum, optional ref-price modifier, counter consumption, action
+// index advance, and a board report. Never multiplies stored quality directly.
 // Clones Competitors and Campaign.Active before mutation. ok=false leaves the
 // roadmap inert (no report) when the profile/action is missing.
 func executeRivalAction(s model.GameState, roadmap model.RivalRoadmap, b balance.Config) (model.GameState, model.RivalRoadmap, model.CampaignReportEntry, bool) {
@@ -110,7 +113,7 @@ func executeRivalAction(s model.GameState, roadmap model.RivalRoadmap, b balance
 		return s, roadmap, model.CampaignReportEntry{}, false
 	}
 
-	ns := s
+	ns := ensureRivalEraState(s, b)
 	impact := campaignEffects(ns, b).RivalImpactMult
 	matched := ns.Campaign.CounterTarget == roadmap.Company && ns.Campaign.CounterActionID == actionID
 	if matched {
@@ -119,16 +122,26 @@ func executeRivalAction(s model.GameState, roadmap model.RivalRoadmap, b balance
 		ns.Campaign.CounterActionID = ""
 	}
 
+	gf := GlobalFrontier(ns, b)
 	comps := append([]model.Competitor(nil), ns.Competitors...)
 	for i := range comps {
 		if comps[i].Name != roadmap.Company {
 			continue
 		}
+		target := rivalTarget(ns, comps[i], gf)
 		for d := range model.NumQualityDims {
-			pct := action.QualityPct[d]
-			if pct != 0 {
-				comps[i].Quality[d] *= 1 + pct*impact
+			progress := action.FrontierProgress[d]
+			if progress != 0 {
+				gap := target[d] - comps[i].Quality[d]
+				comps[i].Quality[d] += gap * progress * impact
 			}
+			// Momentum: max(existing, progress×0.25×impact), hard-capped at 0.07.
+			nextMomentum := progress * 0.25 * impact
+			comps[i].MomentumPct[d] = math.Min(0.07, math.Max(comps[i].MomentumPct[d], nextMomentum))
+			comps[i].Quality[d] = clampRivalToBand(comps[i].Quality[d], gf[d])
+		}
+		if action.MomentumCycles > 0 {
+			comps[i].MomentumCycles = action.MomentumCycles
 		}
 		break
 	}
@@ -161,6 +174,34 @@ func executeRivalAction(s model.GameState, roadmap model.RivalRoadmap, b balance
 		Countered: matched,
 	}
 	return ns, roadmap, entry, true
+}
+
+// ageRivalMomentum linearly decays each rival's MomentumPct over MomentumCycles
+// board ticks: pct *= (cycles-1)/cycles; cycles--.
+func ageRivalMomentum(s model.GameState) model.GameState {
+	if len(s.Competitors) == 0 {
+		return s
+	}
+	ns := s
+	comps := append([]model.Competitor(nil), ns.Competitors...)
+	for i := range comps {
+		cycles := comps[i].MomentumCycles
+		if cycles <= 0 {
+			comps[i].MomentumPct = [model.NumQualityDims]float64{}
+			comps[i].MomentumCycles = 0
+			continue
+		}
+		scale := float64(cycles-1) / float64(cycles)
+		for d := range model.NumQualityDims {
+			comps[i].MomentumPct[d] *= scale
+		}
+		comps[i].MomentumCycles = cycles - 1
+		if comps[i].MomentumCycles == 0 {
+			comps[i].MomentumPct = [model.NumQualityDims]float64{}
+		}
+	}
+	ns.Competitors = comps
+	return ns
 }
 
 // advanceRivalRoadmap decrements the primary (or wildcard) countdown and

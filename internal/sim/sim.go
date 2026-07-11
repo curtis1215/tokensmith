@@ -93,41 +93,80 @@ func Valuation(ns model.GameState, b balance.Config) float64 {
 		eventEffects(ns, b).ValuationMult
 }
 
-// Tick advances the simulation by dt seconds and returns the new state.
-// Pure: it does not mutate s and depends only on its arguments.
+// Tick advances the simulation by dt seconds on both the economy and industry
+// clocks (online play). Pure: it does not mutate s.
 func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Config) model.GameState {
+	return tickWithClocks(s, dt, dt, events, b)
+}
+
+// OfflineTick is the narrow dual-clock entry point for offline settlement:
+// economyDT drives GameTime, R&D, cash, training, frontier research, users,
+// and serving; industryDT drives IndustryTime and rival league catch-up only.
+func OfflineTick(s model.GameState, economyDT, industryDT float64, events []model.TokenEvent, b balance.Config) model.GameState {
+	return tickWithClocks(s, economyDT, industryDT, events, b)
+}
+
+// tickWithClocks advances economy and industry on independent deltas.
+func tickWithClocks(s model.GameState, economyDT, industryDT float64, events []model.TokenEvent, b balance.Config) model.GameState {
+	if economyDT < 0 {
+		economyDT = 0
+	}
+	if industryDT < 0 {
+		industryDT = 0
+	}
 	ns := s
-	ns.GameTime += dt
+	ns.GameTime += economyDT
+	ns.Progression.IndustryTime += industryDT
+	// Events age with the economy clock (same as historical offline settle).
 	ns = advanceEvents(ns, b)
 	ee := eventEffects(ns, b)
 
-	// Advance the soft-cap window; reset cumulative when the window elapses.
-	ns.WindowElapsed += dt
+	// Soft-cap window uses economy time.
+	ns.WindowElapsed += economyDT
 	if ns.WindowElapsed >= b.SoftCapWindowSec {
 		ns.WindowElapsed -= b.SoftCapWindowSec
 		ns.WindowRnD = 0
 	}
 
-	staffRnD := staffRnDPerSec(s.Research, b) * dt
+	staffRnD := staffRnDPerSec(s.Research, b) * economyDT
 
 	raw := TokenRawRnD(events, b)
 	tokenRnD, newWindow := applySoftCap(ns.WindowRnD, raw, b.SoftCapFull, b.SoftCapMult)
 	ns.WindowRnD = newWindow
 
 	pe := PrestigeEffects(ns.Prestige.UnlockedPrestige, b)
-	starRnD := starEffects(ns, b).RnDPerSec * dt
+	starRnD := starEffects(ns, b).RnDPerSec * economyDT
 	ns.Resources.RnD += (staffRnD+starRnD)*pe.RnDMult + tokenRnD*b.StreakMult*pe.RnDMult
-	ns.Resources.Cash -= poolRentPerSec(ns, b) * dt
+	ns.Resources.Cash -= poolRentPerSec(ns, b) * economyDT
 	serverPower := 0.0
 	for _, sv := range ns.Servers {
 		serverPower += sv.PowerKW
 	}
-	ns.Resources.Cash -= serverPower * b.ElectricityPerKWSec * ee.PowerCostMult * dt
-	ns.Resources.Cash -= (totalSalaryPerSec(ns, b) + starSalaryPerSec(ns, b)) * dt
-	ns = advanceTraining(ns, dt, b)
-	ns = advanceCompetitors(ns, dt, b)
-	ns = advanceUsers(ns, dt, b)
-	ns = advanceServing(ns, dt, b)
+	ns.Resources.Cash -= serverPower * b.ElectricityPerKWSec * ee.PowerCostMult * economyDT
+	ns.Resources.Cash -= (totalSalaryPerSec(ns, b) + starSalaryPerSec(ns, b)) * economyDT
+
+	// Shared training pool (economy clock).
+	trainEff := effectiveTraining(ns, b)
+	frontierAlloc, modelAlloc := trainEff, trainEff
+	if ns.Progression.Frontier.Active {
+		pct := ns.Progression.Frontier.AllocationPct
+		if pct < 0 {
+			pct = 0
+		}
+		if pct > 100 {
+			pct = 100
+		}
+		frontierAlloc = trainEff * float64(pct) / 100
+		modelAlloc = trainEff * float64(100-pct) / 100
+	} else {
+		frontierAlloc = 0
+	}
+	ns = advanceFrontierProject(ns, economyDT, frontierAlloc)
+	ns = advanceTraining(ns, economyDT, modelAlloc, b)
+	// Rival league / global-frontier catch-up uses the industry clock only.
+	ns = advanceCompetitors(ns, industryDT, b)
+	ns = advanceUsers(ns, economyDT, b)
+	ns = advanceServing(ns, economyDT, b)
 	val := Valuation(ns, b)
 	if val > ns.PeakValuation {
 		ns.PeakValuation = val
@@ -166,13 +205,14 @@ func effectiveInference(ns model.GameState, b balance.Config) float64 {
 	return c * infraEfficiency(ns, b) * techEffects(ns, b).InfraMult * starEffects(ns, b).InfraMult
 }
 
-// advanceTraining progresses the in-progress training job by dt and appends
-// the completed model as a draft. Pure: clones Models before appending.
-func advanceTraining(ns model.GameState, dt float64, b balance.Config) model.GameState {
+// advanceTraining progresses the in-progress training job by dt using the
+// model-training share of the training pool, then appends the completed model
+// as a draft. Pure: clones Models before appending.
+func advanceTraining(ns model.GameState, dt, allocated float64, b balance.Config) model.GameState {
 	if !ns.HasTraining {
 		return ns
 	}
-	ns.Training.WorkRemaining -= effectiveTraining(ns, b) * dt
+	ns.Training.WorkRemaining -= allocated * dt
 	if ns.Training.WorkRemaining > 0 {
 		return ns
 	}
@@ -180,6 +220,11 @@ func advanceTraining(ns model.GameState, dt float64, b balance.Config) model.Gam
 	te := techEffects(ns, b)
 	se := starEffects(ns, b)
 	job := ns.Training
+	spec, err := balance.Generation(job.Gen)
+	qualityScale := 0.0
+	if err == nil {
+		qualityScale = spec.QualityScale
+	}
 	m := model.Model{
 		Gen:     job.Gen,
 		Segment: job.Segment,
@@ -189,7 +234,7 @@ func advanceTraining(ns model.GameState, dt float64, b balance.Config) model.Gam
 		Name:    "",
 	}
 	for d := range model.NumQualityDims {
-		m.Quality[d] = job.Alloc[d] * b.GenQualityCap[job.Gen] * te.QualityMult[d] * se.QualityMult[d]
+		m.Quality[d] = job.Alloc[d] * qualityScale * te.QualityMult[d] * se.QualityMult[d]
 	}
 	cloned := append([]model.Model(nil), ns.Models...)
 	ns.Models = append(cloned, m)
@@ -282,49 +327,11 @@ func playerFrontier(ns model.GameState) [model.NumQualityDims]float64 {
 	return f
 }
 
-// advanceCompetitors rubber-bands each competitor's quality toward
-// Skill×max(playerFrontier, base), so rivals track the player's progress
-// instead of running away on a fixed curve. Pure: clones Competitors.
-//
-// When the player has an online model, targets are also soft-capped at
-// CompetitorMaxLead×frontier so Skill>1 rivals cannot jump a full generation
-// ahead during the Gen1→Gen2 R&D farm window.
+// advanceCompetitors runs the bounded rival league (global-frontier band).
+// Campaign and non-campaign play share the same engine — Tick no longer freezes
+// rivals during an active campaign (roadmap actions are additive in Task 10).
 func advanceCompetitors(ns model.GameState, dt float64, b balance.Config) model.GameState {
-	// Active campaign rivals advance only via board-cycle roadmap actions.
-	if ns.Campaign.Doctrine != model.DoctrineNone {
-		return ns
-	}
-	if len(ns.Competitors) == 0 {
-		return ns
-	}
-	frontier := playerFrontier(ns)
-	factor := b.CompetitorCatchupRate * dt
-	if factor > 1 {
-		factor = 1
-	} else if factor < 0 {
-		factor = 0
-	}
-	comps := append([]model.Competitor(nil), ns.Competitors...)
-	for i := range comps {
-		for d := range model.NumQualityDims {
-			ref := frontier[d]
-			if b.CompetitorBaseQuality > ref {
-				ref = b.CompetitorBaseQuality
-			}
-			target := comps[i].Skill[d] * ref
-			// Soft-cap lead only once the player has established a frontier on
-			// this dim — pre-product rivals still settle near Skill×base.
-			if frontier[d] > 0 && b.CompetitorMaxLead > 0 {
-				leadCap := frontier[d] * b.CompetitorMaxLead
-				if target > leadCap {
-					target = leadCap
-				}
-			}
-			comps[i].Quality[d] += (target - comps[i].Quality[d]) * factor
-		}
-	}
-	ns.Competitors = comps
-	return ns
+	return advanceRivalLeague(ns, dt, b)
 }
 
 // advanceServing computes inference load and, when provisioned inference

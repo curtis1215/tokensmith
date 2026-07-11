@@ -21,6 +21,32 @@ func TestComputePageShowsPools(t *testing.T) {
 	}
 }
 
+func TestComputeShowsAllocation(t *testing.T) {
+	m := testModel(t)
+	m.page = PageCompute
+	m.state.Servers = []model.Server{{Pool: model.PoolTraining, Compute: 400}}
+	m.state.Resources.RnD = 1e9
+	m.state.Progression.Frontier = model.FrontierProject{
+		Active: true, TargetGen: 7, AllocationPct: 60,
+		RnDTotal: 500, RnDRemaining: 200,
+		WorkTotal: 500, WorkRemaining: 100,
+		RecommendedCompute: 100,
+	}
+	v := renderCompute(m)
+	for _, want := range []string{
+		"前沿 Gen7", "分配 60%", "訓練 40%",
+		"有效", "折合", "建議", "進度", "ETA",
+	} {
+		if !strings.Contains(v, want) {
+			t.Errorf("compute allocation missing %q:\n%s", want, v)
+		}
+	}
+	// Existing rent/build surface still present.
+	if !strings.Contains(v, "製程") || !strings.Contains(v, "機房") {
+		t.Fatalf("must preserve process/datacenter cards:\n%s", v)
+	}
+}
+
 func TestComputeRentKeys(t *testing.T) {
 	m := testModel(t)
 	m.page = PageCompute

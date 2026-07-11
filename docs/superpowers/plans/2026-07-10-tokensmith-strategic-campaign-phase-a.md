@@ -307,10 +307,17 @@ type CampaignConfig struct {
 | PivotCashFloor | 20,000 |
 | PivotRevenueMonths | 1 |
 | PivotRnDFrac | 0.10 |
-| EstablishShare | 0.10 |
-| Consumer/Enterprise/Developer expand share | 0.25 / 0.20 / 0.20 |
-| Consumer/Enterprise/Developer win share | 0.35 / 0.30 / 0.35 |
+| EstablishShare | 0.07 |
+| Consumer/Enterprise/Developer expand share | 0.11 / 0.095 / 0.095 |
+| Consumer/Enterprise/Developer win share | 0.13 / 0.12 / 0.13 |
 | StrategyExitCycle | 18 |
+
+Share gates sit under the hard rival-band player-share ceiling
+`1/(1+7×0.85)≈0.1439` (player defines GlobalFrontier; all seven default rivals
+hard-clamped to the 85% floor). Ordering remains establish < expand < win;
+consumer expand/win stay strictest, enterprise win easiest. Absolute levels
+were recalibrated when long-term progression made the floor hard — raw
+economic / campaign share still sums the full roster (see progression design §9/§12).
 
 Add these exact perk effects, starting every unspecified multiplier at `1`:
 

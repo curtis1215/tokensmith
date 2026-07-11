@@ -8,9 +8,6 @@ import (
 	"tokensmith/internal/model"
 )
 
-// MaxGen is the highest model generation modelled in v0.
-const MaxGen = 5
-
 // EntryProcessID is the process available from the first day (no tech unlock).
 const EntryProcessID = "N7"
 
@@ -49,11 +46,6 @@ type Config struct {
 	SoftCapFull      float64 // R&D granted at full rate before diminishing
 	SoftCapMult      float64 // multiplier applied beyond SoftCapFull
 	SoftCapWindowSec float64 // window length in seconds
-
-	// Per-generation model training (index by gen 1..MaxGen; 0 unused).
-	GenRnDCost         [MaxGen + 1]float64 // R&D cost to start training
-	GenTrainWorkGPUSec [MaxGen + 1]float64 // training work in GPU-seconds
-	GenQualityCap      [MaxGen + 1]float64 // per-dimension quality ceiling
 
 	// TrainRentPerGPUSec is cash cost per rented training GPU per second.
 	// v0 placeholder (spec §12 $500/GPU·day is game-day-ambiguous); tune later.
@@ -151,12 +143,7 @@ func Default() Config {
 	c.SoftCapMult = 0.3
 	c.SoftCapWindowSec = 86400
 
-	// gen:                      1        2         3          4           5
-	c.GenRnDCost = [MaxGen + 1]float64{0, 20000, 150000, 1000000, 6000000, 40000000}
-	// Training work (GPU-seconds). Scaled so a Gen1 model on ~4 rented GPU takes
-	// tens of real seconds (not a single tick); higher gens cost much more work.
-	c.GenTrainWorkGPUSec = [MaxGen + 1]float64{0, 900000, 3600000, 14400000, 57600000, 230400000}
-	c.GenQualityCap = [MaxGen + 1]float64{0, 25, 45, 65, 82, 100}
+	// Per-generation train costs/work/quality live in Generation() (generation.go).
 	c.TrainRentPerGPUSec = 0.01
 
 	c.QualityWeights = [model.NumQualityDims]float64{0.4, 0.2, 0.2, 0.2}
@@ -229,22 +216,28 @@ func qvec(capability, efficiency, safety, speed float64) [model.NumQualityDims]f
 	return [model.NumQualityDims]float64{capability, efficiency, safety, speed}
 }
 
-// DefaultCompetitors returns the v0 named-competitor roster (spec §17.1). Skill
-// is per-dimension relative strength (>1 aims above the player's frontier in
-// that dim, <1 below); initial Quality is set near Skill×CompetitorBaseQuality
-// so rivals start beatable and then track the player's progress.
+// DefaultCompetitors returns the named-competitor roster. Skill is a bounded
+// specialty vector in [0.92, 1.08] (long-run progression design §9.1); initial
+// Quality is near Skill×CompetitorBaseQuality so rivals start beatable.
 func DefaultCompetitors() []model.Competitor {
-	// Initial Quality ≈ Skill × CompetitorBaseQuality (~8/dim, appeal ~8) so a
-	// starting Gen1 (max appeal ~10 when focused) is immediately competitive;
-	// rivals then rubber-band up as the player trains higher generations.
+	// Specialties preserve relative character (OpenAI cap, Anthropic safety,
+	// DeepSeek efficiency, …) while staying inside the 0.92–1.08 band.
+	const base = 8.0
+	mk := func(name string, skill [model.NumQualityDims]float64) model.Competitor {
+		var q [model.NumQualityDims]float64
+		for d := range q {
+			q[d] = skill[d] * base
+		}
+		return model.Competitor{Name: name, Quality: q, Skill: skill}
+	}
 	return []model.Competitor{
-		{Name: "OpenAI", Quality: qvec(10, 8, 8, 8), Skill: qvec(1.20, 1.00, 0.95, 1.05)},
-		{Name: "Anthropic", Quality: qvec(9, 8, 10, 8), Skill: qvec(1.10, 0.95, 1.25, 0.95)},
-		{Name: "xAI", Quality: qvec(8, 8, 6, 9), Skill: qvec(1.05, 0.95, 0.80, 1.15)},
-		{Name: "DeepSeek", Quality: qvec(8, 10, 7, 8), Skill: qvec(0.95, 1.25, 0.85, 1.00)},
-		{Name: "Qwen", Quality: qvec(7, 9, 8, 8), Skill: qvec(0.90, 1.10, 0.95, 1.00)},
-		{Name: "Zhipu", Quality: qvec(7, 8, 8, 7), Skill: qvec(0.85, 1.00, 0.95, 0.85)},
-		{Name: "Gemini", Quality: qvec(8, 8, 8, 8), Skill: qvec(1.05, 1.00, 1.05, 1.00)},
+		mk("OpenAI", qvec(1.08, 1.00, 0.96, 1.04)),
+		mk("Anthropic", qvec(1.04, 0.96, 1.08, 0.96)),
+		mk("xAI", qvec(1.04, 0.96, 0.92, 1.08)),
+		mk("DeepSeek", qvec(0.96, 1.08, 0.92, 1.00)),
+		mk("Qwen", qvec(0.94, 1.06, 0.98, 1.00)),
+		mk("Zhipu", qvec(0.92, 1.00, 0.98, 0.92)),
+		mk("Gemini", qvec(1.04, 1.00, 1.04, 1.00)),
 	}
 }
 

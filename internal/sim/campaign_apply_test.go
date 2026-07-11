@@ -233,34 +233,31 @@ func TestIntelDirectiveSetsIntelFull(t *testing.T) {
 
 func TestMatchingCounterHalvesImpactAndConsumes(t *testing.T) {
 	b := balance.Default()
-	// OpenAI quality baseline from DefaultCompetitors; action openai-flagship is +15% capability.
-	s := model.GameState{Competitors: balance.DefaultCompetitors()}
+	// Counter halves FrontierProgress impact (gap-close), then consumes the pin.
+	pm := onlineModel(100, b.RefPrice)
+	c := model.Competitor{Name: "OpenAI", Skill: [model.NumQualityDims]float64{1, 1, 1, 1}}
+	c.Quality[model.DimCapability] = 90
+	s := model.GameState{Models: []model.Model{pm}, Competitors: []model.Competitor{c}}
+	s.Progression.MaxUnlockedGen = 1
+	s.Progression.Rivals = model.RivalEraState{Era: 1, Leaders: []string{"Nobody"}}
 	s.Campaign = model.CampaignState{
 		Doctrine: model.DoctrineConsumer, Stage: model.CampaignStageExpand,
 		Primary:         model.RivalRoadmap{Company: "OpenAI", ActionIndex: 0, CyclesUntilAction: 1},
 		CounterTarget:   "OpenAI",
 		CounterActionID: "openai-flagship",
 	}
-	// Find OpenAI competitor quality before.
-	var before float64
-	for _, c := range s.Competitors {
-		if c.Name == "OpenAI" {
-			before = c.Quality[model.DimCapability]
-			break
-		}
-	}
-	// Uncountered impact would be before * (1 + 0.15); matched is before * (1 + 0.15*0.5).
-	want := before * (1 + 0.15*0.5)
+	// Target 100; gap 10; progress 0.15 * impact 0.5 → +0.75 → 90.75
+	// ageRivalMomentum runs first but MomentumCycles is 0 so no-op.
 	ns := AdvanceCampaignCycle(s, b)
 	var after float64
-	for _, c := range ns.Competitors {
-		if c.Name == "OpenAI" {
-			after = c.Quality[model.DimCapability]
+	for _, comp := range ns.Competitors {
+		if comp.Name == "OpenAI" {
+			after = comp.Quality[model.DimCapability]
 			break
 		}
 	}
-	if after != want {
-		t.Fatalf("quality after counter: got %v want %v (before=%v)", after, want, before)
+	if !approx(after, 90.75) {
+		t.Fatalf("quality after counter: got %v want 90.75", after)
 	}
 	if ns.Campaign.CounterTarget != "" || ns.Campaign.CounterActionID != "" {
 		t.Fatalf("counter should be consumed: target=%q action=%q", ns.Campaign.CounterTarget, ns.Campaign.CounterActionID)

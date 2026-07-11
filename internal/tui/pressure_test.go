@@ -70,6 +70,34 @@ func TestPendingPerkAndNoDoctrinePressures(t *testing.T) {
 	}
 }
 
+func TestFrontierStallPressure(t *testing.T) {
+	m := testModel(t)
+	m.state.Progression.Frontier = model.FrontierProject{
+		Active: true, TargetGen: 6, AllocationPct: 100,
+		RnDTotal: 10, RnDRemaining: 10, WorkTotal: 10, WorkRemaining: 10,
+		RecommendedCompute: 50,
+	}
+	m.state.Resources.RnD = 0
+	m.state.Servers = []model.Server{{Pool: model.PoolTraining, Compute: 100}}
+	joined := strings.Join(pressures(m), "\n")
+	if !strings.Contains(joined, "前沿研究停滯") || !strings.Contains(joined, "R&D 不足") {
+		t.Fatalf("expected frontier stall pressure:\n%s", joined)
+	}
+	// Paused allocation.
+	m2 := testModel(t)
+	m2.state.Progression.Frontier = model.FrontierProject{
+		Active: true, TargetGen: 6, AllocationPct: 0,
+		RnDTotal: 10, RnDRemaining: 10, WorkTotal: 10, WorkRemaining: 10,
+		RecommendedCompute: 50,
+	}
+	m2.state.Resources.RnD = 1e9
+	m2.state.Servers = []model.Server{{Pool: model.PoolTraining, Compute: 100}}
+	j2 := strings.Join(pressures(m2), "\n")
+	if !strings.Contains(j2, "暫停") && !strings.Contains(j2, "0%") {
+		t.Fatalf("expected paused stall pressure:\n%s", j2)
+	}
+}
+
 func TestOverviewHelpShowsCampaignKeys(t *testing.T) {
 	m := testModel(t)
 	m.page = PageOverview

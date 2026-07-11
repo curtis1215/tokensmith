@@ -221,18 +221,29 @@ func formatActionIntelDetail(actionID string, full bool, cfg balance.Config, ind
 	var dims []string
 	dimNames := [model.NumQualityDims]string{"能力", "成本", "安全", "速度"}
 	for i := 0; i < model.NumQualityDims; i++ {
-		if spec.QualityPct[i] != 0 {
-			dims = append(dims, fmt.Sprintf("%s%+.0f%%", dimNames[i], spec.QualityPct[i]*100))
+		if spec.FrontierProgress[i] != 0 {
+			dims = append(dims, fmt.Sprintf("%s追趕%.0f%%", dimNames[i], spec.FrontierProgress[i]*100))
 		}
 	}
 	if len(dims) == 0 {
 		dims = append(dims, "品質—")
 	}
-	return indent + fmt.Sprintf("%s · 價格×%.2f · 前置%d週期 · %s",
+	// Duration of any market-effect modifier this action can apply.
+	dur := ""
+	if spec.DurationCycles > 0 && spec.RefPriceMult > 0 && spec.RefPriceMult != 1 {
+		dur = fmt.Sprintf(" · 市況%d週期", spec.DurationCycles)
+	}
+	mom := ""
+	if spec.MomentumCycles > 0 {
+		mom = fmt.Sprintf(" · 動能%d週期", spec.MomentumCycles)
+	}
+	return indent + fmt.Sprintf("%s · 價格×%.2f · 前置%d週期 · %s%s%s",
 		strings.Join(dims, " "),
 		spec.RefPriceMult,
 		spec.LeadCycles,
 		segmentName(spec.Segment),
+		dur,
+		mom,
 	)
 }
 

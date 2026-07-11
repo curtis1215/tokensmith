@@ -70,6 +70,7 @@ type GameState struct {
 	HiredStars        []string
 	Events            EventsState
 	Campaign          CampaignState
+	Progression       ProgressionState
 }
 
 // QualityDim indexes Model.Quality.
@@ -154,10 +155,14 @@ func (PublishModel) commandMarker() {}
 // per-dimension strength relative to the player's frontier: rivals rubber-band
 // their quality toward Skill×(player's best), so they track the player's
 // progress instead of running away on a fixed curve.
+// MomentumPct / MomentumCycles are transient roadmap boosts (fraction of the
+// global frontier), aged each campaign cycle.
 type Competitor struct {
-	Name    string
-	Quality [NumQualityDims]float64
-	Skill   [NumQualityDims]float64
+	Name           string
+	Quality        [NumQualityDims]float64
+	Skill          [NumQualityDims]float64
+	MomentumPct    [NumQualityDims]float64
+	MomentumCycles int
 }
 
 // ComputePool identifies which compute pool a chip/server feeds.

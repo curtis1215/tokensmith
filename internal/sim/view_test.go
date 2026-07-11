@@ -140,6 +140,22 @@ func TestServableUsers(t *testing.T) {
 	}
 }
 
+func TestModelFrontierViewExported(t *testing.T) {
+	// Smoke: frontier helpers are part of the sim view surface.
+	b := balance.Default()
+	s := model.GameState{
+		Models: []model.Model{{Gen: 1, Online: true, Quality: [model.NumQualityDims]float64{10, 5, 5, 5}}},
+	}
+	v := ModelFrontierView(s, 0, b)
+	if !v.Active || v.AbsoluteQuality[model.DimCapability] != 10 {
+		t.Fatalf("ModelFrontierView: %+v", v)
+	}
+	gf := GlobalFrontier(s, b)
+	if gf[model.DimCapability] < 10 {
+		t.Fatalf("GlobalFrontier should include player: %v", gf)
+	}
+}
+
 func TestThreatLevelOrdering(t *testing.T) {
 	b := balance.Default()
 	// player best appeal in seg = appeal of 10
@@ -168,5 +184,60 @@ func TestThreatLevelOrdering(t *testing.T) {
 	rivalHigh := model.Competitor{Name: "high", Quality: [model.NumQualityDims]float64{12, 0, 0, 0}}
 	if got := ThreatLevel(s, b, model.SegConsumer, rivalHigh); got != 2 {
 		t.Errorf("ThreatLevel for high rival = %d, want 2", got)
+	}
+}
+
+func TestRivalFrontierView(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{
+		Models: []model.Model{{
+			Gen: 1, Online: true,
+			Quality: [model.NumQualityDims]float64{100, 100, 100, 100},
+		}},
+		Competitors: []model.Competitor{{
+			Name:           "OpenAI",
+			Quality:        [model.NumQualityDims]float64{110, 90, 100, 95},
+			Skill:          [model.NumQualityDims]float64{1.08, 1.00, 0.96, 1.04},
+			MomentumPct:    [model.NumQualityDims]float64{0.05, 0, 0, 0},
+			MomentumCycles: 2,
+		}},
+		Progression: model.ProgressionState{
+			MaxUnlockedGen: 1,
+			Rivals:         model.RivalEraState{Era: 1, Leaders: []string{"OpenAI"}},
+		},
+	}
+	v := RivalFrontierView(s, 0, b)
+	if !v.Active || v.Name != "OpenAI" || !v.IsLeader {
+		t.Fatalf("view: %+v", v)
+	}
+	// Absolute quality is stored value (not normalized).
+	if v.AbsoluteQuality[model.DimCapability] != 110 {
+		t.Fatalf("absolute cap = %v", v.AbsoluteQuality[model.DimCapability])
+	}
+	// Delta vs global frontier (~100 from player).
+	if v.GlobalFrontier[model.DimCapability] < 100 {
+		t.Fatalf("global frontier cap too low: %v", v.GlobalFrontier[model.DimCapability])
+	}
+	wantDelta := 110/v.GlobalFrontier[model.DimCapability] - 1
+	if math.Abs(v.FrontierDeltaPct[model.DimCapability]-wantDelta) > 1e-9 {
+		t.Fatalf("delta = %v want %v", v.FrontierDeltaPct[model.DimCapability], wantDelta)
+	}
+	if v.Specialty != model.DimCapability || v.SpecialtyPct != 1.08 {
+		t.Fatalf("specialty = %v @%v", v.Specialty, v.SpecialtyPct)
+	}
+	if v.MomentumCycles != 2 || v.MomentumPct[model.DimCapability] != 0.05 {
+		t.Fatalf("momentum: cycles=%d pct=%v", v.MomentumCycles, v.MomentumPct)
+	}
+	// Invalid index.
+	if RivalFrontierView(s, 9, b).Active {
+		t.Fatal("oob should be inactive")
+	}
+	// Zero frontier safety.
+	empty := RivalFrontierView(model.GameState{Competitors: []model.Competitor{{Name: "X"}}}, 0, b)
+	if empty.FrontierDeltaPct[0] != 0 && empty.GlobalFrontier[0] == 0 {
+		// delta must be 0 when global is 0
+	}
+	if empty.GlobalFrontier[model.DimCapability] == 0 && empty.FrontierDeltaPct[model.DimCapability] != 0 {
+		t.Fatalf("zero frontier delta unsafe: %v", empty.FrontierDeltaPct)
 	}
 }
