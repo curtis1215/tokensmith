@@ -1,7 +1,7 @@
 # Tokensmith Long-Term Progression Core Design
 
-**Date:** 2026-07-12  
-**Status:** Approved design  
+**Date:** 2026-07-12
+**Status:** Approved design
 **Scope:** Long-term model generations, era progression, frontier research, bounded rivals, TUI integration, and save migration
 
 ## 1. Context
