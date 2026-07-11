@@ -38,7 +38,8 @@ func renderTeam(m Model) string {
 		"",
 		KV("薪資合計", fmt.Sprintf("$%.3f/s", salarySum)),
 	)
-	rolesCard := Card("團隊四職能", rolesBody)
+	cw := m.contentWidth()
+	rolesCard := CardIn(CardDefault, cw, "團隊四職能", rolesBody)
 
 	// 2. Stars Card — truncate long status/blurb lines to fit viewport content width
 	inner := m.cardInnerWidth()
@@ -55,9 +56,9 @@ func renderTeam(m Model) string {
 		line := fmt.Sprintf("%-15s %-25s (%s)", st.Name, status, blurb)
 		starLines = append(starLines, TruncateWidth(line, inner))
 	}
-	starsCard := Card("明星員工", VStack(starLines...))
+	starsCard := CardIn(CardDefault, cw, "明星員工", VStack(starLines...))
 
-	return ResponsiveRow(m.contentWidth(), 2, rolesCard, starsCard)
+	return ResponsiveRow(cw, 2, rolesCard, starsCard)
 }
 
 func starBlurb(st model.Star) string {

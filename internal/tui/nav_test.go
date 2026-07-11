@@ -42,9 +42,9 @@ func TestViewHasChrome(t *testing.T) {
 }
 
 func TestProgressBar(t *testing.T) {
-	got := progressBar(0.5, 10)
-	full := strings.Count(got, "▓")
+	got := Bar(0.5, 10)
+	full := strings.Count(got, "█")
 	if full != 5 {
-		t.Fatalf("progressBar(0.5,10) filled=%d, want 5 (%q)", full, got)
+		t.Fatalf("Bar(0.5,10) filled=%d, want 5 (%q)", full, got)
 	}
 }

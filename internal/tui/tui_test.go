@@ -214,3 +214,101 @@ func TestRealSecCompressionMatchesTickRate(t *testing.T) {
 		t.Fatalf("balance.RealSecCompression = %v, want %v (tui tickDT/tickInterval changed without updating balance.RealSecCompression)", balance.RealSecCompression, want)
 	}
 }
+
+func TestResourceBarSegments(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	bar := renderResourceBar(m)
+	if !strings.Contains(bar, "│") {
+		t.Fatalf("resource bar should use │ separators: %q", bar)
+	}
+	if !strings.Contains(bar, "💰") || !strings.Contains(bar, "📈") {
+		t.Fatalf("segments missing: %q", bar)
+	}
+}
+
+func TestTabBarMarksActive(t *testing.T) {
+	got := renderTabBar(PageMarket)
+	if !strings.Contains(got, "3 市場") {
+		t.Fatalf("tab bar labels changed unexpectedly: %q", got)
+	}
+}
+
+func TestResourceBarShowsCashArrowAndStreak(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	m.dispReady = true
+	m.cashRate = 42
+	m.streakDays = 5
+	bar := renderResourceBar(m)
+	if !strings.Contains(bar, "▲") {
+		t.Fatalf("positive cashRate should show ▲: %q", bar)
+	}
+	if !strings.Contains(bar, "🔥5天") {
+		t.Fatalf("streak should be persistent in bar: %q", bar)
+	}
+	m.cashRate = -42
+	if bar = renderResourceBar(m); !strings.Contains(bar, "▼") {
+		t.Fatalf("negative cashRate should show ▼: %q", bar)
+	}
+}
+
+func TestSaveMetaPersistsAchievements(t *testing.T) {
+	dir := t.TempDir()
+	m := newAt(filepath.Join(dir, "save.json"))
+	m.achievements = map[string]int64{"streak-3": 42}
+	m.saveMetaAt(100)
+	meta, ok, _ := store.LoadMeta(filepath.Join(dir, "meta.json"))
+	if !ok || meta.Achievements["streak-3"] != 42 {
+		t.Fatalf("achievements not persisted: %+v", meta.Achievements)
+	}
+}
+
+func TestHireShowsSuccessNotice(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	m.state.Resources.Cash = 1e9
+	m.page = PageTeam
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	m = mm.(Model)
+	if !strings.Contains(m.notice, "已雇用研究員") {
+		t.Fatalf("hire should set success notice, got %q", m.notice)
+	}
+}
+
+func TestTechUnlockShowsName(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	m.state.Resources.RnD = 1e12
+	m.page = PageTech
+	m.techCursor = 0
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = mm.(Model)
+	if !strings.Contains(m.notice, "已解鎖") {
+		t.Fatalf("tech unlock should set notice, got %q", m.notice)
+	}
+}
+
+func TestOfflineReportCardRenders(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	m.offlineSummary = &Summary{
+		SecondsSettled:    7200,
+		TokensIn:          1000,
+		TokensOut:         2000,
+		RnDGained:         500,
+		TrainingCompleted: true,
+		CampaignCycles:    2,
+	}
+	m.offlineReports = []string{"· 宿敵行動 OpenAI · OpenAI 消費旗艦"}
+	out := renderOfflineReport(m)
+	for _, want := range []string{"離線戰報", "2.0h", "訓練完成", "董事會週期 2 次", "宿敵行動"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("offline report missing %q: %q", want, out)
+		}
+	}
+	// View 顯示且任意鍵清除
+	if v := m.View(); !strings.Contains(v, "離線戰報") {
+		t.Fatal("View should embed offline report")
+	}
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	m = mm.(Model)
+	if m.offlineSummary != nil || m.offlineReports != nil {
+		t.Fatal("any key should clear offline report")
+	}
+}

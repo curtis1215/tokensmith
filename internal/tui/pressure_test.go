@@ -27,26 +27,25 @@ func TestNoModelPressureShown(t *testing.T) {
 }
 
 func TestFinancialDistressPressureShown(t *testing.T) {
-	// Distress=1: warn about pressure / approaching exit, but never advertise [E].
+	// Distress>=1: red crisis line with strategy-exit guidance.
 	m1 := testModel(t)
 	m1.state.Campaign.FinancialDistressCycles = 1
 	joined1 := strings.Join(pressures(m1), "\n")
-	if !strings.Contains(joined1, "財務") {
+	if !strings.Contains(joined1, "財務危機") {
 		t.Fatalf("distress=1 should warn about finance:\n%s", joined1)
 	}
-	if strings.Contains(joined1, "[E]") {
-		t.Fatalf("distress=1 must not advertise [E]:\n%s", joined1)
+	if !strings.Contains(joined1, "[E]") {
+		t.Fatalf("distress=1 should mention [E]:\n%s", joined1)
 	}
 
-	// Distress>=2: may explicitly advertise [E]策略退出 (matches pageKeys gate).
 	m2 := testModel(t)
 	m2.state.Campaign.FinancialDistressCycles = 2
 	joined2 := strings.Join(pressures(m2), "\n")
-	if !strings.Contains(joined2, "財務") {
+	if !strings.Contains(joined2, "財務危機") {
 		t.Fatalf("distress=2 should warn about finance:\n%s", joined2)
 	}
-	if !strings.Contains(joined2, "[E]策略退出") {
-		t.Fatalf("distress=2 may advertise [E]策略退出:\n%s", joined2)
+	if !strings.Contains(joined2, "第 2 週期") {
+		t.Fatalf("distress=2 should show cycle count:\n%s", joined2)
 	}
 }
 

@@ -158,6 +158,7 @@ func executeRivalAction(s model.GameState, roadmap model.RivalRoadmap, b balance
 		Kind:      model.ReportRivalAction,
 		SubjectID: roadmap.Company,
 		DetailID:  actionID,
+		Countered: matched,
 	}
 	return ns, roadmap, entry, true
 }

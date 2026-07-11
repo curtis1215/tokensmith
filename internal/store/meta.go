@@ -31,6 +31,9 @@ type Meta struct {
 	// ahead of this watermark, the TUI treats meta as stale (Save ok / Meta
 	// lost) and arms the campaign clock without replaying catch-up cycles.
 	LastCampaignCycle int `json:"lastCampaignCycle"`
+	// Achievements maps achievement id → unlockedAt (unix seconds). Player-level
+	// and cross-prestige: survives every run reset. Nil on old meta files.
+	Achievements map[string]int64 `json:"achievements,omitempty"`
 }
 
 // DefaultMetaPath is the standard meta-file location.

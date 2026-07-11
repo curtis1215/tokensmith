@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"tokensmith/internal/balance"
 	"tokensmith/internal/model"
 	"tokensmith/internal/sim"
@@ -11,14 +13,20 @@ import (
 
 func renderMarket(m Model) string {
 	s := m.state
+	cw := m.contentWidth()
+	colW := cw
+	if cw >= minDashWidth {
+		colW = (cw - 2) / 2
+	}
+
 	var cards []string
 	segs := []model.Segment{model.SegConsumer, model.SegEnterprise, model.SegDeveloper}
 	for _, seg := range segs {
 		rank, field := sim.MarketRank(s, m.cfg, seg)
 
 		// Users, rank, scale
-		headerInfo := fmt.Sprintf("你的用戶: %s  ·  排名: #%d / %d  ·  市場規模: %s",
-			human(segmentUsers(s, seg)), rank, field, marketSizeLabel(m.cfg, seg))
+		headerInfo := fmt.Sprintf("你的用戶: %s  ·  排名: #%d / %d%s  ·  市場規模: %s",
+			human(segmentUsers(s, seg)), rank, field, rankArrow(m.prevRank[seg], rank), marketSizeLabel(m.cfg, seg))
 
 		// Bars from SegmentShareBars (consumer top rows use approached display shares)
 		bars := sim.SegmentShareBars(s, m.cfg, seg)
@@ -38,7 +46,11 @@ func renderMarket(m Model) string {
 			if len([]rune(name)) > 10 {
 				namePadding = ""
 			}
-			shareLines = append(shareLines, fmt.Sprintf("%s %s%s %s %.0f%%", star, name, namePadding, Bar(share, 10), share*100))
+			line := fmt.Sprintf("%s %s%s %s %.0f%%", star, name, namePadding, Bar(share, 10), share*100)
+			if bRow.You {
+				line = youRowStyle(line)
+			}
+			shareLines = append(shareLines, line)
 		}
 
 		cardBody := VStack(
@@ -46,7 +58,7 @@ func renderMarket(m Model) string {
 			"",
 			VStack(shareLines...),
 		)
-		cards = append(cards, Card(segmentName(seg)+"市場", cardBody))
+		cards = append(cards, CardIn(CardDefault, colW, segmentName(seg)+"市場", cardBody))
 	}
 
 	var rivalLines []string
@@ -62,12 +74,28 @@ func renderMarket(m Model) string {
 		rivalLines = append(rivalLines, fmt.Sprintf("%-10s 能力 %s (%.0f) · 專長 %-4s · 威脅 %s",
 			c.Name, Bar(capFrac, 10), capVal, topSkillDim(c), label))
 	}
-	rivalsCard := Card("對手檔案", VStack(rivalLines...))
+	rivalsCard := CardIn(CardThreat, colW, "對手檔案", VStack(rivalLines...))
 
 	leftColumn := VStack(cards...)
 	rightColumn := rivalsCard
 
-	return ResponsiveRow(m.contentWidth(), 2, leftColumn, rightColumn)
+	return ResponsiveRow(cw, 2, leftColumn, rightColumn)
+}
+
+// rankArrow shows rank movement since the previous snapshot (1-based ranks).
+func rankArrow(prev, cur int) string {
+	if prev == 0 || prev == cur {
+		return ""
+	}
+	if cur < prev {
+		return styleGain.Render(fmt.Sprintf(" ↑%d", prev-cur))
+	}
+	return styleLoss.Render(fmt.Sprintf(" ↓%d", cur-prev))
+}
+
+// youRowStyle inverts the player's row in share leaderboards.
+func youRowStyle(line string) string {
+	return lipgloss.NewStyle().Bold(true).Foreground(colorInk).Background(colorCyan).Render(line)
 }
 
 func threatLabel(level int) string {

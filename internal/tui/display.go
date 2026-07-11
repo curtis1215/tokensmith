@@ -123,12 +123,18 @@ func truthDisplay(m Model) displayState {
 
 // advanceDisplay updates displayState after a sim tick.
 func (m *Model) advanceDisplay() {
+	prevCash := m.disp.Cash
+	wasReady := m.dispReady
 	truth := truthDisplay(*m)
 	if !m.dispReady {
 		m.disp.snap(truth)
 		m.dispReady = true
 	} else {
 		m.disp.approach(truth, displayAlpha)
+	}
+	if wasReady {
+		instant := (m.disp.Cash - prevCash) * ticksPerRealSec
+		m.cashRate = approachScalar(m.cashRate, instant, displayAlpha, 0.001)
 	}
 	if m.tokensThisTick {
 		m.disp.PulseToken = tokenPulseTicks
@@ -137,6 +143,21 @@ func (m *Model) advanceDisplay() {
 	}
 	if m.disp.PulseNotice > 0 {
 		m.disp.PulseNotice--
+	}
+	m.sparkTick++
+	if m.sparkTick%4 == 0 {
+		m.sparkValuation.push(m.disp.Valuation)
+		m.sparkUsers.push(m.disp.TotalUsers)
+		m.sparkRnD.push(sim.RnDRatePerSec(m.state, m.cfg) * gameSecPerRealSec)
+	}
+	if len(m.banners) > 0 {
+		m.bannerTicks--
+		if m.bannerTicks <= 0 {
+			m.banners = m.banners[1:]
+			if len(m.banners) > 0 {
+				m.bannerTicks = bannerShowTicks
+			}
+		}
 	}
 }
 

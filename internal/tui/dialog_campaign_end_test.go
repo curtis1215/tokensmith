@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -255,6 +256,52 @@ func TestCampaignEndPActiveCampaignNoVictoryLeavesState(t *testing.T) {
 		t.Fatalf("P must not bypass Task 7 settlement; state changed:\nbefore campaign=%+v patents=%v cash=%v\nafter campaign=%+v patents=%v cash=%v",
 			before.Campaign, before.Prestige.Patents, before.Resources.Cash,
 			got.state.Campaign, got.state.Prestige.Patents, got.state.Resources.Cash)
+	}
+}
+
+func TestVictoryDialogShowsRecapAndCards(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	m.state.Campaign.Doctrine = model.DoctrineConsumer
+	m.state.Campaign.Victory = model.DoctrineConsumer
+	m.state.PeakValuation = 4e8 // patents = floor(sqrt(4e8/1e8)) = 2
+	m.state.GameTime = 86400 * 30
+	d, ok := newCampaignEndDialog(m, campaignEndVictory)
+	if !ok {
+		t.Fatal("victory dialog should open")
+	}
+	out := renderCampaignEndDialog(d, m)
+	for _, want := range []string{"本局天數", "30", "峰值估值", "$400.00M", "結算專利", "+2", "宿敵完整情報"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("victory recap missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestMomentTitleDefault(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	mo := Moment{Level: LevelEpic, Text: "x"}
+	if out := renderEpicOverlay(mo, m); !strings.Contains(out, "榮耀時刻") {
+		t.Fatal("empty Title should fall back to default")
+	}
+	mo2 := Moment{Level: LevelEpic, Text: "x", Title: "🔄 傳承開局"}
+	if out := renderEpicOverlay(mo2, m); !strings.Contains(out, "傳承開局") {
+		t.Fatal("custom Title should be used")
+	}
+}
+
+func TestNewRunEpicContent(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	m.state.Prestige.Patents = 12
+	m.state.Prestige.RouteBadges = []model.Doctrine{model.DoctrineConsumer}
+	m.state.Prestige.PendingLegacy = model.LegacyChoice{Kind: model.LegacyIntel}
+	mo := newRunEpic(m)
+	if mo == nil || mo.Title != "🔄 傳承開局" {
+		t.Fatalf("bad epic: %+v", mo)
+	}
+	for _, want := range []string{"專利 ×12", "消費者霸主", "宿敵完整情報"} {
+		if !strings.Contains(mo.Text, want) {
+			t.Fatalf("epic text missing %q: %q", want, mo.Text)
+		}
 	}
 }
 

@@ -91,6 +91,7 @@ type CampaignReportEntry struct {
 	SubjectID string
 	DetailID  string
 	Value     float64
+	Countered bool // 該宿敵行動被高層指令反制（衝擊已減半）
 }
 
 type BoardReport struct {

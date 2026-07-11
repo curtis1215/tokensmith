@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"tokensmith/internal/balance"
 	"tokensmith/internal/game"
@@ -27,10 +28,18 @@ const tickDT = 3600.0
 // tickInterval is the real time between ticks.
 const tickInterval = 250 * time.Millisecond
 
+// ticksPerRealSec is the tick frequency (250ms interval).
+const ticksPerRealSec = 4
+
 // gameSecPerRealSec converts a per-game-second rate to the per-real-second rate
 // the player actually perceives (each real second advances several ticks of
 // tickDT game-seconds).
 const gameSecPerRealSec = tickDT * float64(time.Second) / float64(tickInterval)
+
+const (
+	bannerShowTicks = 12 // 每條 Major 橫幅顯示 ~3s
+	maxBanners      = 8  // 佇列上限，超出丟最舊
+)
 
 type tickMsg time.Time
 
@@ -48,10 +57,11 @@ const (
 	PageCompute
 	PageTeam
 	PageTech
+	PageAchievements
 	numPages
 )
 
-var pageNames = [numPages]string{"總覽", "模型", "市場", "算力", "團隊", "科技"}
+var pageNames = [numPages]string{"總覽", "模型", "市場", "算力", "團隊", "科技", "成就"}
 
 // Model is the Bubble Tea root model.
 type Model struct {
@@ -78,7 +88,8 @@ type Model struct {
 	consumed       map[string]model.SourceTotals // per-source ledger tokens already applied
 	lastRealUnix   int64
 	metaMissing    bool
-	offlineSummary *Summary // shown as a banner until dismissed by any key
+	offlineSummary *Summary  // shown as a banner until dismissed by any key
+	offlineReports []string // 離線期間新增的董事會報告行（最多 4）
 	// tokensThisTick is true only on the tick that just harvested new tokens
 	// (drives the pulse restart). lastTokenRnD is the per-source R&D delta from
 	// that tick, kept (not cleared) across the pulse-decay window so the status
@@ -89,6 +100,7 @@ type Model struct {
 	// so every tick can read the current streak multiplier cheaply.
 	streakDays     int
 	lastActiveDate string
+	achievements   map[string]int64 // mirrors store.Meta.Achievements
 	// lastCampaignUnix mirrors store.Meta.LastCampaignUnix — wall-clock of the
 	// last board cycle (or the session that armed the clock). advanceCampaignTo
 	// drives board-cycle catch-up against this field on startup and live ticks.
@@ -104,6 +116,31 @@ type Model struct {
 	vp               viewport.Model
 	disp             displayState
 	dispReady        bool // false until first snap after new game / restart
+	// Display-layer trend history (TUI memory only, never persisted).
+	sparkValuation spark
+	sparkUsers     spark
+	sparkRnD       spark
+	sparkTick      int
+	cashRate       float64 // smoothed display cash delta, $/real-second
+	prevRank       [model.NumSegments]int // 上次取樣名次（0 = 無資料）
+	lastRank       [model.NumSegments]int
+	rankTick       int
+	// Celebration feedback (TUI state, never persisted).
+	banners     []Moment
+	bannerTicks int
+	epic        *Moment
+	blink       bool // 每 tick 翻轉；威脅行明暗交替
+}
+
+// pushBanner queues a Major banner, dropping the oldest beyond maxBanners.
+func (m *Model) pushBanner(mo Moment) {
+	if len(m.banners) >= maxBanners {
+		m.banners = m.banners[1:]
+	}
+	m.banners = append(m.banners, mo)
+	if len(m.banners) == 1 {
+		m.bannerTicks = bannerShowTicks
+	}
 }
 
 // New returns the game model wired to the real save/ledger/meta locations,
@@ -150,14 +187,18 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 		consumed:         meta.ConsumedSources,
 		lastRealUnix:     meta.LastRealUnix,
 		metaMissing:      !metaOK,
-		streakDays:       meta.StreakDays,
+		streakDays:        meta.StreakDays,
 		lastActiveDate:    meta.LastActiveDate,
+		achievements:      meta.Achievements,
 		lastCampaignUnix:  meta.LastCampaignUnix,
 		lastCampaignCycle: meta.LastCampaignCycle,
 		width:             100,
 		height:           40,
 		vp:               viewport.New(80, 20),
 	}
+	m.sparkValuation = newSpark(60)
+	m.sparkUsers = newSpark(60)
+	m.sparkRnD = newSpark(60)
 	m.resize(m.width, m.height)
 	m.refreshViewport()
 	return m
@@ -212,6 +253,7 @@ func (m Model) startup(now int64) Model {
 	// meta write lost). Arm the campaign clock at now and skip replay so
 	// rivals/holds/reports are not double-applied.
 	var advanced int
+	preCampaign := m.state
 	if m.state.Campaign.Doctrine != model.DoctrineNone && m.state.Campaign.Cycle > m.lastCampaignCycle {
 		m.lastCampaignUnix = now
 		m.lastCampaignCycle = m.state.Campaign.Cycle
@@ -219,6 +261,12 @@ func (m Model) startup(now int64) Model {
 		m, advanced = m.advanceCampaignTo(now)
 	}
 	if advanced > 0 {
+		for _, e := range newReportEntries(preCampaign, m.state) {
+			if len(m.offlineReports) >= 4 {
+				break
+			}
+			m.offlineReports = append(m.offlineReports, formatReportEntry(e))
+		}
 		if m.offlineSummary == nil {
 			m.offlineSummary = &Summary{}
 		}
@@ -308,6 +356,7 @@ func (m Model) saveMetaAt(lastRealUnix int64) {
 		StreakDays:        m.streakDays,
 		LastCampaignUnix:  m.lastCampaignUnix,
 		LastCampaignCycle: m.state.Campaign.Cycle,
+		Achievements:      m.achievements,
 	})
 }
 
@@ -370,6 +419,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		if m.tokensThisTick {
 			m.updateStreak(now)
 		}
+		prevState := m.state
 		cfgTick := m.cfg
 		cfgTick.StreakMult = m.currentStreakMult()
 		if m.tokensThisTick {
@@ -391,6 +441,17 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		if m.state.Events.FiredCount > prevFired {
 			m.setNotice("📰 產業事件：" + latestEventName(m.state))
 		}
+		for _, mo := range detectMoments(prevState, m.state, m.cfg) {
+			switch mo.Level {
+			case LevelMinor:
+				m.setNotice(mo.Text)
+			case LevelMajor:
+				m.pushBanner(mo)
+			case LevelEpic:
+				mo := mo
+				m.epic = &mo
+			}
+		}
 		// Mechanism B: auto game-over + restart once debt passes the threshold.
 		// Active campaigns use FinancialDistressCycles instead; player recovers
 		// operationally or exits after two distressed cycles (Phase C restructuring later).
@@ -400,7 +461,20 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			m.setNotice("💥 破產！公司已重整重來")
 			m.snapDisplay()
 		}
+		m.rankTick++
+		if m.rankTick >= 240 { // 每 60 實秒輪替一次名次快照
+			m.rankTick = 0
+			for seg := 0; seg < model.NumSegments; seg++ {
+				r, _ := sim.MarketRank(m.state, m.cfg, model.Segment(seg))
+				m.prevRank[seg] = m.lastRank[seg]
+				m.lastRank[seg] = r
+			}
+		}
+		m.blink = !m.blink
 		m.advanceDisplay()
+		if m.sparkTick%8 == 0 {
+			m.checkAchievements(now.Unix())
+		}
 		m.ticksSinceSave++
 		if m.ticksSinceSave >= 40 {
 			m.ticksSinceSave = 0
@@ -411,6 +485,10 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		return m, tick()
 	case tea.KeyMsg:
+		if m.epic != nil {
+			m.epic = nil
+			return m, nil
+		}
 		// Campaign dialogs take priority over event/publish/train.
 		if m.doctrineDialog != nil {
 			return m.updateDoctrineDialog(msg)
@@ -442,6 +520,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			return m, nil
 		}
 		m.offlineSummary = nil // any key dismisses the transient banners
+		m.offlineReports = nil
 		m.notice = ""
 
 		// Scroll routing (no dialog): PgUp/Dn always; ↑↓/j/k only on browse pages.
@@ -463,7 +542,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			m.page = (m.page + numPages - 1) % numPages
 			m.vp.GotoTop()
 			return m, nil
-		case "1", "2", "3", "4", "5", "6":
+		case "1", "2", "3", "4", "5", "6", "7":
 			m.page = Page(msg.String()[0] - '1')
 			m.vp.GotoTop()
 			return m, nil
@@ -512,6 +591,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 				switch {
 				case err == nil:
 					m.state = ns
+					m.setNotice("🔬 已解鎖：" + techLabel(node.ID).Name)
 				case errors.Is(err, sim.ErrInsufficientRnD):
 					m.setNotice("R&D 不足")
 				case errors.Is(err, sim.ErrAlreadyUnlocked):
@@ -627,7 +707,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 				if key == "R" || key == "I" {
 					d = -1
 				}
-				m.state = applyOK(m.state, model.RentCompute{Process: p.ID, Pool: pool, Delta: d}, m.cfg)
+				m.applyNotice(model.RentCompute{Process: p.ID, Pool: pool, Delta: d}, "")
 			}
 			return m, nil
 		case "b", "B":
@@ -636,7 +716,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 				if msg.String() == "B" {
 					pool = model.PoolInference
 				}
-				m.state = applyOK(m.state, model.BuildServer{Process: m.cfg.Processes[m.procCursor].ID, Pool: pool}, m.cfg)
+				m.applyNotice(model.BuildServer{Process: m.cfg.Processes[m.procCursor].ID, Pool: pool}, "🏗 伺服器建造完成")
 			}
 			return m, nil
 		case "e":
@@ -647,30 +727,30 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 					m.setNotice("目前沒有待決事件")
 				}
 			} else if m.page == PageCompute {
-				m.state = applyOK(m.state, model.ExpandDatacenter{PowerDelta: 100, SlotDelta: 5}, m.cfg)
+				m.applyNotice(model.ExpandDatacenter{PowerDelta: 100, SlotDelta: 5}, "🏗 機房擴建完成")
 			} else if m.page == PageTeam {
-				m.state = applyOK(m.state, model.HireStaff{Role: model.RoleEngineer, Count: 1}, m.cfg)
+				m.applyNotice(model.HireStaff{Role: model.RoleEngineer, Count: 1}, "🤝 已雇用工程師")
 			}
 			return m, nil
 		case "h":
 			if m.page == PageTeam {
-				m.state = applyOK(m.state, model.HireStaff{Role: model.RoleResearcher, Tier: model.Tier1, Count: 1}, m.cfg)
+				m.applyNotice(model.HireStaff{Role: model.RoleResearcher, Tier: model.Tier1, Count: 1}, "🤝 已雇用研究員")
 			}
 			return m, nil
 		case "o":
 			if m.page == PageTeam {
-				m.state = applyOK(m.state, model.HireStaff{Role: model.RoleOps, Count: 1}, m.cfg)
+				m.applyNotice(model.HireStaff{Role: model.RoleOps, Count: 1}, "🤝 已雇用營運")
 			}
 			return m, nil
 		case "k":
 			if m.page == PageTeam {
-				m.state = applyOK(m.state, model.HireStaff{Role: model.RoleMarketing, Count: 1}, m.cfg)
+				m.applyNotice(model.HireStaff{Role: model.RoleMarketing, Count: 1}, "🤝 已雇用行銷")
 			}
 			return m, nil
 		case "s":
 			if m.page == PageTeam {
 				if id := firstUnhiredStar(m); id != "" {
-					m.state = applyOK(m.state, model.SignStar{StarID: id}, m.cfg)
+					m.applyNotice(model.SignStar{StarID: id}, "🌟 已簽下明星員工")
 				}
 			}
 			return m, nil
@@ -688,7 +768,7 @@ func (m Model) updateDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	if confirm {
-		m.state = applyOK(m.state, d.command(m.cfg), m.cfg)
+		m.applyNotice(d.command(m.cfg), "🚂 訓練已啟動")
 		m.dialog = nil
 		return m, nil
 	}
@@ -741,6 +821,7 @@ func (m Model) updateEventDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
 		switch {
 		case err == nil:
 			m.state = ns
+			m.setNotice("✓ 事件已決議")
 		case errors.Is(err, sim.ErrInsufficientCash):
 			m.setNotice("現金不足，付不起這個選項")
 			m.event = &d
@@ -823,7 +904,8 @@ func (m Model) updateCampaignEndDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	if confirm {
-		ns, err := sim.Apply(m.state, d.command(), m.cfg)
+		cmd := d.command()
+		ns, err := sim.Apply(m.state, cmd, m.cfg)
 		if err != nil {
 			m.campaignError = campaignErrorText(err)
 			m.campaignEnd = &d
@@ -833,6 +915,10 @@ func (m Model) updateCampaignEndDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.campaignError = ""
 		m.campaignEnd = nil
 		m.snapDisplay()
+		switch cmd.(type) {
+		case model.CampaignPrestige, model.CampaignExit:
+			m.epic = newRunEpic(m)
+		}
 		return m, nil
 	}
 	m.campaignEnd = &d
@@ -888,9 +974,12 @@ func (m Model) chromeRows() int {
 	n := 2 // rounded border top+bottom
 	n++    // header
 	if m.offlineSummary != nil {
-		n++
+		n += lipgloss.Height(renderOfflineReport(m))
 	}
 	if m.notice != "" {
+		n++
+	}
+	if len(m.banners) > 0 {
 		n++
 	}
 	// campaignError outside an open dialog is shown as a banner line.
@@ -906,6 +995,9 @@ func (m Model) chromeRows() int {
 
 // contentBody is the scrollable region: dialog or active page (no footer).
 func (m Model) contentBody() string {
+	if m.epic != nil {
+		return renderEpicOverlay(*m.epic, m)
+	}
 	// Campaign dialogs before event/publish/train.
 	if m.doctrineDialog != nil {
 		return renderDoctrineDialog(*m.doctrineDialog, m)
@@ -990,6 +1082,8 @@ func pageKeys(m Model) string {
 		return "[h]雇研究員 [e]雇工程 [o]雇營運 [k]雇行銷 [s]簽明星"
 	case PageTech:
 		return "[↑↓]選節點 [Enter]解鎖"
+	case PageAchievements:
+		return "[↑↓]捲動"
 	default: // overview — campaign keys are hints only (dialogs land in Task 10)
 		hint := "[t]訓練 [X]重來"
 		if m.state.Campaign.Victory != model.DoctrineNone {
@@ -1016,6 +1110,19 @@ func applyOK(s model.GameState, cmd model.Command, b balance.Config) model.GameS
 		return ns
 	}
 	return s
+}
+
+// applyNotice applies cmd; on success shows okMsg (empty = silent success).
+// Rejected commands stay silent no-ops, same as applyOK.
+func (m *Model) applyNotice(cmd model.Command, okMsg string) {
+	ns, err := sim.Apply(m.state, cmd, m.cfg)
+	if err != nil {
+		return
+	}
+	m.state = ns
+	if okMsg != "" {
+		m.setNotice(okMsg)
+	}
 }
 
 // human formats large numbers compactly (e.g. 1.84M, 340k).
@@ -1054,8 +1161,13 @@ func renderResourceBar(m Model) string {
 	rndPerRealSec := sim.RnDRatePerSec(s, m.cfg) * gameSecPerRealSec
 
 	cashStr := fmt.Sprintf("💰 $%s", human(cash))
-	if cash < 0 {
-		cashStr = styleWarn.Render(cashStr)
+	switch {
+	case cash < 0:
+		cashStr = styleLoss.Render(cashStr)
+	case m.cashRate > 0.5:
+		cashStr += styleGain.Render(fmt.Sprintf(" ▲$%s/s", human(m.cashRate)))
+	case m.cashRate < -0.5:
+		cashStr += styleLoss.Render(fmt.Sprintf(" ▼$%s/s", human(-m.cashRate)))
 	}
 
 	infStr := fmt.Sprintf("推理%.0f%%", infUtil*100)
@@ -1068,19 +1180,31 @@ func renderResourceBar(m Model) string {
 		rndSeg = styleAccent.Render(rndSeg)
 	}
 
-	bar := fmt.Sprintf("%s   ⚡R&D %s   🖥訓練%.0f%% %s   📈估值 $%s",
-		cashStr, rndSeg,
-		trainUtil*100, infStr, human(val))
+	valStr := stylePurple.Render(fmt.Sprintf("📈估值 $%s", human(val)))
+	sep := styleMuted.Render(" │ ")
+	segs := []string{
+		cashStr,
+		"⚡R&D " + rndSeg,
+		fmt.Sprintf("🖥訓練%.0f%% %s", trainUtil*100, infStr),
+		valStr,
+	}
+	if m.streakDays >= 2 {
+		streak := fmt.Sprintf("🔥%d天 ×%.2f", m.streakDays, m.currentStreakMult())
+		if m.disp.PulseToken > 0 {
+			segs = append(segs, styleGold.Bold(true).Render(streak))
+		} else {
+			segs = append(segs, styleAmber.Render(streak))
+		}
+	}
+	bar := strings.Join(segs, sep)
 
 	if m.disp.PulseToken > 0 && len(m.lastTokenRnD) > 0 {
-		parts := make([]string, 0, len(m.lastTokenRnD)+1)
+		parts := make([]string, 0, len(m.lastTokenRnD))
 		for _, src := range sourceKeysOrdered(m.lastTokenRnD) {
-			parts = append(parts, fmt.Sprintf("⚡ %s +%s R&D", sourceLabel(src), human(m.lastTokenRnD[src])))
+			chip := fmt.Sprintf(" ⚡%s +%s R&D ", sourceLabel(src), human(m.lastTokenRnD[src]))
+			parts = append(parts, lipgloss.NewStyle().Bold(true).Foreground(colorInk).Background(colorCyan).Render(chip))
 		}
-		if m.streakDays > 0 {
-			parts = append(parts, fmt.Sprintf("🔥連續%d天 ×%.2f", m.streakDays, m.currentStreakMult()))
-		}
-		bar += "   " + strings.Join(parts, "   ")
+		bar += "  " + strings.Join(parts, " ")
 	}
 	return bar
 }
@@ -1161,12 +1285,9 @@ func pressures(m Model) []string {
 		out = append(out, fmt.Sprintf("待發佈模型 %d 個 — 模型頁按 p", draftN))
 	}
 	// Campaign pressures (append only; keep existing warnings above).
-	// Distress=1 may warn about approaching exit eligibility but must not
-	// advertise [E] (pageKeys only unlocks E at distress>=2 or cycle>=18).
-	if n := s.Campaign.FinancialDistressCycles; n >= 2 {
-		out = append(out, fmt.Sprintf("⚠ 財務困境已連續 %d 個董事會週期——可按 [E]策略退出或止血", n))
-	} else if n == 1 {
-		out = append(out, "⚠ 財務困境 1 個董事會週期——接近策略退出條件，請先止血")
+	if c := s.Campaign.FinancialDistressCycles; c >= 1 {
+		out = append(out, styleLoss.Bold(true).Render(
+			fmt.Sprintf("🩸 財務危機 第 %d 週期——連續 2 週期可策略退出 [E]", c)))
 	}
 	if s.Campaign.Doctrine == model.DoctrineNone && hasOnline {
 		out = append(out, "⚠ 尚未選擇公司戰略——總覽頁按 c")
@@ -1180,13 +1301,14 @@ func pressures(m Model) []string {
 func renderTabBar(p Page) string {
 	var parts []string
 	for i, name := range pageNames {
-		label := fmt.Sprintf("[%d]%s", i+1, name)
+		label := fmt.Sprintf(" %d %s ", i+1, name)
 		if Page(i) == p {
-			label = tabActiveStyle.Render(label)
+			parts = append(parts, lipgloss.NewStyle().Bold(true).Foreground(colorInk).Background(colorCyan).Render(label))
+		} else {
+			parts = append(parts, styleMuted.Render(label))
 		}
-		parts = append(parts, label)
 	}
-	return strings.Join(parts, "  ")
+	return strings.Join(parts, " ")
 }
 
 func (m Model) renderPage() string {
@@ -1201,6 +1323,8 @@ func (m Model) renderPage() string {
 		return renderTeam(m)
 	case PageTech:
 		return renderTech(m)
+	case PageAchievements:
+		return renderAchievements(m)
 	default:
 		return renderOverview(m)
 	}
@@ -1216,7 +1340,7 @@ func (m Model) View() string {
 	day := int(m.state.GameTime / 86400)
 	top = append(top, styleTitle.Render(fmt.Sprintf("Tokensmith  ·  Day %d", day)))
 	if m.offlineSummary != nil {
-		top = append(top, offlineBanner(*m.offlineSummary))
+		top = append(top, renderOfflineReport(m))
 	}
 	if m.notice != "" {
 		notice := m.notice
@@ -1226,6 +1350,9 @@ func (m Model) View() string {
 			notice = styleMuted.Render(notice)
 		}
 		top = append(top, notice)
+	}
+	if len(m.banners) > 0 {
+		top = append(top, styleGold.Bold(true).Render("★ "+m.banners[0].Text))
 	}
 	// Show campaignError as a shell banner when no campaign dialog is open
 	// (in-dialog errors render inside the modal). Tick must not clear it.
@@ -1240,25 +1367,29 @@ func (m Model) View() string {
 	return boxStyle.Render(VStack(append(top, mid, bot)...))
 }
 
-// offlineBanner summarises what happened while the game was closed.
-func offlineBanner(s Summary) string {
-	msg := fmt.Sprintf("💤 離開 %.1fh，寫了 %d tokens → +%s R&D",
-		s.SecondsSettled/3600, s.TokensIn+s.TokensOut, human(s.RnDGained))
+// renderOfflineReport summarises what happened while the game was closed.
+func renderOfflineReport(m Model) string {
+	s := *m.offlineSummary
+	lines := []string{fmt.Sprintf("💤 離開 %.1fh · 寫了 %d tokens → +%s R&D",
+		s.SecondsSettled/3600, s.TokensIn+s.TokensOut, human(s.RnDGained))}
 	if s.TrainingCompleted {
-		msg += " · 訓練完成 ✓"
+		lines = append(lines, styleGain.Render("🧪 訓練完成 ✓"))
 	}
 	if s.EventsFired > 0 {
-		msg += fmt.Sprintf(" · 產業事件 %d 起", s.EventsFired)
+		ev := fmt.Sprintf("📰 產業事件 %d 起", s.EventsFired)
 		if s.EventsAutoResolved > 0 {
-			msg += fmt.Sprintf("（%d 起已自動決議）", s.EventsAutoResolved)
+			ev += fmt.Sprintf("（%d 起已自動決議）", s.EventsAutoResolved)
 		}
+		lines = append(lines, ev)
 	} else if s.EventsAutoResolved > 0 {
-		msg += fmt.Sprintf(" · %d 起待決事件已自動決議", s.EventsAutoResolved)
+		lines = append(lines, fmt.Sprintf("📰 %d 起待決事件已自動決議", s.EventsAutoResolved))
 	}
 	if s.CampaignCycles > 0 {
-		msg += fmt.Sprintf(" · 董事會週期 %d 次", s.CampaignCycles)
+		lines = append(lines, fmt.Sprintf("🏛 董事會週期 %d 次", s.CampaignCycles))
 	}
-	return tabActiveStyle.Render(msg) + helpStyle.Render("  （按任意鍵關閉）")
+	lines = append(lines, m.offlineReports...)
+	lines = append(lines, styleMuted.Render("按任意鍵關閉"))
+	return CardIn(CardAccent, 0, "離線戰報", VStack(lines...))
 }
 
 func visualIndices(models []model.Model) []int {

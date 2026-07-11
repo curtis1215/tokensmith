@@ -24,13 +24,10 @@ func renderCompute(m Model) string {
 		trainUtil, infUtil = m.disp.TrainUtil, m.disp.InfUtil
 	}
 	trainBarStr := fmt.Sprintf("訓練池: %s %.0f%% (有效算力 %.0f)",
-		Bar(trainUtil, 12), trainUtil*100, trainCap)
+		LoadBar(trainUtil, 12), trainUtil*100, trainCap)
 
 	infBarStr := fmt.Sprintf("推理池: %s %.0f%% (有效算力 %.0f)",
-		Bar(infUtil, 12), infUtil*100, infCap)
-	if infUtil >= 0.9 {
-		infBarStr = styleWarn.Render(infBarStr)
-	}
+		LoadBar(infUtil, 12), infUtil*100, infCap)
 
 	servable := sim.ServableUsers(s, m.cfg)
 	totalUsers := sim.TotalUsers(s)
@@ -52,7 +49,7 @@ func renderCompute(m Model) string {
 		causalLines = append(causalLines, styleWarn.Render("超載 · 建議加推理"))
 	}
 
-	causalCard := Card("池狀態", VStack(causalLines...))
+	causalCard := CardIn(CardDefault, 0, "池狀態", VStack(causalLines...))
 
 	// 2. Process table card
 	var procLines []string
@@ -73,7 +70,7 @@ func renderCompute(m Model) string {
 	}
 	procTableStr := VStack(procLines...)
 	procTitle := fmt.Sprintf("製程算力 (可用 R&D: %s)", human(s.Resources.RnD))
-	procCard := Card(procTitle, VStack(procTableStr, "", helpStyle.Render(fmt.Sprintf("* 推理租金/張/秒；訓練池 ×%.3f", m.cfg.TrainRentMult))))
+	procCard := CardIn(CardDefault, 0, procTitle, VStack(procTableStr, "", helpStyle.Render(fmt.Sprintf("* 推理租金/張/秒；訓練池 ×%.3f", m.cfg.TrainRentMult))))
 
 	// 3. Datacenter power & space
 	var usedPower, usedSlots float64
@@ -92,10 +89,10 @@ func renderCompute(m Model) string {
 	}
 
 	dcBody := VStack(
-		fmt.Sprintf("電力: %s %s/%s kW", Bar(powerUtil, 10), human(usedPower), human(s.Datacenter.PowerCapacity)),
-		fmt.Sprintf("空間: %s %s/%s", Bar(slotsUtil, 10), human(usedSlots), human(s.Datacenter.SlotCapacity)),
+		fmt.Sprintf("電力: %s %s/%s kW", LoadBar(powerUtil, 10), human(usedPower), human(s.Datacenter.PowerCapacity)),
+		fmt.Sprintf("空間: %s %s/%s", LoadBar(slotsUtil, 10), human(usedSlots), human(s.Datacenter.SlotCapacity)),
 	)
-	dcCard := Card("機房與電力", dcBody)
+	dcCard := CardIn(CardDefault, 0, "機房與電力", dcBody)
 
 	// Combine columns (footer is fixed shell chrome)
 	leftCol := VStack(causalCard, dcCard)
