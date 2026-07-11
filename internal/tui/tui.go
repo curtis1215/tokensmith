@@ -4,7 +4,6 @@ package tui
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -88,7 +87,7 @@ type Model struct {
 	consumed       map[string]model.SourceTotals // per-source ledger tokens already applied
 	lastRealUnix   int64
 	metaMissing    bool
-	offlineSummary *Summary  // shown as a banner until dismissed by any key
+	offlineSummary *Summary // shown as a banner until dismissed by any key
 	offlineReports []string // 離線期間新增的董事會報告行（最多 4）
 	// tokensThisTick is true only on the tick that just harvested new tokens
 	// (drives the pulse restart). lastTokenRnD is the per-source R&D delta from
@@ -109,19 +108,19 @@ type Model struct {
 	// Campaign.Cycle after a successful state+meta pair. Startup recovery uses
 	// this to detect state-saved/meta-stale half-writes without wall-clock in sim.
 	lastCampaignCycle int
-	notice           string // transient one-line banner, dismissed by any key
-	pendingRestart   bool   // armed manual restart; a second X confirms it
-	width            int    // terminal width
-	height           int    // terminal height
-	vp               viewport.Model
-	disp             displayState
-	dispReady        bool // false until first snap after new game / restart
+	notice            string // transient one-line banner, dismissed by any key
+	pendingRestart    bool   // armed manual restart; a second X confirms it
+	width             int    // terminal width
+	height            int    // terminal height
+	vp                viewport.Model
+	disp              displayState
+	dispReady         bool // false until first snap after new game / restart
 	// Display-layer trend history (TUI memory only, never persisted).
 	sparkValuation spark
 	sparkUsers     spark
 	sparkRnD       spark
 	sparkTick      int
-	cashRate       float64 // smoothed display cash delta, $/real-second
+	cashRate       float64                // smoothed display cash delta, $/real-second
 	prevRank       [model.NumSegments]int // 上次取樣名次（0 = 無資料）
 	lastRank       [model.NumSegments]int
 	rankTick       int
@@ -130,6 +129,9 @@ type Model struct {
 	bannerTicks int
 	epic        *Moment
 	blink       bool // 每 tick 翻轉；威脅行明暗交替
+	// Load/migration failure: block all writes and gameplay; only quit/resize.
+	startupErr   error
+	saveDisabled bool
 }
 
 // pushBanner queues a Major banner, dropping the oldest beyond maxBanners.
@@ -159,42 +161,49 @@ func newAt(savePath string) Model {
 
 func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 	state, ok, err := store.Load(savePath)
+	var startupErr error
+	saveDisabled := false
 	if err != nil {
-		// Corrupt/unreadable save: preserve it beside the original so a later
-		// autosave doesn't silently clobber recoverable data, then start fresh.
-		_ = os.Rename(savePath, savePath+".corrupt")
-		state = game.NewGame()
+		// Load/migration failure: keep the original file untouched, do not
+		// seed a fresh writable run, and block all subsequent saves.
+		startupErr = err
+		saveDisabled = true
+		state = model.GameState{}
 	} else if !ok {
 		state = game.NewGame()
 	}
-	if state.Events.RandState == 0 {
-		// New game or pre-events save: seed once, outside the pure sim.
-		state.Events.RandState = uint64(time.Now().UnixNano())
-	}
-	if state.Campaign.RandState == 0 {
-		// Campaign RNG is independent of event RNG; XOR a golden ratio constant
-		// so a shared UnixNano seed cannot leave both streams identical.
-		state.Campaign.RandState = uint64(time.Now().UnixNano()) ^ 0x9e3779b97f4a7c15
+	if !saveDisabled {
+		if state.Events.RandState == 0 {
+			// New game or pre-events save: seed once, outside the pure sim.
+			state.Events.RandState = uint64(time.Now().UnixNano())
+		}
+		if state.Campaign.RandState == 0 {
+			// Campaign RNG is independent of event RNG; XOR a golden ratio constant
+			// so a shared UnixNano seed cannot leave both streams identical.
+			state.Campaign.RandState = uint64(time.Now().UnixNano()) ^ 0x9e3779b97f4a7c15
+		}
 	}
 	meta, metaOK, _ := store.LoadMeta(metaPath)
 	m := Model{
-		state:            state,
-		cfg:              balance.Default(),
-		poller:           ingest.NewDefaultPoller(),
-		savePath:         savePath,
-		ledgerPath:       ledgerPath,
-		metaPath:         metaPath,
-		consumed:         meta.ConsumedSources,
-		lastRealUnix:     meta.LastRealUnix,
-		metaMissing:      !metaOK,
+		state:             state,
+		cfg:               balance.Default(),
+		poller:            ingest.NewDefaultPoller(),
+		savePath:          savePath,
+		ledgerPath:        ledgerPath,
+		metaPath:          metaPath,
+		consumed:          meta.ConsumedSources,
+		lastRealUnix:      meta.LastRealUnix,
+		metaMissing:       !metaOK,
 		streakDays:        meta.StreakDays,
 		lastActiveDate:    meta.LastActiveDate,
 		achievements:      meta.Achievements,
 		lastCampaignUnix:  meta.LastCampaignUnix,
 		lastCampaignCycle: meta.LastCampaignCycle,
 		width:             100,
-		height:           40,
-		vp:               viewport.New(80, 20),
+		height:            40,
+		vp:                viewport.New(80, 20),
+		startupErr:        startupErr,
+		saveDisabled:      saveDisabled,
 	}
 	m.sparkValuation = newSpark(60)
 	m.sparkUsers = newSpark(60)
@@ -220,6 +229,10 @@ func ledgerFresh(l ledger.Ledger, now int64) bool { return now-l.UpdatedAt <= 30
 // standalone/stale opens preserve the prior LastRealUnix on disk so a later
 // daemon session can still settle the full offline economic window.
 func (m Model) startup(now int64) Model {
+	// Failed load/migration: no settle, no meta write, no state write.
+	if m.saveDisabled {
+		return m
+	}
 	advanceEconomic := false
 	l, ok, _ := ledger.Load(m.ledgerPath)
 	if ok && ledgerFresh(l, now) {
@@ -361,6 +374,9 @@ func (m Model) saveMetaAt(lastRealUnix int64) {
 }
 
 func (m Model) Init() tea.Cmd {
+	if m.saveDisabled {
+		return nil // recovery mode: no tick loop
+	}
 	if !m.daemonMode {
 		m.poller.Prime() // standalone: start at end of logs, harvest new coding
 	}
@@ -401,6 +417,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
+	// Recovery mode after load failure: only quit and resize; never write.
+	if m.saveDisabled {
+		switch msg := msg.(type) {
+		case tea.WindowSizeMsg:
+			m.resize(msg.Width, msg.Height)
+			return m, nil
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			}
+			return m, nil
+		default:
+			return m, nil
+		}
+	}
+
 	if m.modelCursor >= len(m.state.Models) && len(m.state.Models) > 0 {
 		m.modelCursor = len(m.state.Models) - 1
 	}
@@ -479,8 +512,10 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		if m.ticksSinceSave >= 40 {
 			m.ticksSinceSave = 0
 			// Meta watermarks only advance after a confirmed state write.
-			if err := store.Save(m.savePath, m.state); err == nil {
-				m.saveMeta()
+			if !m.saveDisabled {
+				if err := store.Save(m.savePath, m.state); err == nil {
+					m.saveMeta()
+				}
 			}
 		}
 		return m, tick()
@@ -604,8 +639,10 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return m, nil
 		case "q", "ctrl+c":
-			if err := store.Save(m.savePath, m.state); err == nil {
-				m.saveMeta()
+			if !m.saveDisabled {
+				if err := store.Save(m.savePath, m.state); err == nil {
+					m.saveMeta()
+				}
 			}
 			return m, tea.Quit
 		case "t":
@@ -1331,6 +1368,9 @@ func (m Model) renderPage() string {
 }
 
 func (m Model) View() string {
+	if m.saveDisabled {
+		return renderLoadFailure(m)
+	}
 	// Local content refresh keeps View usable from tests without Update, while
 	// preserving the stored YOffset for scroll.
 	vp := m.vp
@@ -1365,6 +1405,27 @@ func (m Model) View() string {
 	mid := vp.View()
 	bot := Footer(pageKeys(m))
 	return boxStyle.Render(VStack(append(top, mid, bot)...))
+}
+
+// renderLoadFailure is the blocking recovery screen when save load/migration
+// fails. Gameplay and writes are disabled; only quit is offered.
+func renderLoadFailure(m Model) string {
+	errText := "unknown error"
+	if m.startupErr != nil {
+		errText = m.startupErr.Error()
+	}
+	body := VStack(
+		styleWarn.Render("無法載入存檔"),
+		"",
+		"路徑："+m.savePath,
+		"錯誤："+errText,
+		"",
+		styleMuted.Render("原始檔案未更動（未改名、未覆寫）。"),
+		styleMuted.Render("請手動修復或還原備份後再啟動。"),
+		"",
+		styleAccent.Render("按 q 結束（不會寫入存檔）"),
+	)
+	return boxStyle.Render(CardIn(CardThreat, m.contentWidth(), "存檔載入失敗", body))
 }
 
 // renderOfflineReport summarises what happened while the game was closed.

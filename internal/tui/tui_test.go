@@ -102,20 +102,87 @@ func TestNewLoadsSaveIfPresent(t *testing.T) {
 	}
 }
 
-func TestNewAtPreservesCorruptSave(t *testing.T) {
+func TestNewAtPreservesFailedSave(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "save.json")
-	if err := os.WriteFile(path, []byte("{not valid json"), 0o644); err != nil {
+	const garbage = "{not valid json"
+	if err := os.WriteFile(path, []byte(garbage), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	m := newAt(path)
-	// A fresh game is started (NewGame seeds competitors)...
-	if len(m.state.Competitors) == 0 {
-		t.Fatalf("corrupt save should start a fresh game, got no competitors")
+	// Original path remains; no .corrupt rename, no silent fresh writable game.
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("original save missing: %v", err)
 	}
-	// ...and the corrupt save is preserved instead of clobbered.
-	if _, err := os.Stat(path + ".corrupt"); err != nil {
-		t.Fatalf("corrupt save not preserved: %v", err)
+	if _, err := os.Stat(path + ".corrupt"); err == nil {
+		t.Fatal("must not rename to .corrupt")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil || string(raw) != garbage {
+		t.Fatalf("original bytes changed: %q err=%v", raw, err)
+	}
+	if m.startupErr == nil {
+		t.Fatal("startupErr should be set")
+	}
+	if !m.saveDisabled {
+		t.Fatal("saveDisabled should be true")
+	}
+	// Do not seed a playable NewGame over the failed load.
+	if len(m.state.Competitors) != 0 {
+		t.Fatalf("failed load must not seed NewGame competitors, got %d", len(m.state.Competitors))
+	}
+	// View is a blocking recovery screen with path/error (path may wrap).
+	v := m.View()
+	if !strings.Contains(v, "save.json") || !strings.Contains(v, "存檔載入失敗") {
+		t.Fatalf("view should be blocking recovery with path: %q", v)
+	}
+	if !strings.Contains(v, "無法載入存檔") || !strings.Contains(v, "invalid character") {
+		t.Fatalf("view should show error detail: %q", v)
+	}
+	// q exits without overwriting the source.
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if cmd == nil {
+		t.Fatal("q should quit")
+	}
+	raw2, _ := os.ReadFile(path)
+	if string(raw2) != garbage {
+		t.Fatalf("q overwrote failed save: %q", raw2)
+	}
+}
+
+func TestLoadFailureDisablesAutosave(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "save.json")
+	const garbage = `{"schemaVersion":1,"state":`
+	if err := os.WriteFile(path, []byte(garbage), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := newAt(path)
+	if !m.saveDisabled || m.startupErr == nil {
+		t.Fatalf("want saveDisabled+startupErr, got disabled=%v err=%v", m.saveDisabled, m.startupErr)
+	}
+	// Tick must not write.
+	m.ticksSinceSave = 40
+	m2, _ := m.Update(tickMsg(time.Now()))
+	mm := m2.(Model)
+	raw, _ := os.ReadFile(path)
+	if string(raw) != garbage {
+		t.Fatalf("tick autosave rewrote failed save: %q", raw)
+	}
+	// Resize still allowed.
+	mm2, _ := mm.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	if mm2.(Model).width != 120 {
+		t.Fatal("resize should still work")
+	}
+	// Non-quit keys do nothing harmful.
+	mm3, cmd := mm2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	if cmd != nil {
+		t.Fatal("non-quit key should not schedule cmds in recovery mode")
+	}
+	_ = mm3
+	raw2, _ := os.ReadFile(path)
+	if string(raw2) != garbage {
+		t.Fatalf("key handling rewrote save: %q", raw2)
 	}
 }
 
