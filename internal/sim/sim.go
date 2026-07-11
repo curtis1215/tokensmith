@@ -93,43 +93,59 @@ func Valuation(ns model.GameState, b balance.Config) float64 {
 		eventEffects(ns, b).ValuationMult
 }
 
-// Tick advances the simulation by dt seconds and returns the new state.
-// Pure: it does not mutate s and depends only on its arguments.
+// Tick advances the simulation by dt seconds on both the economy and industry
+// clocks (online play). Pure: it does not mutate s.
 func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Config) model.GameState {
+	return tickWithClocks(s, dt, dt, events, b)
+}
+
+// OfflineTick is the narrow dual-clock entry point for offline settlement:
+// economyDT drives GameTime, R&D, cash, training, frontier research, users,
+// and serving; industryDT drives IndustryTime and rival league catch-up only.
+func OfflineTick(s model.GameState, economyDT, industryDT float64, events []model.TokenEvent, b balance.Config) model.GameState {
+	return tickWithClocks(s, economyDT, industryDT, events, b)
+}
+
+// tickWithClocks advances economy and industry on independent deltas.
+func tickWithClocks(s model.GameState, economyDT, industryDT float64, events []model.TokenEvent, b balance.Config) model.GameState {
+	if economyDT < 0 {
+		economyDT = 0
+	}
+	if industryDT < 0 {
+		industryDT = 0
+	}
 	ns := s
-	ns.GameTime += dt
-	// Online industry clock for time-frontier / rival league (independent of
-	// economy settlement; offline caps land in a later task).
-	ns.Progression.IndustryTime += dt
+	ns.GameTime += economyDT
+	ns.Progression.IndustryTime += industryDT
+	// Events age with the economy clock (same as historical offline settle).
 	ns = advanceEvents(ns, b)
 	ee := eventEffects(ns, b)
 
-	// Advance the soft-cap window; reset cumulative when the window elapses.
-	ns.WindowElapsed += dt
+	// Soft-cap window uses economy time.
+	ns.WindowElapsed += economyDT
 	if ns.WindowElapsed >= b.SoftCapWindowSec {
 		ns.WindowElapsed -= b.SoftCapWindowSec
 		ns.WindowRnD = 0
 	}
 
-	staffRnD := staffRnDPerSec(s.Research, b) * dt
+	staffRnD := staffRnDPerSec(s.Research, b) * economyDT
 
 	raw := TokenRawRnD(events, b)
 	tokenRnD, newWindow := applySoftCap(ns.WindowRnD, raw, b.SoftCapFull, b.SoftCapMult)
 	ns.WindowRnD = newWindow
 
 	pe := PrestigeEffects(ns.Prestige.UnlockedPrestige, b)
-	starRnD := starEffects(ns, b).RnDPerSec * dt
+	starRnD := starEffects(ns, b).RnDPerSec * economyDT
 	ns.Resources.RnD += (staffRnD+starRnD)*pe.RnDMult + tokenRnD*b.StreakMult*pe.RnDMult
-	ns.Resources.Cash -= poolRentPerSec(ns, b) * dt
+	ns.Resources.Cash -= poolRentPerSec(ns, b) * economyDT
 	serverPower := 0.0
 	for _, sv := range ns.Servers {
 		serverPower += sv.PowerKW
 	}
-	ns.Resources.Cash -= serverPower * b.ElectricityPerKWSec * ee.PowerCostMult * dt
-	ns.Resources.Cash -= (totalSalaryPerSec(ns, b) + starSalaryPerSec(ns, b)) * dt
+	ns.Resources.Cash -= serverPower * b.ElectricityPerKWSec * ee.PowerCostMult * economyDT
+	ns.Resources.Cash -= (totalSalaryPerSec(ns, b) + starSalaryPerSec(ns, b)) * economyDT
 
-	// Shared training pool: compute once, split by frontier allocation.
-	// Idle shares (no frontier / no training) stay idle — never auto-redirected.
+	// Shared training pool (economy clock).
 	trainEff := effectiveTraining(ns, b)
 	frontierAlloc, modelAlloc := trainEff, trainEff
 	if ns.Progression.Frontier.Active {
@@ -145,11 +161,12 @@ func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Co
 	} else {
 		frontierAlloc = 0
 	}
-	ns = advanceFrontierProject(ns, dt, frontierAlloc)
-	ns = advanceTraining(ns, dt, modelAlloc, b)
-	ns = advanceCompetitors(ns, dt, b)
-	ns = advanceUsers(ns, dt, b)
-	ns = advanceServing(ns, dt, b)
+	ns = advanceFrontierProject(ns, economyDT, frontierAlloc)
+	ns = advanceTraining(ns, economyDT, modelAlloc, b)
+	// Rival league / global-frontier catch-up uses the industry clock only.
+	ns = advanceCompetitors(ns, industryDT, b)
+	ns = advanceUsers(ns, economyDT, b)
+	ns = advanceServing(ns, economyDT, b)
 	val := Valuation(ns, b)
 	if val > ns.PeakValuation {
 		ns.PeakValuation = val

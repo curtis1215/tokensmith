@@ -46,6 +46,26 @@ func TimeFrontier(s model.GameState, b balance.Config) [model.NumQualityDims]flo
 	return out
 }
 
+// SecondsUntilNextTimeGeneration is game-seconds of industry clock until the
+// next generation TimeBaselineDay is reached (one generation of time-frontier
+// movement). Returns 0 when no further baseline is resolvable.
+func SecondsUntilNextTimeGeneration(s model.GameState, _ balance.Config) float64 {
+	day := s.Progression.IndustryTime / 86400
+	if day < 0 {
+		day = 0
+	}
+	for gen := 1; gen <= 500; gen++ {
+		g, err := balance.Generation(gen)
+		if err != nil {
+			return 0
+		}
+		if g.TimeBaselineDay > day+1e-12 {
+			return (g.TimeBaselineDay - day) * 86400
+		}
+	}
+	return 0
+}
+
 // GlobalFrontier is the per-dimension max of player and time frontiers.
 func GlobalFrontier(s model.GameState, b balance.Config) [model.NumQualityDims]float64 {
 	p := PlayerFrontier(s)

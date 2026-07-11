@@ -27,8 +27,10 @@ const (
 )
 
 // Settle advances the pure sim by elapsedSec (clamped to [0, 7d]) in ≤1h chunks,
-// distributing the offline token batch evenly across the chunks. It returns the
-// settled state and a summary for display.
+// distributing the offline token batch evenly across the chunks. Economy uses
+// the full (clamped) elapsed window; industry/rival catch-up uses a separate
+// allowance of min(elapsed×RealSecCompression, 8 real hours×compression,
+// one time-baseline generation). Excess industry time is dropped, not banked.
 func Settle(s model.GameState, b balance.Config, elapsedSec float64, offIn, offOut int) (model.GameState, Summary) {
 	if elapsedSec < 0 {
 		elapsedSec = 0
@@ -50,6 +52,10 @@ func Settle(s model.GameState, b balance.Config, elapsedSec float64, offIn, offO
 		chunks = 1 // still apply the tokens even with ~0 elapsed
 	}
 
+	// Industry budget is computed once up front (from state before settle) so
+	// backlog beyond the cap is never replayed on a later chunk or settle.
+	industryLeft := offlineIndustryAllowance(s, b, elapsedSec)
+
 	remaining := elapsedSec
 	for i := 0; i < chunks; i++ {
 		dt := settleChunkSec
@@ -68,7 +74,23 @@ func Settle(s model.GameState, b balance.Config, elapsedSec float64, offIn, offO
 			}
 			ev = []model.TokenEvent{{InputTokens: ci, OutputTokens: co}}
 		}
-		s = sim.Tick(s, dt, ev, b)
+
+		// Distribute remaining industry budget across remaining economy time.
+		industryDT := 0.0
+		if industryLeft > 0 && (remaining+dt) > 0 {
+			// Proportional to this chunk's share of original elapsed, but never
+			// exceed remaining industry budget.
+			if elapsedSec > 0 {
+				industryDT = industryLeft * (dt / (remaining + dt))
+			} else {
+				industryDT = industryLeft
+			}
+			if industryDT > industryLeft {
+				industryDT = industryLeft
+			}
+			industryLeft -= industryDT
+		}
+		s = sim.OfflineTick(s, dt, industryDT, ev, b)
 	}
 
 	sum.RnDGained = s.Resources.RnD - beforeRnD
@@ -76,4 +98,26 @@ func Settle(s model.GameState, b balance.Config, elapsedSec float64, offIn, offO
 	sum.EventsAutoResolved = s.Events.AutoCount - beforeAuto
 	sum.TrainingCompleted = wasTraining && !s.HasTraining
 	return s, sum
+}
+
+// offlineIndustryAllowance is min(elapsed×compression, 8h×compression,
+// seconds until next time-baseline generation). Pure helper for Settle.
+func offlineIndustryAllowance(s model.GameState, b balance.Config, elapsedSec float64) float64 {
+	if elapsedSec <= 0 {
+		return 0
+	}
+	fromElapsed := elapsedSec * balance.RealSecCompression
+	cap8h := 8 * 3600 * balance.RealSecCompression
+	oneGen := sim.SecondsUntilNextTimeGeneration(s, b)
+	out := fromElapsed
+	if cap8h < out {
+		out = cap8h
+	}
+	if oneGen < out {
+		out = oneGen
+	}
+	if out < 0 {
+		return 0
+	}
+	return out
 }
