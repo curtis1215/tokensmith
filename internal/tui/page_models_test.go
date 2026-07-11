@@ -62,3 +62,34 @@ func TestRenderModelsDetailContents(t *testing.T) {
 		t.Errorf("expected online details to contain '用戶數', got:\n%s", v)
 	}
 }
+
+func TestModelShowsObsolescence(t *testing.T) {
+	m := testModel(t)
+	// Stored absolute quality fixed at 25; industry frontier will rise over time.
+	m.state.Models = []model.Model{{
+		Gen: 1, Online: true, Users: 10, Price: 12,
+		Quality: [model.NumQualityDims]float64{25, 5, 5, 5},
+	}}
+	m.modelCursor = 0
+	m.page = PageModels
+	beforeAbs := m.state.Models[0].Quality
+	v1 := renderModels(m)
+	if !strings.Contains(v1, "25") || !strings.Contains(v1, "能力") {
+		t.Fatalf("absolute quality missing:\n%s", v1)
+	}
+	if !strings.Contains(v1, "相對前沿") && !strings.Contains(v1, "落後") && !strings.Contains(v1, "前沿") {
+		t.Fatalf("expected frontier relative copy:\n%s", v1)
+	}
+	if !strings.Contains(v1, "等效世代") || !strings.Contains(v1, "Gen1") {
+		t.Fatalf("expected equivalent-gen line:\n%s", v1)
+	}
+	// Advance industry clock — stored quality must not change; relative text may.
+	m.state.Progression.IndustryTime = 20000 * 86400
+	v2 := renderModels(m)
+	if m.state.Models[0].Quality != beforeAbs {
+		t.Fatalf("stored quality mutated: %v → %v", beforeAbs, m.state.Models[0].Quality)
+	}
+	if !strings.Contains(v2, "25") {
+		t.Fatalf("absolute 25 must remain visible after frontier moves:\n%s", v2)
+	}
+}

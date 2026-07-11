@@ -61,18 +61,51 @@ func renderMarket(m Model) string {
 		cards = append(cards, CardIn(CardDefault, colW, segmentName(seg)+"市場", cardBody))
 	}
 
+	// Global frontier / era / band (ranking math unchanged).
+	gf := sim.GlobalFrontier(s, m.cfg)
+	era := sim.CurrentRivalEra(s, m.cfg)
+	frontierHdr := fmt.Sprintf("全球前沿 能力%.0f · 時代 %s · 對手帶 85%%–115%%",
+		gf[model.DimCapability], eraTitle(era))
 	var rivalLines []string
-	for _, c := range s.Competitors {
+	rivalLines = append(rivalLines, styleMuted.Render(frontierHdr))
+	rivalLines = append(rivalLines, styleMuted.Render("品質相對前沿；排名仍依訴求計算"))
+	for i, c := range s.Competitors {
+		rv := sim.RivalFrontierView(s, i, m.cfg)
 		capVal := c.Quality[model.DimCapability]
-		capFrac := capVal / 100.0
-		if capFrac > 1 {
-			capFrac = 1
+		// Bar relative to global frontier (not a hard 100 scale).
+		capFrac := 0.0
+		if rv.GlobalFrontier[model.DimCapability] > 0 {
+			capFrac = capVal / rv.GlobalFrontier[model.DimCapability]
+			// Map 0.85–1.15 band roughly onto bar; clamp display.
+			capFrac = (capFrac - 0.85) / 0.30
+			if capFrac < 0 {
+				capFrac = 0
+			}
+			if capFrac > 1 {
+				capFrac = 1
+			}
 		}
 		level := sim.ThreatLevel(s, m.cfg, model.SegConsumer, c)
 		label := threatLabel(level)
-
-		rivalLines = append(rivalLines, fmt.Sprintf("%-10s 能力 %s (%.0f) · 專長 %-4s · 威脅 %s",
-			c.Name, Bar(capFrac, 10), capVal, topSkillDim(c), label))
+		leader := ""
+		if rv.IsLeader {
+			leader = styleGold.Render("★領袖 ")
+		}
+		delta := rv.FrontierDeltaPct[model.DimCapability] * 100
+		deltaStr := fmt.Sprintf("%+.0f%%", delta)
+		spec := topSkillDim(c)
+		mom := ""
+		if rv.MomentumCycles > 0 {
+			mom = fmt.Sprintf(" · 動能%d週期", rv.MomentumCycles)
+		}
+		rivalLines = append(rivalLines, fmt.Sprintf("%s%-8s 能力 %s %.0f (%s) · 專長 %s · 威脅 %s%s",
+			leader, Truncate(c.Name, 8), Bar(capFrac, 8), capVal, deltaStr, spec, label, mom))
+	}
+	// Active campaign market-effect durations.
+	if effects := activeMarketEffectLines(s); len(effects) > 0 {
+		rivalLines = append(rivalLines, "")
+		rivalLines = append(rivalLines, styleMuted.Render("進行中市況修正："))
+		rivalLines = append(rivalLines, effects...)
 	}
 	rivalsCard := CardIn(CardThreat, colW, "對手檔案", VStack(rivalLines...))
 
@@ -80,6 +113,29 @@ func renderMarket(m Model) string {
 	rightColumn := rivalsCard
 
 	return ResponsiveRow(cw, 2, leftColumn, rightColumn)
+}
+
+// activeMarketEffectLines lists campaign Active modifiers still ticking.
+func activeMarketEffectLines(s model.GameState) []string {
+	var out []string
+	for _, mod := range s.Campaign.Active {
+		if mod.CyclesRemaining <= 0 {
+			continue
+		}
+		// Summarize non-neutral ref-price effects.
+		parts := []string{}
+		for seg := 0; seg < model.NumSegments; seg++ {
+			mult := mod.Effects.RefPriceMult[seg]
+			if mult != 0 && mult != 1 {
+				parts = append(parts, fmt.Sprintf("%s價×%.2f", segmentName(model.Segment(seg)), mult))
+			}
+		}
+		if len(parts) == 0 {
+			parts = append(parts, mod.ID)
+		}
+		out = append(out, fmt.Sprintf("· %s · 剩餘 %d 週期", strings.Join(parts, " "), mod.CyclesRemaining))
+	}
+	return out
 }
 
 // rankArrow shows rank movement since the previous snapshot (1-based ranks).

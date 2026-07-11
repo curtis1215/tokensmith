@@ -13,8 +13,65 @@ func EffectiveTraining(ns model.GameState, b balance.Config) float64 {
 	return effectiveTraining(ns, b)
 }
 
-// Re-export frontier view helpers from this package surface for TUI consumers
-// that already import sim for view models. Implementations live in frontier.go.
+// RivalFrontier is a pure read-only projection of one rival versus the global
+// frontier. Ranking/appeal math is unchanged; this only explains position.
+type RivalFrontier struct {
+	Active           bool
+	Name             string
+	AbsoluteQuality  [model.NumQualityDims]float64
+	GlobalFrontier   [model.NumQualityDims]float64
+	FrontierDeltaPct [model.NumQualityDims]float64 // quality/global - 1; 0 if global==0
+	IsLeader         bool
+	Specialty        model.QualityDim // strongest Skill dimension
+	SpecialtyPct     float64          // Skill[Specialty]
+	MomentumPct      [model.NumQualityDims]float64
+	MomentumCycles   int
+}
+
+// RivalFrontierView projects competitors[index] against GlobalFrontier.
+// Invalid indices return Active=false.
+func RivalFrontierView(s model.GameState, index int, b balance.Config) RivalFrontier {
+	if index < 0 || index >= len(s.Competitors) {
+		return RivalFrontier{}
+	}
+	c := s.Competitors[index]
+	gf := GlobalFrontier(s, b)
+	v := RivalFrontier{
+		Active:          true,
+		Name:            c.Name,
+		AbsoluteQuality: c.Quality,
+		GlobalFrontier:  gf,
+		MomentumPct:     c.MomentumPct,
+		MomentumCycles:  c.MomentumCycles,
+		IsLeader:        isRivalLeader(s, c.Name),
+	}
+	for d := range model.NumQualityDims {
+		if gf[d] > simEpsilon {
+			v.FrontierDeltaPct[d] = c.Quality[d]/gf[d] - 1
+		}
+	}
+	best := 0
+	for d := 1; d < model.NumQualityDims; d++ {
+		if c.Skill[d] > c.Skill[best] {
+			best = d
+		}
+	}
+	v.Specialty = model.QualityDim(best)
+	v.SpecialtyPct = c.Skill[best]
+	return v
+}
+
+// CurrentRivalEra is the rival-league era (from Progression.Rivals, else MaxUnlockedGen).
+func CurrentRivalEra(s model.GameState, b balance.Config) int {
+	if s.Progression.Rivals.Era > 0 {
+		return s.Progression.Rivals.Era
+	}
+	e, err := balance.EraForGen(MaxUnlockedGen(s, b))
+	if err != nil || e < 1 {
+		return 1
+	}
+	return e
+}
 
 // EffectiveInference is the exported view of self-built + rented inference compute.
 func EffectiveInference(ns model.GameState, b balance.Config) float64 {

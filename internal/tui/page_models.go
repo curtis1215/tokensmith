@@ -94,18 +94,41 @@ func renderModelDetail(m Model, idx int) string {
 		capVal = spec.QualityScale
 	}
 
-	// 1. Quality Dims
+	// 1. Quality Dims — bars use generation QualityScale, never re-normalize stored values.
 	qNames := [4]string{"能力", "成本", "安全", "速度"}
+	fv := sim.ModelFrontierView(m.state, idx, m.cfg)
 	var qLines []string
 	for d := 0; d < 4; d++ {
-		val := md.Quality[d]
+		val := md.Quality[d] // stored absolute; never rewritten
 		var barStr string
 		if capVal > 0 {
 			barStr = Bar(val/capVal, 8)
 		} else {
 			barStr = fmt.Sprintf("%.0f (無上限)", val)
 		}
-		qLines = append(qLines, fmt.Sprintf("%s: %s %.0f", qNames[d], barStr, val))
+		// Relative frontier delta (explanatory only).
+		rel := ""
+		if fv.Active && fv.GlobalFrontier[d] > 0 {
+			pct := fv.FrontierDeltaPct[d] * 100
+			if pct >= 0 {
+				rel = fmt.Sprintf(" · 相對前沿 %+.1f%%", pct)
+			} else {
+				rel = styleWarn.Render(fmt.Sprintf(" · 落後 %.1f%%", -pct))
+			}
+			rel += fmt.Sprintf("（前沿 %.0f）", fv.GlobalFrontier[d])
+		}
+		qLines = append(qLines, fmt.Sprintf("%s: %s %.0f%s", qNames[d], barStr, val, rel))
+	}
+	if fv.Active {
+		gap := fv.GenerationGap
+		gapStr := fmt.Sprintf("約 %+.1f 世代", gap)
+		if gap < -0.05 {
+			gapStr = styleWarn.Render(fmt.Sprintf("約落後 %.1f 世代", -gap))
+		} else if gap > 0.05 {
+			gapStr = styleGain.Render(fmt.Sprintf("約領先 %.1f 世代", gap))
+		}
+		qLines = append(qLines, fmt.Sprintf("等效世代 %.1f · 本體 Gen%d · %s",
+			fv.EquivalentGen, fv.ModelGen, gapStr))
 	}
 	qualityBlock := VStack(qLines...)
 

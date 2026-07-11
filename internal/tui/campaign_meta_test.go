@@ -100,6 +100,15 @@ func TestRivalIntelFullVsPartialDisclosure(t *testing.T) {
 			t.Fatalf("full intel must disclose %q:\n%s", want, full)
 		}
 	}
+
+	// Price-war action discloses market-effect duration when full intel.
+	pw := formatActionIntelDetail("deepseek-price-war", true, cfg, "")
+	if !strings.Contains(pw, "市況") || !strings.Contains(pw, "週期") {
+		t.Fatalf("price-war full intel should show market duration: %q", pw)
+	}
+	if !strings.Contains(pw, "動能") {
+		t.Fatalf("price-war full intel should show momentum cycles: %q", pw)
+	}
 }
 
 func TestEndlessShowsNonPrimaryRouteLines(t *testing.T) {
