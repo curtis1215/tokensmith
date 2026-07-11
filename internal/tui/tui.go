@@ -99,6 +99,7 @@ type Model struct {
 	// so every tick can read the current streak multiplier cheaply.
 	streakDays     int
 	lastActiveDate string
+	achievements   map[string]int64 // mirrors store.Meta.Achievements
 	// lastCampaignUnix mirrors store.Meta.LastCampaignUnix — wall-clock of the
 	// last board cycle (or the session that armed the clock). advanceCampaignTo
 	// drives board-cycle catch-up against this field on startup and live ticks.
@@ -185,8 +186,9 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 		consumed:         meta.ConsumedSources,
 		lastRealUnix:     meta.LastRealUnix,
 		metaMissing:      !metaOK,
-		streakDays:       meta.StreakDays,
+		streakDays:        meta.StreakDays,
 		lastActiveDate:    meta.LastActiveDate,
+		achievements:      meta.Achievements,
 		lastCampaignUnix:  meta.LastCampaignUnix,
 		lastCampaignCycle: meta.LastCampaignCycle,
 		width:             100,
@@ -353,6 +355,7 @@ func (m Model) saveMetaAt(lastRealUnix int64) {
 		StreakDays:        m.streakDays,
 		LastCampaignUnix:  m.lastCampaignUnix,
 		LastCampaignCycle: m.state.Campaign.Cycle,
+		Achievements:      m.achievements,
 	})
 }
 

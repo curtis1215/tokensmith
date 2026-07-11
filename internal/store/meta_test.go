@@ -1,6 +1,7 @@
 package store
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -40,5 +41,31 @@ func TestMetaRoundTrip(t *testing.T) {
 	}
 	if got.LastCampaignCycle != 7 {
 		t.Fatalf("LastCampaignCycle not round-tripped: %d", got.LastCampaignCycle)
+	}
+}
+
+func TestMetaAchievementsRoundtrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "meta.json")
+	in := Meta{Achievements: map[string]int64{"first-online": 1700000000}}
+	if err := SaveMeta(path, in); err != nil {
+		t.Fatal(err)
+	}
+	out, ok, err := LoadMeta(path)
+	if err != nil || !ok {
+		t.Fatalf("load failed: %v ok=%v", err, ok)
+	}
+	if out.Achievements["first-online"] != 1700000000 {
+		t.Fatalf("achievements lost in roundtrip: %+v", out.Achievements)
+	}
+}
+
+func TestMetaOldFileNilAchievements(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "meta.json")
+	if err := os.WriteFile(path, []byte(`{"streakDays":3}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, ok, _ := LoadMeta(path)
+	if !ok || out.Achievements != nil {
+		t.Fatalf("old meta should load with nil achievements, got %+v", out.Achievements)
 	}
 }

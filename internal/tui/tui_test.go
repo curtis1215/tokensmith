@@ -251,6 +251,17 @@ func TestResourceBarShowsCashArrowAndStreak(t *testing.T) {
 	}
 }
 
+func TestSaveMetaPersistsAchievements(t *testing.T) {
+	dir := t.TempDir()
+	m := newAt(filepath.Join(dir, "save.json"))
+	m.achievements = map[string]int64{"streak-3": 42}
+	m.saveMetaAt(100)
+	meta, ok, _ := store.LoadMeta(filepath.Join(dir, "meta.json"))
+	if !ok || meta.Achievements["streak-3"] != 42 {
+		t.Fatalf("achievements not persisted: %+v", meta.Achievements)
+	}
+}
+
 func TestHireShowsSuccessNotice(t *testing.T) {
 	m := newAt(filepath.Join(t.TempDir(), "save.json"))
 	m.state.Resources.Cash = 1e9
