@@ -77,7 +77,8 @@ type Model struct {
 	directiveDialog *directiveDialog   // non-nil while executive-directive modal is open
 	campaignEnd     *campaignEndDialog // non-nil while victory/exit modal is open
 	campaignError   string             // last rejected campaign command; survives ticks
-	techCursor      int                // selected tech node on the tech page
+	techCursor      int                // visible tech-entry index on the tech page
+	techEra         int                // selected era (1-based); 0 = current era
 	procCursor      int                // selected process node on the compute page
 	modelCursor     int                // selected index into state.Models on models page
 	// Harvest-daemon integration (§10.2).
@@ -582,12 +583,8 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			m.vp.GotoTop()
 			return m, nil
 		case "up":
-			if m.page == PageTech && len(m.cfg.TechNodes) > 0 {
-				vis := techVisualOrder(m.cfg.TechNodes)
-				idx := indexOf(vis, m.techCursor)
-				if idx > 0 {
-					m.techCursor = vis[idx-1]
-				}
+			if m.page == PageTech {
+				techMoveCursor(&m, -1)
 			}
 			if m.page == PageCompute && m.procCursor > 0 {
 				m.procCursor--
@@ -601,12 +598,8 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return m, nil
 		case "down":
-			if m.page == PageTech && len(m.cfg.TechNodes) > 0 {
-				vis := techVisualOrder(m.cfg.TechNodes)
-				idx := indexOf(vis, m.techCursor)
-				if idx >= 0 && idx < len(vis)-1 {
-					m.techCursor = vis[idx+1]
-				}
+			if m.page == PageTech {
+				techMoveCursor(&m, +1)
 			}
 			if m.page == PageCompute && m.procCursor < len(m.cfg.Processes)-1 {
 				m.procCursor++
@@ -619,23 +612,29 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 				}
 			}
 			return m, nil
+		case "[":
+			if m.page == PageTech {
+				techShiftEra(&m, -1)
+			}
+			return m, nil
+		case "]":
+			if m.page == PageTech {
+				techShiftEra(&m, +1)
+			}
+			return m, nil
+		case "+", "=":
+			if m.page == PageTech {
+				techAdjustAllocation(&m, +10)
+			}
+			return m, nil
+		case "-", "_":
+			if m.page == PageTech {
+				techAdjustAllocation(&m, -10)
+			}
+			return m, nil
 		case "enter":
-			if m.page == PageTech && m.techCursor >= 0 && m.techCursor < len(m.cfg.TechNodes) {
-				node := m.cfg.TechNodes[m.techCursor]
-				ns, err := sim.Apply(m.state, model.UnlockTech{NodeID: node.ID}, m.cfg)
-				switch {
-				case err == nil:
-					m.state = ns
-					m.setNotice("🔬 已解鎖：" + techLabel(node.ID).Name)
-				case errors.Is(err, sim.ErrInsufficientRnD):
-					m.setNotice("R&D 不足")
-				case errors.Is(err, sim.ErrAlreadyUnlocked):
-					m.setNotice("已解鎖")
-				case errors.Is(err, sim.ErrPrereqNotMet):
-					m.setNotice("前置科技未滿足")
-				default:
-					m.setNotice("無法解鎖")
-				}
+			if m.page == PageTech {
+				techActivate(&m)
 			}
 			return m, nil
 		case "q", "ctrl+c":
@@ -1118,7 +1117,7 @@ func pageKeys(m Model) string {
 	case PageTeam:
 		return "[h]雇研究員 [e]雇工程 [o]雇營運 [k]雇行銷 [s]簽明星"
 	case PageTech:
-		return "[↑↓]選節點 [Enter]解鎖"
+		return "[↑↓]條目 [[]時代 [Enter]執行 [+]/[-]前沿分配"
 	case PageAchievements:
 		return "[↑↓]捲動"
 	default: // overview — campaign keys are hints only (dialogs land in Task 10)
