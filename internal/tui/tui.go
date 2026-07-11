@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"tokensmith/internal/balance"
+	"tokensmith/internal/dailyusage"
 	"tokensmith/internal/game"
 	"tokensmith/internal/ingest"
 	"tokensmith/internal/ledger"
@@ -33,6 +34,10 @@ const ticksPerRealSec = 4
 // snapshotPollEveryTicks keeps standalone SQLite/filesystem snapshots off the
 // 250ms render loop. Append-only JSONL polling remains per tick.
 const snapshotPollEveryTicks = 5 * ticksPerRealSec
+
+// dailyRefreshEveryTicks reloads daily-usage.json on the same ~5s cadence as
+// other mutable sources (not every 250ms render tick).
+const dailyRefreshEveryTicks = 5 * ticksPerRealSec
 
 // gameSecPerRealSec converts a per-game-second rate to the per-real-second rate
 // the player actually perceives (each real second advances several ticks of
@@ -140,6 +145,12 @@ type Model struct {
 	// Load/migration failure: block all writes and gameplay; only quit/resize.
 	startupErr   error
 	saveDisabled bool
+	// Daily per-source raw token statistics (independent of ledger/save).
+	dailyDoc          dailyusage.Document
+	dailyDay          string // current time.Local day key for rendering
+	dailyReader       dailyusage.Reader
+	dailyWriter       *dailyusage.Buffer
+	dailyRefreshTicks int
 }
 
 // pushBanner queues a Major banner, dropping the oldest beyond maxBanners.
@@ -194,6 +205,15 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 		}
 	}
 	meta, metaOK, _ := store.LoadMeta(metaPath)
+
+	// Daily usage is sibling to save/ledger; failure never blocks gameplay.
+	dailyPath := filepath.Join(filepath.Dir(savePath), "daily-usage.json")
+	dailyStore := dailyusage.New(dailyPath)
+	dailyDoc := dailyusage.Document{SchemaVersion: dailyusage.SchemaVersion}
+	if doc, ok, err := dailyStore.Load(); err == nil && ok {
+		dailyDoc = doc
+	}
+
 	m := Model{
 		state:             state,
 		cfg:               balance.Default(),
@@ -214,6 +234,10 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 		vp:                viewport.New(80, 20),
 		startupErr:        startupErr,
 		saveDisabled:      saveDisabled,
+		dailyDoc:          dailyDoc,
+		dailyDay:          dailyusage.DayKey(time.Now()),
+		dailyReader:       dailyStore,
+		dailyWriter:       dailyusage.NewBuffer(dailyStore),
 	}
 	m.sparkValuation = newSpark(60)
 	m.sparkUsers = newSpark(60)
@@ -394,6 +418,48 @@ func (m Model) Init() tea.Cmd {
 	return tick()
 }
 
+// recordDailyUsage updates the local-day key, applies standalone harvest
+// deltas to the in-memory daily view and retry buffer, and periodically
+// refreshes from disk. Daemon-mode never writes (daemon already records).
+func (m *Model) recordDailyUsage(now time.Time, events []model.TokenEvent) {
+	m.dailyDay = dailyusage.DayKey(now)
+	if !m.daemonMode {
+		batch := dailyusage.BatchFromEvents(now, events)
+		if len(batch.Sources) > 0 {
+			dailyusage.Apply(&m.dailyDoc, batch)
+		}
+		if m.dailyWriter != nil {
+			if err := m.dailyWriter.Record(batch); err != nil {
+				m.setNotice("⚠ 今日 Token 統計暫存失敗，將自動重試")
+			}
+		}
+	}
+	m.dailyRefreshTicks++
+	if m.dailyRefreshTicks < dailyRefreshEveryTicks {
+		return
+	}
+	m.dailyRefreshTicks = 0
+	m.refreshDailyDocFromDisk()
+}
+
+// refreshDailyDocFromDisk replaces the cached document only on a successful
+// present load. Standalone mode skips replacement while writes are pending so
+// the in-memory overlay is not clobbered by a stale file.
+func (m *Model) refreshDailyDocFromDisk() {
+	if m.dailyReader == nil {
+		return
+	}
+	if !m.daemonMode && m.dailyWriter != nil && m.dailyWriter.Pending() > 0 {
+		return
+	}
+	doc, ok, err := m.dailyReader.Load()
+	if err != nil || !ok {
+		// Retain last valid in-memory view.
+		return
+	}
+	m.dailyDoc = doc
+}
+
 // pollTokens returns the token events for this tick, either from the daemon
 // ledger (advancing the consumed watermark) or the built-in poller.
 func (m *Model) pollTokens() []model.TokenEvent {
@@ -505,6 +571,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 	case tickMsg:
 		now := time.Time(msg)
 		events := m.pollTokens()
+		m.recordDailyUsage(now, events)
 		m.tokensThisTick = len(events) > 0
 		if m.tokensThisTick {
 			m.updateStreak(now)

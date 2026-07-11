@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"tokensmith/internal/dailyusage"
 	"tokensmith/internal/model"
 )
 
@@ -146,6 +147,113 @@ func TestOverviewCardsAlignFlush(t *testing.T) {
 	for i, ln := range strings.Split(out, "\n") {
 		if lipgloss.Width(ln) > cw {
 			t.Fatalf("line %d overflows content width %d: %q", i, cw, ln)
+		}
+	}
+}
+
+func TestOverviewShowsDailyUsageBySource(t *testing.T) {
+	m := testModel(t)
+	mm, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 42})
+	m = mm.(Model)
+	m.dailyDay = "2026-07-12"
+	m.dailyDoc.Days = map[string]map[string]dailyusage.SourceUsage{
+		"2026-07-12": {
+			"claude-code": {In: 120_000, Out: 18_000},
+			"codex":       {In: 85_000, Out: 12_000},
+			"grok":        {In: 30_000},
+			"opencode":    {In: 42_000, Out: 9_000},
+		},
+	}
+	out := renderOverview(m)
+	for _, want := range []string{"今日 Token 收成", "Claude Code", "Codex", "Grok（估算）", "OpenCode", "316K"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q:\n%s", want, out)
+		}
+	}
+	// Wide layout shows In/Out breakdown (Grok has In only, no fake Out amount).
+	if !strings.Contains(out, "In 120K") || !strings.Contains(out, "Out 18K") {
+		t.Fatalf("wide In/Out missing:\n%s", out)
+	}
+	if !strings.Contains(out, "In 30K") {
+		t.Fatalf("Grok In missing:\n%s", out)
+	}
+	// Grok must not invent a non-zero Out amount.
+	if strings.Contains(out, "Grok") {
+		// Find the Grok line and ensure it doesn't claim Out with a positive amount.
+		for _, ln := range strings.Split(out, "\n") {
+			if strings.Contains(ln, "Grok") && strings.Contains(ln, "Out") {
+				// Zero Out is ok to omit entirely; positive Out is not.
+				if strings.Contains(ln, "Out 0") {
+					continue
+				}
+				// Any "Out N" with N>0 is wrong for Grok-only estimated in.
+				t.Fatalf("Grok line must not show fabricated Out: %q", ln)
+			}
+		}
+	}
+}
+
+func TestOverviewDailyUsageZerosWhenMissing(t *testing.T) {
+	m := testModel(t)
+	mm, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 42})
+	m = mm.(Model)
+	m.dailyDay = "2026-07-12"
+	m.dailyDoc.Days = nil
+	out := renderOverview(m)
+	for _, want := range []string{"今日 Token 收成", "Claude Code", "Codex", "Grok（估算）", "OpenCode"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q:\n%s", want, out)
+		}
+	}
+	// Zero activity sources remain visible (compact 0 total).
+	if !strings.Contains(out, "0") {
+		t.Fatalf("zeros should remain visible:\n%s", out)
+	}
+}
+
+func TestOverviewDailyUsageNarrowKeepsAllSources(t *testing.T) {
+	m := testModel(t)
+	// Narrow terminal; contentWidth will be small.
+	mm, _ := m.Update(tea.WindowSizeMsg{Width: 60, Height: 40})
+	m = mm.(Model)
+	m.dailyDay = "2026-07-12"
+	m.dailyDoc.Days = map[string]map[string]dailyusage.SourceUsage{
+		"2026-07-12": {
+			"claude-code": {In: 120_000, Out: 18_000},
+			"codex":       {In: 85_000, Out: 12_000},
+			"grok":        {In: 30_000},
+			"opencode":    {In: 42_000, Out: 9_000},
+		},
+	}
+	out := renderOverview(m)
+	// Compact labels still cover every source.
+	for _, want := range []string{"Claude", "Codex", "Grok", "OpenCode"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("narrow missing %q:\n%s", want, out)
+		}
+	}
+	cw := m.contentWidth()
+	for i, ln := range strings.Split(out, "\n") {
+		if lipgloss.Width(ln) > cw {
+			t.Fatalf("line %d overflows content width %d: %q (width=%d)", i, cw, ln, lipgloss.Width(ln))
+		}
+	}
+}
+
+func TestFormatTokenCount(t *testing.T) {
+	cases := []struct {
+		n    int
+		want string
+	}{
+		{0, "0"},
+		{999, "999"},
+		{1000, "1K"},
+		{138000, "138K"},
+		{1_500_000, "1.5M"},
+	}
+	for _, tc := range cases {
+		if got := formatTokenCount(tc.n); got != tc.want {
+			t.Errorf("formatTokenCount(%d)=%q, want %q", tc.n, got, tc.want)
 		}
 	}
 }

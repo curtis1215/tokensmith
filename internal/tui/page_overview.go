@@ -3,8 +3,12 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/charmbracelet/lipgloss"
 
 	"tokensmith/internal/balance"
+	"tokensmith/internal/dailyusage"
 	"tokensmith/internal/model"
 	"tokensmith/internal/sim"
 )
@@ -13,6 +17,7 @@ func renderOverview(m Model) string {
 	cw := m.contentWidth()
 	rows := []string{
 		renderHQ(m, cw),
+		renderDailyUsageCard(m, cw),
 		Grid(cw, 2,
 			func(w int) string { return renderCampaignStatusCard(m, w) },
 			func(w int) string { return renderRivalRoadmapCard(m, w) },
@@ -28,6 +33,123 @@ func renderOverview(m Model) string {
 		rows = append(rows, CardIn(CardThreat, cw, "注意", VStack(warns...)))
 	}
 	return VStack(rows...)
+}
+
+// dailySourceOrder is the fixed display order for the four accounting identities.
+var dailySourceOrder = []struct {
+	key, wideLabel, narrowLabel string
+	estimated                   bool
+}{
+	{"claude-code", "Claude Code", "Claude", false},
+	{"codex", "Codex", "Codex", false},
+	{"grok", "Grok（估算）", "Grok", true},
+	{"opencode", "OpenCode", "OpenCode", false},
+}
+
+// renderDailyUsageCard shows today's per-source raw token harvest.
+// Wide: one row per source with total and In/Out. Narrow: compact wrapped segments.
+// All four sources always appear; missing keys render as zero. Midnight is handled
+// by Model.dailyDay selecting the current local date bucket (empty → zeros).
+func renderDailyUsageCard(m Model, w int) string {
+	day := m.dailyDay
+	if day == "" {
+		day = dailyusage.DayKey(time.Now())
+	}
+	var bucket map[string]dailyusage.SourceUsage
+	if m.dailyDoc.Days != nil {
+		bucket = m.dailyDoc.Days[day]
+	}
+
+	// Title: 今日 Token 收成 · MM/DD
+	titleDay := day
+	if t, err := time.Parse("2006-01-02", day); err == nil {
+		titleDay = t.Format("01/02")
+	}
+	title := "今日 Token 收成 · " + titleDay
+
+	// Narrow: compact "Claude 138K · Codex 97K" style, may wrap.
+	if w < 100 {
+		var segs []string
+		for _, src := range dailySourceOrder {
+			u := bucket[src.key]
+			total := u.In + u.Out
+			segs = append(segs, fmt.Sprintf("%s %s", src.narrowLabel, formatTokenCount(total)))
+		}
+		body := wrapCompactSegments(segs, w-4) // account for card padding roughly
+		return CardIn(CardDefault, w, title, body)
+	}
+
+	// Wide: full rows + grand total.
+	var lines []string
+	grand := 0
+	for _, src := range dailySourceOrder {
+		u := bucket[src.key]
+		total := u.In + u.Out
+		grand += total
+		label := src.wideLabel
+		var detail string
+		if src.estimated || u.Out == 0 {
+			// Grok (estimated) or pure-input sources: show In only, never fake Out.
+			if u.Out == 0 {
+				detail = fmt.Sprintf("（In %s）", formatTokenCount(u.In))
+			} else {
+				detail = fmt.Sprintf("（In %s / Out %s）", formatTokenCount(u.In), formatTokenCount(u.Out))
+			}
+		} else {
+			detail = fmt.Sprintf("（In %s / Out %s）", formatTokenCount(u.In), formatTokenCount(u.Out))
+		}
+		// Pad label for rough column alignment.
+		lines = append(lines, fmt.Sprintf("%-14s %6s  %s", label, formatTokenCount(total), detail))
+	}
+	lines = append(lines, fmt.Sprintf("%-14s %6s", "合計", formatTokenCount(grand)))
+	return CardIn(CardDefault, w, title, VStack(lines...))
+}
+
+// formatTokenCount renders raw token counts compactly with capital K/M.
+func formatTokenCount(n int) string {
+	if n < 0 {
+		n = 0
+	}
+	switch {
+	case n >= 1_000_000:
+		// One decimal when not an exact million.
+		if n%1_000_000 == 0 {
+			return fmt.Sprintf("%dM", n/1_000_000)
+		}
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%dK", n/1_000)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
+}
+
+// wrapCompactSegments joins segments with " · " and wraps so each visual line
+// stays within maxW display cells (ANSI-aware via lipgloss.Width).
+func wrapCompactSegments(segs []string, maxW int) string {
+	if maxW < 8 {
+		maxW = 8
+	}
+	var lines []string
+	var cur string
+	for _, s := range segs {
+		candidate := s
+		if cur != "" {
+			candidate = cur + " · " + s
+		}
+		if lipgloss.Width(candidate) <= maxW {
+			cur = candidate
+			continue
+		}
+		if cur != "" {
+			lines = append(lines, cur)
+		}
+		cur = s
+	}
+	if cur != "" {
+		lines = append(lines, cur)
+	}
+	return VStack(lines...)
 }
 
 func companyCard(m Model, w int) string {
