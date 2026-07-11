@@ -54,7 +54,8 @@ func companyCard(m Model, w int) string {
 
 func trainCard(m Model, w int) string {
 	s := m.state
-	var body string
+	var lines []string
+	// Model training progress (catalog work total for the bar).
 	if s.HasTraining {
 		total := 0.0
 		if spec, err := balance.Generation(s.Training.Gen); err == nil {
@@ -64,8 +65,14 @@ func trainCard(m Model, w int) string {
 		if total > 0 {
 			done = 1.0 - s.Training.WorkRemaining/total
 		}
-		body = fmt.Sprintf("Gen%d %s %.0f%%\n%s", s.Training.Gen, Bar(done, 12), done*100,
-			KV("區隔", segmentName(s.Training.Segment)))
+		if done < 0 {
+			done = 0
+		}
+		if done > 1 {
+			done = 1
+		}
+		lines = append(lines, fmt.Sprintf("訓練 Gen%d %s %.0f%%", s.Training.Gen, Bar(done, 10), done*100))
+		lines = append(lines, KV("區隔", segmentName(s.Training.Segment)))
 	} else {
 		drafts := 0
 		for _, md := range s.Models {
@@ -74,13 +81,64 @@ func trainCard(m Model, w int) string {
 			}
 		}
 		if drafts > 0 {
-			body = fmt.Sprintf("無進行中訓練\n%s",
-				styleWarn.Render(fmt.Sprintf("待發佈 %d 個（模型頁 p）", drafts)))
+			lines = append(lines, "訓練 無進行中")
+			lines = append(lines, styleWarn.Render(fmt.Sprintf("待發佈 %d 個（模型頁 p）", drafts)))
 		} else {
-			body = "無進行中訓練\n(到模型頁按 t 開訓)"
+			lines = append(lines, "訓練 無進行中")
+			lines = append(lines, styleMuted.Render("(模型頁 t 開訓)"))
 		}
 	}
-	return CardIn(CardDefault, w, "訓練 / 發佈", body)
+	// Frontier research from pure sim view (no TUI math duplication).
+	lines = append(lines, renderFrontierProgressLines(m)...)
+	return CardIn(CardDefault, w, "訓練 / 前沿", VStack(lines...))
+}
+
+// renderFrontierProgressLines formats sim.FrontierProgressView for cards.
+func renderFrontierProgressLines(m Model) []string {
+	v := sim.FrontierProgressView(m.state, m.cfg)
+	if !v.Active {
+		return []string{styleMuted.Render("前沿 無進行中（科技頁啟動）")}
+	}
+	lines := []string{
+		fmt.Sprintf("前沿 Gen%d %s %.0f%%", v.TargetGen, Bar(v.WorkFraction, 10), v.WorkFraction*100),
+		fmt.Sprintf("分配 前沿%d%% / 訓練%d%%", v.AllocationPct, v.ModelAllocationPct),
+		fmt.Sprintf("算力 有效%.0f → 折合%.0f（建議%.0f）",
+			v.AllocatedCompute, v.DiminishedCompute, v.RecommendedCompute),
+	}
+	if v.UnavailableReason != "" {
+		lines = append(lines, styleWarn.Render("停滯 · "+frontierStallCopy(v.UnavailableReason)))
+	} else if v.ETASec > 0 {
+		lines = append(lines, KV("ETA", formatETASec(v.ETASec)))
+	}
+	// R&D progress snapshot (secondary).
+	lines = append(lines, fmt.Sprintf("R&D 進度 %.0f%%", v.RnDFraction*100))
+	return lines
+}
+
+func frontierStallCopy(reason string) string {
+	switch reason {
+	case "no-rnd":
+		return "R&D 不足"
+	case "no-compute":
+		return "無訓練算力"
+	case "paused":
+		return "分配 0%（已暫停）"
+	default:
+		return reason
+	}
+}
+
+func formatETASec(sec float64) string {
+	if sec <= 0 {
+		return "—"
+	}
+	if sec >= 86400 {
+		return fmt.Sprintf("%.1f 天", sec/86400)
+	}
+	if sec >= 3600 {
+		return fmt.Sprintf("%.1f 時", sec/3600)
+	}
+	return fmt.Sprintf("%.0f 秒", sec)
 }
 
 func shareCard(m Model, w int) string {

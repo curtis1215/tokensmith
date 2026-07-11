@@ -1311,6 +1311,10 @@ func pressures(m Model) []string {
 	if sim.EffectiveTraining(s, m.cfg) == 0 {
 		out = append(out, "⚠ 無訓練算力——到算力頁按 r 租用才能訓練")
 	}
+	// Persistent frontier stall (card/pressure line — never toast spam per tick).
+	if fv := sim.FrontierProgressView(s, m.cfg); fv.Active && fv.UnavailableReason != "" {
+		out = append(out, "⚠ 前沿研究停滯——"+frontierStallCopy(fv.UnavailableReason))
+	}
 	draftN := 0
 	for _, md := range s.Models {
 		if sim.IsDraft(md) {

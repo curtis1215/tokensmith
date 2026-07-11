@@ -54,7 +54,7 @@ func TestOverviewShowsKPIsAndTraining(t *testing.T) {
 	m.state.Models = []model.Model{{Online: true, Users: 1000, Price: 12}}
 	m.page = PageOverview
 	v := renderOverview(m)
-	for _, want := range []string{"估值", "總用戶", "月營收", "排名", "訓練 / 發佈", "Gen4", "里程碑"} {
+	for _, want := range []string{"估值", "總用戶", "月營收", "排名", "訓練 / 前沿", "Gen4", "里程碑"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("overview missing %q:\n%s", want, v)
 		}
@@ -64,8 +64,55 @@ func TestOverviewShowsKPIsAndTraining(t *testing.T) {
 func TestOverviewNoTrainingHint(t *testing.T) {
 	m := testModel(t)
 	m.state.HasTraining = false
-	if !strings.Contains(renderOverview(m), "無進行中訓練") {
+	if !strings.Contains(renderOverview(m), "無進行中") {
 		t.Errorf("expected idle-training hint")
+	}
+}
+
+func TestOverviewShowsFrontier(t *testing.T) {
+	m := testModel(t)
+	m.state.HasTraining = true
+	m.state.Training = model.TrainingJob{Gen: 5, WorkRemaining: 1000}
+	m.state.Servers = []model.Server{{Pool: model.PoolTraining, Compute: 200}}
+	m.state.Resources.RnD = 1e12
+	m.state.Progression.Frontier = model.FrontierProject{
+		Active: true, TargetGen: 6, AllocationPct: 40,
+		RnDTotal: 1000, RnDRemaining: 400,
+		WorkTotal: 1000, WorkRemaining: 250,
+		RecommendedCompute: 100,
+	}
+	v := renderOverview(m)
+	for _, want := range []string{
+		"訓練 Gen5", "前沿 Gen6", "分配 前沿40%", "訓練60%",
+		"有效", "折合", "建議", "ETA", "R&D 進度",
+	} {
+		if !strings.Contains(v, want) {
+			t.Errorf("overview frontier missing %q:\n%s", want, v)
+		}
+	}
+}
+
+func TestOverviewFrontierStallNoToast(t *testing.T) {
+	m := testModel(t)
+	m.state.Progression.Frontier = model.FrontierProject{
+		Active: true, TargetGen: 6, AllocationPct: 100,
+		RnDTotal: 100, RnDRemaining: 100,
+		WorkTotal: 100, WorkRemaining: 100,
+		RecommendedCompute: 50,
+	}
+	m.state.Resources.RnD = 0
+	m.state.Servers = []model.Server{{Pool: model.PoolTraining, Compute: 100}}
+	// Stall appears in card + pressures, not as a notice toast.
+	v := renderOverview(m)
+	if !strings.Contains(v, "停滯") || !strings.Contains(v, "R&D 不足") {
+		t.Fatalf("expected stall copy in card:\n%s", v)
+	}
+	if m.notice != "" {
+		t.Fatalf("render must not set notice toast, got %q", m.notice)
+	}
+	joined := strings.Join(pressures(m), "\n")
+	if !strings.Contains(joined, "前沿研究停滯") {
+		t.Fatalf("expected persistent pressure line:\n%s", joined)
 	}
 }
 
