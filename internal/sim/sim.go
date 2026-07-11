@@ -124,7 +124,26 @@ func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Co
 	}
 	ns.Resources.Cash -= serverPower * b.ElectricityPerKWSec * ee.PowerCostMult * dt
 	ns.Resources.Cash -= (totalSalaryPerSec(ns, b) + starSalaryPerSec(ns, b)) * dt
-	ns = advanceTraining(ns, dt, b)
+
+	// Shared training pool: compute once, split by frontier allocation.
+	// Idle shares (no frontier / no training) stay idle — never auto-redirected.
+	trainEff := effectiveTraining(ns, b)
+	frontierAlloc, modelAlloc := trainEff, trainEff
+	if ns.Progression.Frontier.Active {
+		pct := ns.Progression.Frontier.AllocationPct
+		if pct < 0 {
+			pct = 0
+		}
+		if pct > 100 {
+			pct = 100
+		}
+		frontierAlloc = trainEff * float64(pct) / 100
+		modelAlloc = trainEff * float64(100-pct) / 100
+	} else {
+		frontierAlloc = 0
+	}
+	ns = advanceFrontierProject(ns, dt, frontierAlloc)
+	ns = advanceTraining(ns, dt, modelAlloc, b)
 	ns = advanceCompetitors(ns, dt, b)
 	ns = advanceUsers(ns, dt, b)
 	ns = advanceServing(ns, dt, b)
@@ -166,13 +185,14 @@ func effectiveInference(ns model.GameState, b balance.Config) float64 {
 	return c * infraEfficiency(ns, b) * techEffects(ns, b).InfraMult * starEffects(ns, b).InfraMult
 }
 
-// advanceTraining progresses the in-progress training job by dt and appends
-// the completed model as a draft. Pure: clones Models before appending.
-func advanceTraining(ns model.GameState, dt float64, b balance.Config) model.GameState {
+// advanceTraining progresses the in-progress training job by dt using the
+// model-training share of the training pool, then appends the completed model
+// as a draft. Pure: clones Models before appending.
+func advanceTraining(ns model.GameState, dt, allocated float64, b balance.Config) model.GameState {
 	if !ns.HasTraining {
 		return ns
 	}
-	ns.Training.WorkRemaining -= effectiveTraining(ns, b) * dt
+	ns.Training.WorkRemaining -= allocated * dt
 	if ns.Training.WorkRemaining > 0 {
 		return ns
 	}
