@@ -87,7 +87,8 @@ type Model struct {
 	consumed       map[string]model.SourceTotals // per-source ledger tokens already applied
 	lastRealUnix   int64
 	metaMissing    bool
-	offlineSummary *Summary // shown as a banner until dismissed by any key
+	offlineSummary *Summary  // shown as a banner until dismissed by any key
+	offlineReports []string // 離線期間新增的董事會報告行（最多 4）
 	// tokensThisTick is true only on the tick that just harvested new tokens
 	// (drives the pulse restart). lastTokenRnD is the per-source R&D delta from
 	// that tick, kept (not cleared) across the pulse-decay window so the status
@@ -249,6 +250,7 @@ func (m Model) startup(now int64) Model {
 	// meta write lost). Arm the campaign clock at now and skip replay so
 	// rivals/holds/reports are not double-applied.
 	var advanced int
+	preCampaign := m.state
 	if m.state.Campaign.Doctrine != model.DoctrineNone && m.state.Campaign.Cycle > m.lastCampaignCycle {
 		m.lastCampaignUnix = now
 		m.lastCampaignCycle = m.state.Campaign.Cycle
@@ -256,6 +258,12 @@ func (m Model) startup(now int64) Model {
 		m, advanced = m.advanceCampaignTo(now)
 	}
 	if advanced > 0 {
+		for _, e := range newReportEntries(preCampaign, m.state) {
+			if len(m.offlineReports) >= 4 {
+				break
+			}
+			m.offlineReports = append(m.offlineReports, formatReportEntry(e))
+		}
 		if m.offlineSummary == nil {
 			m.offlineSummary = &Summary{}
 		}
@@ -505,6 +513,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			return m, nil
 		}
 		m.offlineSummary = nil // any key dismisses the transient banners
+		m.offlineReports = nil
 		m.notice = ""
 
 		// Scroll routing (no dialog): PgUp/Dn always; ↑↓/j/k only on browse pages.
@@ -953,7 +962,7 @@ func (m Model) chromeRows() int {
 	n := 2 // rounded border top+bottom
 	n++    // header
 	if m.offlineSummary != nil {
-		n++
+		n += lipgloss.Height(renderOfflineReport(m))
 	}
 	if m.notice != "" {
 		n++
@@ -1315,7 +1324,7 @@ func (m Model) View() string {
 	day := int(m.state.GameTime / 86400)
 	top = append(top, styleTitle.Render(fmt.Sprintf("Tokensmith  ·  Day %d", day)))
 	if m.offlineSummary != nil {
-		top = append(top, offlineBanner(*m.offlineSummary))
+		top = append(top, renderOfflineReport(m))
 	}
 	if m.notice != "" {
 		notice := m.notice
@@ -1342,25 +1351,29 @@ func (m Model) View() string {
 	return boxStyle.Render(VStack(append(top, mid, bot)...))
 }
 
-// offlineBanner summarises what happened while the game was closed.
-func offlineBanner(s Summary) string {
-	msg := fmt.Sprintf("💤 離開 %.1fh，寫了 %d tokens → +%s R&D",
-		s.SecondsSettled/3600, s.TokensIn+s.TokensOut, human(s.RnDGained))
+// renderOfflineReport summarises what happened while the game was closed.
+func renderOfflineReport(m Model) string {
+	s := *m.offlineSummary
+	lines := []string{fmt.Sprintf("💤 離開 %.1fh · 寫了 %d tokens → +%s R&D",
+		s.SecondsSettled/3600, s.TokensIn+s.TokensOut, human(s.RnDGained))}
 	if s.TrainingCompleted {
-		msg += " · 訓練完成 ✓"
+		lines = append(lines, styleGain.Render("🧪 訓練完成 ✓"))
 	}
 	if s.EventsFired > 0 {
-		msg += fmt.Sprintf(" · 產業事件 %d 起", s.EventsFired)
+		ev := fmt.Sprintf("📰 產業事件 %d 起", s.EventsFired)
 		if s.EventsAutoResolved > 0 {
-			msg += fmt.Sprintf("（%d 起已自動決議）", s.EventsAutoResolved)
+			ev += fmt.Sprintf("（%d 起已自動決議）", s.EventsAutoResolved)
 		}
+		lines = append(lines, ev)
 	} else if s.EventsAutoResolved > 0 {
-		msg += fmt.Sprintf(" · %d 起待決事件已自動決議", s.EventsAutoResolved)
+		lines = append(lines, fmt.Sprintf("📰 %d 起待決事件已自動決議", s.EventsAutoResolved))
 	}
 	if s.CampaignCycles > 0 {
-		msg += fmt.Sprintf(" · 董事會週期 %d 次", s.CampaignCycles)
+		lines = append(lines, fmt.Sprintf("🏛 董事會週期 %d 次", s.CampaignCycles))
 	}
-	return tabActiveStyle.Render(msg) + helpStyle.Render("  （按任意鍵關閉）")
+	lines = append(lines, m.offlineReports...)
+	lines = append(lines, styleMuted.Render("按任意鍵關閉"))
+	return CardIn(CardAccent, 0, "離線戰報", VStack(lines...))
 }
 
 func visualIndices(models []model.Model) []int {

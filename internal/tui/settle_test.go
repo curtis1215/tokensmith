@@ -78,7 +78,9 @@ func TestNewAtSeedsRandState(t *testing.T) {
 }
 
 func TestOfflineBannerAutoResolvedOnly(t *testing.T) {
-	out := offlineBanner(Summary{EventsAutoResolved: 2, SecondsSettled: 3600})
+	m := testModel(t)
+	m.offlineSummary = &Summary{EventsAutoResolved: 2, SecondsSettled: 3600}
+	out := renderOfflineReport(m)
 	if !strings.Contains(out, "自動決議") {
 		t.Fatalf("expected auto-resolve line when EventsFired==0, got %q", out)
 	}

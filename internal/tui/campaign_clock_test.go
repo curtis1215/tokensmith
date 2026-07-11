@@ -50,7 +50,9 @@ func TestAdvanceCampaignToDoesNothingBeforeDoctrine(t *testing.T) {
 }
 
 func TestOfflineBannerCampaignCycles(t *testing.T) {
-	out := offlineBanner(Summary{SecondsSettled: 3600, CampaignCycles: 2})
+	m := testModel(t)
+	m.offlineSummary = &Summary{SecondsSettled: 3600, CampaignCycles: 2}
+	out := renderOfflineReport(m)
 	if !strings.Contains(out, "董事會週期 2 次") {
 		t.Fatalf("expected campaign cycle count in banner, got %q", out)
 	}

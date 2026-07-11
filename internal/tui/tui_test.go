@@ -273,3 +273,31 @@ func TestTechUnlockShowsName(t *testing.T) {
 		t.Fatalf("tech unlock should set notice, got %q", m.notice)
 	}
 }
+
+func TestOfflineReportCardRenders(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	m.offlineSummary = &Summary{
+		SecondsSettled:    7200,
+		TokensIn:          1000,
+		TokensOut:         2000,
+		RnDGained:         500,
+		TrainingCompleted: true,
+		CampaignCycles:    2,
+	}
+	m.offlineReports = []string{"· 宿敵行動 OpenAI · OpenAI 消費旗艦"}
+	out := renderOfflineReport(m)
+	for _, want := range []string{"離線戰報", "2.0h", "訓練完成", "董事會週期 2 次", "宿敵行動"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("offline report missing %q: %q", want, out)
+		}
+	}
+	// View 顯示且任意鍵清除
+	if v := m.View(); !strings.Contains(v, "離線戰報") {
+		t.Fatal("View should embed offline report")
+	}
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	m = mm.(Model)
+	if m.offlineSummary != nil || m.offlineReports != nil {
+		t.Fatal("any key should clear offline report")
+	}
+}
