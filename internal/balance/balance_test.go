@@ -48,6 +48,17 @@ func TestDefaultGenAndTrainValues(t *testing.T) {
 	if c.TrainRentPerGPUSec != 0.01 {
 		t.Errorf("TrainRentPerGPUSec = %v, want 0.01", c.TrainRentPerGPUSec)
 	}
+	// Catalog Gen1–5 training values must stay locked to the legacy arrays
+	// until Task 3 retires them.
+	for gen := 1; gen <= MaxGen; gen++ {
+		g, err := Generation(gen)
+		if err != nil {
+			t.Fatalf("Generation(%d): %v", gen, err)
+		}
+		if g.TrainRnD != c.GenRnDCost[gen] || g.TrainWork != c.GenTrainWorkGPUSec[gen] || g.QualityScale != c.GenQualityCap[gen] {
+			t.Errorf("catalog gen %d diverged from Default arrays: %+v", gen, g)
+		}
+	}
 }
 
 func TestDefaultUserRevenueValues(t *testing.T) {

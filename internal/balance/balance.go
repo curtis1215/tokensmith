@@ -8,7 +8,10 @@ import (
 	"tokensmith/internal/model"
 )
 
-// MaxGen is the highest model generation modelled in v0.
+// MaxGen is the highest model generation still backed by the legacy fixed
+// arrays on Config (GenRnDCost / GenTrainWorkGPUSec / GenQualityCap).
+// Long-run generations resolve through Generation() in generation.go;
+// Task 3 retires these arrays once training reads the catalog.
 const MaxGen = 5
 
 // EntryProcessID is the process available from the first day (no tech unlock).
