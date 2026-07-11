@@ -36,6 +36,11 @@ const ticksPerRealSec = 4
 // tickDT game-seconds).
 const gameSecPerRealSec = tickDT * float64(time.Second) / float64(tickInterval)
 
+const (
+	bannerShowTicks = 12 // 每條 Major 橫幅顯示 ~3s
+	maxBanners      = 8  // 佇列上限，超出丟最舊
+)
+
 type tickMsg time.Time
 
 func tick() tea.Cmd {
@@ -117,6 +122,21 @@ type Model struct {
 	prevRank       [model.NumSegments]int // 上次取樣名次（0 = 無資料）
 	lastRank       [model.NumSegments]int
 	rankTick       int
+	// Celebration feedback (TUI state, never persisted).
+	banners     []Moment
+	bannerTicks int
+	epic        *Moment
+}
+
+// pushBanner queues a Major banner, dropping the oldest beyond maxBanners.
+func (m *Model) pushBanner(mo Moment) {
+	if len(m.banners) >= maxBanners {
+		m.banners = m.banners[1:]
+	}
+	m.banners = append(m.banners, mo)
+	if len(m.banners) == 1 {
+		m.bannerTicks = bannerShowTicks
+	}
 }
 
 // New returns the game model wired to the real save/ledger/meta locations,
@@ -386,6 +406,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		if m.tokensThisTick {
 			m.updateStreak(now)
 		}
+		prevState := m.state
 		cfgTick := m.cfg
 		cfgTick.StreakMult = m.currentStreakMult()
 		if m.tokensThisTick {
@@ -406,6 +427,17 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		m, _ = m.advanceCampaignTo(now.Unix())
 		if m.state.Events.FiredCount > prevFired {
 			m.setNotice("📰 產業事件：" + latestEventName(m.state))
+		}
+		for _, mo := range detectMoments(prevState, m.state, m.cfg) {
+			switch mo.Level {
+			case LevelMinor:
+				m.setNotice(mo.Text)
+			case LevelMajor:
+				m.pushBanner(mo)
+			case LevelEpic:
+				mo := mo
+				m.epic = &mo
+			}
 		}
 		// Mechanism B: auto game-over + restart once debt passes the threshold.
 		// Active campaigns use FinancialDistressCycles instead; player recovers
@@ -918,6 +950,9 @@ func (m Model) chromeRows() int {
 	if m.notice != "" {
 		n++
 	}
+	if len(m.banners) > 0 {
+		n++
+	}
 	// campaignError outside an open dialog is shown as a banner line.
 	if m.campaignError != "" && m.doctrineDialog == nil && m.directiveDialog == nil && m.campaignEnd == nil {
 		n++
@@ -1269,6 +1304,9 @@ func (m Model) View() string {
 			notice = styleMuted.Render(notice)
 		}
 		top = append(top, notice)
+	}
+	if len(m.banners) > 0 {
+		top = append(top, styleGold.Bold(true).Render("★ "+m.banners[0].Text))
 	}
 	// Show campaignError as a shell banner when no campaign dialog is open
 	// (in-dialog errors render inside the modal). Tick must not clear it.

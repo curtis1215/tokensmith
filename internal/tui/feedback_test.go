@@ -2,6 +2,8 @@
 package tui
 
 import (
+	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -90,5 +92,37 @@ func TestDetectCounteredRivalAction(t *testing.T) {
 	got := detectMoments(prev, next, cfg)
 	if len(got) != 1 || !strings.Contains(got[0].Text, "反制奏效") {
 		t.Fatalf("countered action should celebrate the counter, got %+v", got)
+	}
+}
+
+func TestPushBannerCapsQueue(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	for i := 0; i < 10; i++ {
+		m.pushBanner(Moment{LevelMajor, fmt.Sprintf("b%d", i)})
+	}
+	if len(m.banners) != maxBanners {
+		t.Fatalf("queue len = %d, want %d", len(m.banners), maxBanners)
+	}
+	if m.banners[0].Text != "b2" {
+		t.Fatalf("oldest should be dropped, head = %q", m.banners[0].Text)
+	}
+}
+
+func TestBannerFadesAfterTicks(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	m.pushBanner(Moment{LevelMajor, "hello"})
+	for i := 0; i < bannerShowTicks; i++ {
+		m.advanceDisplay()
+	}
+	if len(m.banners) != 0 {
+		t.Fatalf("banner should fade after %d ticks, still %d queued", bannerShowTicks, len(m.banners))
+	}
+}
+
+func TestViewShowsBanner(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	m.pushBanner(Moment{LevelMajor, "🏁 里程碑達成"})
+	if out := m.View(); !strings.Contains(out, "里程碑達成") {
+		t.Fatalf("View should show banner: %q", out)
 	}
 }

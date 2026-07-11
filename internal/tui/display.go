@@ -150,6 +150,15 @@ func (m *Model) advanceDisplay() {
 		m.sparkUsers.push(m.disp.TotalUsers)
 		m.sparkRnD.push(sim.RnDRatePerSec(m.state, m.cfg) * gameSecPerRealSec)
 	}
+	if len(m.banners) > 0 {
+		m.bannerTicks--
+		if m.bannerTicks <= 0 {
+			m.banners = m.banners[1:]
+			if len(m.banners) > 0 {
+				m.bannerTicks = bannerShowTicks
+			}
+		}
+	}
 }
 
 // snapDisplay forces display to match truth (restart / prestige / load).
