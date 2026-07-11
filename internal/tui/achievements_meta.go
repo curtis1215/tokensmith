@@ -13,6 +13,24 @@ type achievement struct {
 	Check func(m Model) bool
 }
 
+// checkAchievements unlocks any newly satisfied achievements. Idempotent;
+// persistence rides the regular autosave/quit meta writes.
+func (m *Model) checkAchievements(nowUnix int64) {
+	for _, a := range achievementCatalog {
+		if _, done := m.achievements[a.ID]; done {
+			continue
+		}
+		if !a.Check(*m) {
+			continue
+		}
+		if m.achievements == nil {
+			m.achievements = make(map[string]int64)
+		}
+		m.achievements[a.ID] = nowUnix
+		m.pushBanner(Moment{Level: LevelMajor, Text: "🏆 成就解鎖：" + a.Name + "——" + a.Desc})
+	}
+}
+
 func maxTrainedGen(s model.GameState) int {
 	g := 0
 	for _, md := range s.Models {

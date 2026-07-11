@@ -2,6 +2,7 @@ package tui
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"tokensmith/internal/model"
@@ -52,5 +53,23 @@ func TestAchievementChecksFire(t *testing.T) {
 	}
 	if fired["gen-5"] || fired["streak-10"] || fired["ms-1t"] {
 		t.Fatalf("over-firing: %v", fired)
+	}
+}
+
+func TestCheckAchievementsUnlocksAndBanners(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	m.streakDays = 3
+	m.checkAchievements(1234)
+	if m.achievements["streak-3"] != 1234 {
+		t.Fatalf("streak-3 not unlocked: %+v", m.achievements)
+	}
+	if len(m.banners) == 0 || !strings.Contains(m.banners[0].Text, "成就解鎖") {
+		t.Fatalf("unlock should push banner: %+v", m.banners)
+	}
+	// 冪等：再跑一次不重複解鎖、不重複 banner
+	n := len(m.banners)
+	m.checkAchievements(9999)
+	if m.achievements["streak-3"] != 1234 || len(m.banners) != n {
+		t.Fatal("re-check must be idempotent")
 	}
 }

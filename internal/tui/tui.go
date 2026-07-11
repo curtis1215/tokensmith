@@ -471,6 +471,9 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		m.blink = !m.blink
 		m.advanceDisplay()
+		if m.sparkTick%8 == 0 {
+			m.checkAchievements(now.Unix())
+		}
 		m.ticksSinceSave++
 		if m.ticksSinceSave >= 40 {
 			m.ticksSinceSave = 0
