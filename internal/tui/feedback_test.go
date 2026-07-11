@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"tokensmith/internal/balance"
 	"tokensmith/internal/model"
 )
@@ -124,5 +126,19 @@ func TestViewShowsBanner(t *testing.T) {
 	m.pushBanner(Moment{LevelMajor, "🏁 里程碑達成"})
 	if out := m.View(); !strings.Contains(out, "里程碑達成") {
 		t.Fatalf("View should show banner: %q", out)
+	}
+}
+
+func TestEpicOverlayRendersAndDismisses(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	mo := Moment{LevelEpic, "🏆 路線勝利：消費者霸主！"}
+	m.epic = &mo
+	if out := m.View(); !strings.Contains(out, "路線勝利") {
+		t.Fatalf("epic overlay missing: %q", out)
+	}
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	m = mm.(Model)
+	if m.epic != nil {
+		t.Fatal("any key should dismiss epic overlay")
 	}
 }

@@ -468,6 +468,10 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		return m, tick()
 	case tea.KeyMsg:
+		if m.epic != nil {
+			m.epic = nil
+			return m, nil
+		}
 		// Campaign dialogs take priority over event/publish/train.
 		if m.doctrineDialog != nil {
 			return m.updateDoctrineDialog(msg)
@@ -966,6 +970,9 @@ func (m Model) chromeRows() int {
 
 // contentBody is the scrollable region: dialog or active page (no footer).
 func (m Model) contentBody() string {
+	if m.epic != nil {
+		return renderEpicOverlay(*m.epic, m)
+	}
 	// Campaign dialogs before event/publish/train.
 	if m.doctrineDialog != nil {
 		return renderDoctrineDialog(*m.doctrineDialog, m)
