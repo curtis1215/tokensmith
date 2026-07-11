@@ -250,3 +250,26 @@ func TestResourceBarShowsCashArrowAndStreak(t *testing.T) {
 		t.Fatalf("negative cashRate should show ▼: %q", bar)
 	}
 }
+
+func TestHireShowsSuccessNotice(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	m.state.Resources.Cash = 1e9
+	m.page = PageTeam
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	m = mm.(Model)
+	if !strings.Contains(m.notice, "已雇用研究員") {
+		t.Fatalf("hire should set success notice, got %q", m.notice)
+	}
+}
+
+func TestTechUnlockShowsName(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	m.state.Resources.RnD = 1e12
+	m.page = PageTech
+	m.techCursor = 0
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = mm.(Model)
+	if !strings.Contains(m.notice, "已解鎖") {
+		t.Fatalf("tech unlock should set notice, got %q", m.notice)
+	}
+}

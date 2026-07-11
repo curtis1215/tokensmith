@@ -573,6 +573,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 				switch {
 				case err == nil:
 					m.state = ns
+					m.setNotice("🔬 已解鎖：" + techLabel(node.ID).Name)
 				case errors.Is(err, sim.ErrInsufficientRnD):
 					m.setNotice("R&D 不足")
 				case errors.Is(err, sim.ErrAlreadyUnlocked):
@@ -688,7 +689,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 				if key == "R" || key == "I" {
 					d = -1
 				}
-				m.state = applyOK(m.state, model.RentCompute{Process: p.ID, Pool: pool, Delta: d}, m.cfg)
+				m.applyNotice(model.RentCompute{Process: p.ID, Pool: pool, Delta: d}, "")
 			}
 			return m, nil
 		case "b", "B":
@@ -697,7 +698,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 				if msg.String() == "B" {
 					pool = model.PoolInference
 				}
-				m.state = applyOK(m.state, model.BuildServer{Process: m.cfg.Processes[m.procCursor].ID, Pool: pool}, m.cfg)
+				m.applyNotice(model.BuildServer{Process: m.cfg.Processes[m.procCursor].ID, Pool: pool}, "🏗 伺服器建造完成")
 			}
 			return m, nil
 		case "e":
@@ -708,30 +709,30 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 					m.setNotice("目前沒有待決事件")
 				}
 			} else if m.page == PageCompute {
-				m.state = applyOK(m.state, model.ExpandDatacenter{PowerDelta: 100, SlotDelta: 5}, m.cfg)
+				m.applyNotice(model.ExpandDatacenter{PowerDelta: 100, SlotDelta: 5}, "🏗 機房擴建完成")
 			} else if m.page == PageTeam {
-				m.state = applyOK(m.state, model.HireStaff{Role: model.RoleEngineer, Count: 1}, m.cfg)
+				m.applyNotice(model.HireStaff{Role: model.RoleEngineer, Count: 1}, "🤝 已雇用工程師")
 			}
 			return m, nil
 		case "h":
 			if m.page == PageTeam {
-				m.state = applyOK(m.state, model.HireStaff{Role: model.RoleResearcher, Tier: model.Tier1, Count: 1}, m.cfg)
+				m.applyNotice(model.HireStaff{Role: model.RoleResearcher, Tier: model.Tier1, Count: 1}, "🤝 已雇用研究員")
 			}
 			return m, nil
 		case "o":
 			if m.page == PageTeam {
-				m.state = applyOK(m.state, model.HireStaff{Role: model.RoleOps, Count: 1}, m.cfg)
+				m.applyNotice(model.HireStaff{Role: model.RoleOps, Count: 1}, "🤝 已雇用營運")
 			}
 			return m, nil
 		case "k":
 			if m.page == PageTeam {
-				m.state = applyOK(m.state, model.HireStaff{Role: model.RoleMarketing, Count: 1}, m.cfg)
+				m.applyNotice(model.HireStaff{Role: model.RoleMarketing, Count: 1}, "🤝 已雇用行銷")
 			}
 			return m, nil
 		case "s":
 			if m.page == PageTeam {
 				if id := firstUnhiredStar(m); id != "" {
-					m.state = applyOK(m.state, model.SignStar{StarID: id}, m.cfg)
+					m.applyNotice(model.SignStar{StarID: id}, "🌟 已簽下明星員工")
 				}
 			}
 			return m, nil
@@ -749,7 +750,7 @@ func (m Model) updateDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	if confirm {
-		m.state = applyOK(m.state, d.command(m.cfg), m.cfg)
+		m.applyNotice(d.command(m.cfg), "🚂 訓練已啟動")
 		m.dialog = nil
 		return m, nil
 	}
@@ -802,6 +803,7 @@ func (m Model) updateEventDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
 		switch {
 		case err == nil:
 			m.state = ns
+			m.setNotice("✓ 事件已決議")
 		case errors.Is(err, sim.ErrInsufficientCash):
 			m.setNotice("現金不足，付不起這個選項")
 			m.event = &d
@@ -1083,6 +1085,19 @@ func applyOK(s model.GameState, cmd model.Command, b balance.Config) model.GameS
 		return ns
 	}
 	return s
+}
+
+// applyNotice applies cmd; on success shows okMsg (empty = silent success).
+// Rejected commands stay silent no-ops, same as applyOK.
+func (m *Model) applyNotice(cmd model.Command, okMsg string) {
+	ns, err := sim.Apply(m.state, cmd, m.cfg)
+	if err != nil {
+		return
+	}
+	m.state = ns
+	if okMsg != "" {
+		m.setNotice(okMsg)
+	}
 }
 
 // human formats large numbers compactly (e.g. 1.84M, 340k).
