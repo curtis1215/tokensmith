@@ -43,3 +43,36 @@ func TestCardBackwardCompatible(t *testing.T) {
 		t.Fatal("Card must delegate to CardIn(CardDefault, 0, ...)")
 	}
 }
+
+func TestBarWidthAndChars(t *testing.T) {
+	for _, frac := range []float64{-0.5, 0, 0.33, 0.5, 1, 1.7} {
+		got := Bar(frac, 10)
+		if lipgloss.Width(got) != 10 {
+			t.Fatalf("Bar(%v) width = %d, want 10", frac, lipgloss.Width(got))
+		}
+	}
+	if !strings.Contains(Bar(1, 4), "████") {
+		t.Fatalf("full bar should be solid blocks: %q", Bar(1, 4))
+	}
+	if !strings.Contains(Bar(0, 4), "░░░░") {
+		t.Fatalf("empty bar should be all shade: %q", Bar(0, 4))
+	}
+}
+
+func TestLoadColorThresholds(t *testing.T) {
+	if loadColor(0.5) != colorCyan {
+		t.Fatal("0.5 should be cyan")
+	}
+	if loadColor(0.75) != colorAmber {
+		t.Fatal("0.75 should be amber")
+	}
+	if loadColor(0.95) != colorLoss {
+		t.Fatal("0.95 should be red")
+	}
+}
+
+func TestFilledCellsClamps(t *testing.T) {
+	if filledCells(-1, 10) != 0 || filledCells(2, 10) != 10 {
+		t.Fatal("filledCells must clamp frac to [0,1]")
+	}
+}

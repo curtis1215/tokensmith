@@ -74,9 +74,9 @@ func KV(label, value string) string {
 	return label + ": " + value
 }
 
-// Bar renders a progress bar of a given width for a fraction.
+// Bar renders the default cyan→purple gradient progress bar.
 func Bar(frac float64, width int) string {
-	return progressBar(frac, width)
+	return gradientBar(frac, width, "#00D7FF", "#B48CFF")
 }
 
 // Footer renders a unified page-level footer.
@@ -116,14 +116,4 @@ func TruncateWidth(s string, max int) string {
 	return ""
 }
 
-// progressBar renders a fixed-width ▓/░ bar for frac in [0,1].
-func progressBar(frac float64, width int) string {
-	if frac < 0 {
-		frac = 0
-	}
-	if frac > 1 {
-		frac = 1
-	}
-	n := int(frac * float64(width))
-	return strings.Repeat("▓", n) + strings.Repeat("░", width-n)
-}
+

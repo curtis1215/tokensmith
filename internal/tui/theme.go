@@ -1,7 +1,13 @@
 // internal/tui/theme.go
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 // HUD 調色盤 — 純 hex；lipgloss colorprofile 在低色數終端自動降級。
 var (
@@ -65,4 +71,61 @@ func CardIn(kind CardKind, width int, title, body string) string {
 		st = st.Width(width - 2) // Style.Width 是內容寬；左右邊框各 +1
 	}
 	return st.Render(cardTitleStyle(kind).Render(title) + "\n" + body)
+}
+
+// filledCells clamps frac to [0,1] and returns the filled cell count.
+func filledCells(frac float64, width int) int {
+	if frac < 0 {
+		frac = 0
+	}
+	if frac > 1 {
+		frac = 1
+	}
+	return int(frac * float64(width))
+}
+
+func loadColor(frac float64) lipgloss.Color {
+	switch {
+	case frac >= 0.9:
+		return colorLoss
+	case frac >= 0.7:
+		return colorAmber
+	default:
+		return colorCyan
+	}
+}
+
+// lerpHex linearly interpolates two #RRGGBB colors.
+func lerpHex(a, b string, t float64) string {
+	pa, _ := strconv.ParseUint(strings.TrimPrefix(a, "#"), 16, 32)
+	pb, _ := strconv.ParseUint(strings.TrimPrefix(b, "#"), 16, 32)
+	c := func(x, y uint64) uint64 { return uint64(float64(x) + t*(float64(y)-float64(x))) }
+	return fmt.Sprintf("#%02X%02X%02X",
+		c(pa>>16&0xFF, pb>>16&0xFF), c(pa>>8&0xFF, pb>>8&0xFF), c(pa&0xFF, pb&0xFF))
+}
+
+func gradientBar(frac float64, width int, from, to string) string {
+	n := filledCells(frac, width)
+	var sb strings.Builder
+	for i := 0; i < n; i++ {
+		t := 0.0
+		if width > 1 {
+			t = float64(i) / float64(width-1)
+		}
+		sb.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(lerpHex(from, to, t))).Render("█"))
+	}
+	sb.WriteString(styleMuted.Render(strings.Repeat("░", width-n)))
+	return sb.String()
+}
+
+// LoadBar colors by utilisation thresholds (<0.7 cyan, <0.9 amber, else red).
+func LoadBar(frac float64, width int) string {
+	n := filledCells(frac, width)
+	return lipgloss.NewStyle().Foreground(loadColor(frac)).Render(strings.Repeat("█", n)) +
+		styleMuted.Render(strings.Repeat("░", width-n))
+}
+
+// GoldBar is the milestone / achievement bar.
+func GoldBar(frac float64, width int) string {
+	return gradientBar(frac, width, "#FFD75F", "#FFB86C")
 }

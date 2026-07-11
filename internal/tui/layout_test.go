@@ -73,7 +73,7 @@ func TestKV(t *testing.T) {
 
 func TestBar(t *testing.T) {
 	s := Bar(0.5, 10)
-	if !strings.Contains(s, "▓") || !strings.Contains(s, "░") {
+	if !strings.Contains(s, "█") || !strings.Contains(s, "░") {
 		t.Fatalf("Bar missing content: %q", s)
 	}
 }
