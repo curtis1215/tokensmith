@@ -100,7 +100,7 @@ func TestDetectCounteredRivalAction(t *testing.T) {
 func TestPushBannerCapsQueue(t *testing.T) {
 	m := newAt(filepath.Join(t.TempDir(), "save.json"))
 	for i := 0; i < 10; i++ {
-		m.pushBanner(Moment{LevelMajor, fmt.Sprintf("b%d", i)})
+		m.pushBanner(Moment{Level: LevelMajor, Text: fmt.Sprintf("b%d", i)})
 	}
 	if len(m.banners) != maxBanners {
 		t.Fatalf("queue len = %d, want %d", len(m.banners), maxBanners)
@@ -112,7 +112,7 @@ func TestPushBannerCapsQueue(t *testing.T) {
 
 func TestBannerFadesAfterTicks(t *testing.T) {
 	m := newAt(filepath.Join(t.TempDir(), "save.json"))
-	m.pushBanner(Moment{LevelMajor, "hello"})
+	m.pushBanner(Moment{Level: LevelMajor, Text: "hello"})
 	for i := 0; i < bannerShowTicks; i++ {
 		m.advanceDisplay()
 	}
@@ -123,7 +123,7 @@ func TestBannerFadesAfterTicks(t *testing.T) {
 
 func TestViewShowsBanner(t *testing.T) {
 	m := newAt(filepath.Join(t.TempDir(), "save.json"))
-	m.pushBanner(Moment{LevelMajor, "🏁 里程碑達成"})
+	m.pushBanner(Moment{Level: LevelMajor, Text: "🏁 里程碑達成"})
 	if out := m.View(); !strings.Contains(out, "里程碑達成") {
 		t.Fatalf("View should show banner: %q", out)
 	}
@@ -131,7 +131,7 @@ func TestViewShowsBanner(t *testing.T) {
 
 func TestEpicOverlayRendersAndDismisses(t *testing.T) {
 	m := newAt(filepath.Join(t.TempDir(), "save.json"))
-	mo := Moment{LevelEpic, "🏆 路線勝利：消費者霸主！"}
+	mo := Moment{Level: LevelEpic, Text: "🏆 路線勝利：消費者霸主！"}
 	m.epic = &mo
 	if out := m.View(); !strings.Contains(out, "路線勝利") {
 		t.Fatalf("epic overlay missing: %q", out)

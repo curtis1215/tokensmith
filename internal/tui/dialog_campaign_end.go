@@ -2,12 +2,50 @@ package tui
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"tokensmith/internal/model"
 )
+
+const trophyArt = `   ___________
+  '._==_==_=_.'
+  .-\:      /-.
+ | (|:.     |) |
+  '-|:.     |-'
+    \::.    /
+     '::. .'
+       ) (
+     _.' '._
+    '-------'`
+
+func legacyChoiceDesc(leg model.LegacyChoice) string {
+	switch leg.Kind {
+	case model.LegacySecondary:
+		return "帶著副戰略與其\n一階能力開新局"
+	case model.LegacyIntel:
+		return "下一局宿敵行動\n情報全開"
+	case model.LegacyTech:
+		return "帶一項已解鎖科技\n開局（再選一項）"
+	default:
+		return ""
+	}
+}
+
+func legacyShortLabel(leg model.LegacyChoice) string {
+	switch leg.Kind {
+	case model.LegacySecondary:
+		return "副戰略"
+	case model.LegacyIntel:
+		return "宿敵完整情報"
+	case model.LegacyTech:
+		return "起始科技"
+	default:
+		return string(leg.Kind)
+	}
+}
 
 type campaignEndMode int
 
@@ -162,9 +200,7 @@ func renderCampaignEndDialog(d campaignEndDialog, m Model) string {
 		return Card("策略退出", b.String())
 	}
 
-	title := "路線勝利結算"
 	if d.choosingTech {
-		title = "選擇帶入科技"
 		b.WriteString("選擇一項已解鎖科技帶入下一局。\n\n")
 		for i, id := range d.techOptions {
 			marker := "  "
@@ -179,32 +215,48 @@ func renderCampaignEndDialog(d campaignEndDialog, m Model) string {
 			b.WriteString("\n" + styleWarn.Render(m.campaignError) + "\n")
 		}
 		b.WriteString("\n" + helpStyle.Render("[↑↓]選擇 [Enter]確認 [Esc]返回"))
-		return Card(title, b.String())
+		return Card("選擇帶入科技", b.String())
 	}
 
-	b.WriteString("選擇 Legacy 帶入下一局，或繼續本局無盡模式。\n\n")
-	for i, leg := range d.options {
-		marker := "  "
-		line := fmt.Sprintf("[%d] %s", i+1, legacyChoiceLabel(leg))
-		if d.cursor == i {
-			marker = "▸ "
-			line = styleAccent.Render(line)
-		}
-		b.WriteString(marker + line + "\n")
+	day := int(m.state.GameTime / 86400)
+	patents := int(math.Floor(math.Sqrt(m.state.PeakValuation / m.cfg.PatentK)))
+	var badges []string
+	for _, doc := range m.state.Prestige.RouteBadges {
+		badges = append(badges, doctrineLabel(doc))
 	}
-	// Continue row.
+	badges = append(badges, doctrineLabel(m.state.Campaign.Victory)+"（本局）")
+	recap := VStack(
+		styleGold.Render(trophyArt),
+		"",
+		KV("本局天數", fmt.Sprintf("%d", day)),
+		KV("峰值估值", "$"+human(m.state.PeakValuation)),
+		KV("結算專利", fmt.Sprintf("+%d", patents)),
+		KV("路線徽章", strings.Join(badges, "、")),
+		"",
+		"選擇 Legacy 帶入下一局，或繼續本局無盡模式。",
+	)
+	var cards []string
+	for i, leg := range d.options {
+		kind := CardDefault
+		if d.cursor == i {
+			kind = CardAccent
+		}
+		cards = append(cards, CardIn(kind, 26,
+			fmt.Sprintf("[%d] %s", i+1, legacyShortLabel(leg)), legacyChoiceDesc(leg)))
+	}
+	row := HRow(1, cards...)
 	contMarker := "  "
 	contLine := fmt.Sprintf("[%d] 繼續本局（無盡模式）", len(d.options)+1)
 	if d.cursor == len(d.options) {
 		contMarker = "▸ "
 		contLine = styleAccent.Render(contLine)
 	}
-	b.WriteString(contMarker + contLine + "\n")
+	body := VStack(recap, row, contMarker+contLine)
 	if m.campaignError != "" {
-		b.WriteString("\n" + styleWarn.Render(m.campaignError) + "\n")
+		body = VStack(body, styleWarn.Render(m.campaignError))
 	}
-	b.WriteString("\n" + helpStyle.Render("[↑↓]選擇 [Enter]確認 [Esc]取消"))
-	return Card(title, b.String())
+	body = VStack(body, "", helpStyle.Render("[↑↓]選擇 [Enter]確認 [Esc]取消"))
+	return CardIn(CardGold, 0, "🏆 路線勝利結算", body)
 }
 
 func legacyChoiceLabel(leg model.LegacyChoice) string {

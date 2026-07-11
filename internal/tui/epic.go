@@ -12,7 +12,11 @@ func renderEpicOverlay(mo Moment, m Model) string {
 		styleMuted.Render("按任意鍵繼續"),
 		"",
 	)
-	card := CardIn(CardGold, 0, "🏆 榮耀時刻", inner)
+	title := mo.Title
+	if title == "" {
+		title = "🏆 榮耀時刻"
+	}
+	card := CardIn(CardGold, 0, title, inner)
 	h := m.vp.Height
 	if h < lipgloss.Height(card) {
 		h = lipgloss.Height(card)

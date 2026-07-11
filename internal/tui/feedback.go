@@ -17,10 +17,12 @@ const (
 	LevelEpic                     // 全螢幕 overlay
 )
 
-// Moment is a detected feedback-worthy game event.
+// Moment is a detected feedback-worthy game event. Title is only used by the
+// Epic overlay; empty falls back to the default celebration title.
 type Moment struct {
 	Level MomentLevel
 	Text  string
+	Title string
 }
 
 // detectMoments compares pre/post-tick states and returns feedback moments.
@@ -29,12 +31,12 @@ func detectMoments(prev, next model.GameState, cfg balance.Config) []Moment {
 	var out []Moment
 	if prev.HasTraining && !next.HasTraining && len(next.Models) > len(prev.Models) {
 		md := next.Models[len(next.Models)-1]
-		out = append(out, Moment{LevelMajor,
-			fmt.Sprintf("🧪 Gen%d 訓練完成！草稿已就緒——模型頁按 p 發佈", md.Gen)})
+		out = append(out, Moment{Level: LevelMajor,
+			Text: fmt.Sprintf("🧪 Gen%d 訓練完成！草稿已就緒——模型頁按 p 發佈", md.Gen)})
 	}
 	for i := prev.MilestonesReached; i < next.MilestonesReached && i < len(cfg.ValuationMilestones); i++ {
-		out = append(out, Moment{LevelMajor,
-			fmt.Sprintf("🏁 里程碑達成：估值 $%s！", human(cfg.ValuationMilestones[i]))})
+		out = append(out, Moment{Level: LevelMajor,
+			Text: fmt.Sprintf("🏁 里程碑達成：估值 $%s！", human(cfg.ValuationMilestones[i]))})
 	}
 	for _, e := range newReportEntries(prev, next) {
 		if mo, ok := reportMoment(e); ok {
@@ -47,18 +49,18 @@ func detectMoments(prev, next model.GameState, cfg balance.Config) []Moment {
 func reportMoment(e model.CampaignReportEntry) (Moment, bool) {
 	switch e.Kind {
 	case model.ReportStageAdvanced:
-		return Moment{LevelMajor, "📈 階段推進：" + campaignStageLabel(model.CampaignStage(e.SubjectID))}, true
+		return Moment{Level: LevelMajor, Text: "📈 階段推進：" + campaignStageLabel(model.CampaignStage(e.SubjectID))}, true
 	case model.ReportShowdown:
-		return Moment{LevelMajor, "⚔ 決勝開始！頂住主要宿敵 2 次攻勢即可奪下路線"}, true
+		return Moment{Level: LevelMajor, Text: "⚔ 決勝開始！頂住主要宿敵 2 次攻勢即可奪下路線"}, true
 	case model.ReportVictory:
-		return Moment{LevelEpic, "🏆 路線勝利：" + doctrineLabel(model.Doctrine(e.SubjectID)) + "！總覽頁按 P 結算"}, true
+		return Moment{Level: LevelEpic, Text: "🏆 路線勝利：" + doctrineLabel(model.Doctrine(e.SubjectID)) + "！總覽頁按 P 結算"}, true
 	case model.ReportRivalAction:
 		if e.Countered {
-			return Moment{LevelMajor, "🛡 反制奏效：" + rivalActionLabel(e.DetailID) + " 衝擊減半！"}, true
+			return Moment{Level: LevelMajor, Text: "🛡 反制奏效：" + rivalActionLabel(e.DetailID) + " 衝擊減半！"}, true
 		}
-		return Moment{LevelMajor, "🚨 宿敵行動：" + rivalActionLabel(e.DetailID)}, true
+		return Moment{Level: LevelMajor, Text: "🚨 宿敵行動：" + rivalActionLabel(e.DetailID)}, true
 	case model.ReportFinancialRisk:
-		return Moment{LevelMajor, "🩸 財務風險：現金為負——董事會已提高關注"}, true
+		return Moment{Level: LevelMajor, Text: "🩸 財務風險：現金為負——董事會已提高關注"}, true
 	}
 	return Moment{}, false
 }
