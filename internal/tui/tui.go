@@ -114,6 +114,9 @@ type Model struct {
 	sparkRnD       spark
 	sparkTick      int
 	cashRate       float64 // smoothed display cash delta, $/real-second
+	prevRank       [model.NumSegments]int // 上次取樣名次（0 = 無資料）
+	lastRank       [model.NumSegments]int
+	rankTick       int
 }
 
 // New returns the game model wired to the real save/ledger/meta locations,
@@ -412,6 +415,15 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			m.state = sim.Restart(m.state, m.cfg)
 			m.setNotice("💥 破產！公司已重整重來")
 			m.snapDisplay()
+		}
+		m.rankTick++
+		if m.rankTick >= 240 { // 每 60 實秒輪替一次名次快照
+			m.rankTick = 0
+			for seg := 0; seg < model.NumSegments; seg++ {
+				r, _ := sim.MarketRank(m.state, m.cfg, model.Segment(seg))
+				m.prevRank[seg] = m.lastRank[seg]
+				m.lastRank[seg] = r
+			}
 		}
 		m.advanceDisplay()
 		m.ticksSinceSave++

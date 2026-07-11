@@ -101,7 +101,11 @@ func shareCard(m Model, w int) string {
 		if len([]rune(name)) > 10 {
 			namePadding = ""
 		}
-		shareLines = append(shareLines, fmt.Sprintf("%s %s%s %s %.0f%%", star, name, namePadding, Bar(share, 10), share*100))
+		line := fmt.Sprintf("%s %s%s %s %.0f%%", star, name, namePadding, Bar(share, 10), share*100)
+		if bRow.You {
+			line = youRowStyle(line)
+		}
+		shareLines = append(shareLines, line)
 	}
 	return CardIn(CardDefault, w, "市佔 (消費者)", VStack(shareLines...))
 }

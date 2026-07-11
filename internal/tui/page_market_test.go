@@ -1,8 +1,11 @@
 package tui
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 
 	"tokensmith/internal/model"
 )
@@ -33,5 +36,30 @@ func TestMarketSegmentUsers(t *testing.T) {
 	// consumer(1000) is the biggest scale → 大; enterprise(500) smallest → 小
 	if marketSizeLabel(m.cfg, model.SegConsumer) != "大" || marketSizeLabel(m.cfg, model.SegEnterprise) != "小" {
 		t.Fatalf("market size labels wrong")
+	}
+}
+
+func TestRankArrow(t *testing.T) {
+	if rankArrow(0, 3) != "" {
+		t.Fatal("no history → no arrow")
+	}
+	if got := rankArrow(5, 3); !strings.Contains(got, "↑2") {
+		t.Fatalf("rank 5→3 should be ↑2: %q", got)
+	}
+	if got := rankArrow(3, 5); !strings.Contains(got, "↓2") {
+		t.Fatalf("rank 3→5 should be ↓2: %q", got)
+	}
+	if rankArrow(4, 4) != "" {
+		t.Fatal("same rank → no arrow")
+	}
+}
+
+func TestMarketHighlightsYouRow(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	mm, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 40})
+	m = mm.(Model)
+	out := renderMarket(m)
+	if !strings.Contains(out, "你") {
+		t.Fatalf("market should contain your row: %q", out)
 	}
 }
