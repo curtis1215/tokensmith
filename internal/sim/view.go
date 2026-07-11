@@ -13,6 +13,9 @@ func EffectiveTraining(ns model.GameState, b balance.Config) float64 {
 	return effectiveTraining(ns, b)
 }
 
+// Re-export frontier view helpers from this package surface for TUI consumers
+// that already import sim for view models. Implementations live in frontier.go.
+
 // EffectiveInference is the exported view of self-built + rented inference compute.
 func EffectiveInference(ns model.GameState, b balance.Config) float64 {
 	return effectiveInference(ns, b)

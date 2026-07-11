@@ -98,6 +98,9 @@ func Valuation(ns model.GameState, b balance.Config) float64 {
 func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Config) model.GameState {
 	ns := s
 	ns.GameTime += dt
+	// Online industry clock for time-frontier / rival league (independent of
+	// economy settlement; offline caps land in a later task).
+	ns.Progression.IndustryTime += dt
 	ns = advanceEvents(ns, b)
 	ee := eventEffects(ns, b)
 

@@ -140,6 +140,22 @@ func TestServableUsers(t *testing.T) {
 	}
 }
 
+func TestModelFrontierViewExported(t *testing.T) {
+	// Smoke: frontier helpers are part of the sim view surface.
+	b := balance.Default()
+	s := model.GameState{
+		Models: []model.Model{{Gen: 1, Online: true, Quality: [model.NumQualityDims]float64{10, 5, 5, 5}}},
+	}
+	v := ModelFrontierView(s, 0, b)
+	if !v.Active || v.AbsoluteQuality[model.DimCapability] != 10 {
+		t.Fatalf("ModelFrontierView: %+v", v)
+	}
+	gf := GlobalFrontier(s, b)
+	if gf[model.DimCapability] < 10 {
+		t.Fatalf("GlobalFrontier should include player: %v", gf)
+	}
+}
+
 func TestThreatLevelOrdering(t *testing.T) {
 	b := balance.Default()
 	// player best appeal in seg = appeal of 10
