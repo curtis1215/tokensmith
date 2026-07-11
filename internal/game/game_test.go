@@ -25,4 +25,10 @@ func TestNewGameSeed(t *testing.T) {
 	if len(s.Compute.RentedTraining) != 0 || len(s.Compute.RentedInference) != 0 {
 		t.Errorf("compute should start empty (rent on demand), got %+v", s.Compute)
 	}
+	if s.Progression.MaxUnlockedGen != 1 {
+		t.Errorf("MaxUnlockedGen = %d, want 1", s.Progression.MaxUnlockedGen)
+	}
+	if s.Progression.IndustryTime != 0 || s.Progression.Frontier.Active || len(s.Progression.Eras) != 0 {
+		t.Errorf("rest of Progression should be zero on new game: %+v", s.Progression)
+	}
 }

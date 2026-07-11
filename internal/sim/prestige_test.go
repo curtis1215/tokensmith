@@ -111,6 +111,50 @@ func TestFreshRun(t *testing.T) {
 	if !approx(ns.Resources.RnD, b.StartingRnD) { // start-cash-1 adds no R&D
 		t.Errorf("R&D not reseeded: %v, want %v", ns.Resources.RnD, b.StartingRnD)
 	}
+	if ns.Progression.MaxUnlockedGen != 1 {
+		t.Errorf("MaxUnlockedGen = %d, want 1", ns.Progression.MaxUnlockedGen)
+	}
+	if ns.Progression.IndustryTime != 0 || ns.Progression.Frontier.Active || len(ns.Progression.Eras) != 0 {
+		t.Errorf("rest of Progression should be zero on fresh run: %+v", ns.Progression)
+	}
+}
+
+func TestRestartClearsProgression(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.PeakValuation = 1e8
+	s.Events.RandState = 11
+	s.Campaign.RandState = 22
+	s.Progression = model.ProgressionState{
+		MaxUnlockedGen: 8,
+		IndustryTime:   99999,
+		Frontier: model.FrontierProject{
+			Active:        true,
+			TargetGen:     9,
+			AllocationPct: 70,
+		},
+		Eras:   []model.EraProgress{{Era: 3, HasPrimary: true, Primary: model.BranchAlgo, UnlockedMask: 0b1111}},
+		Rivals: model.RivalEraState{Era: 3, Leaders: []string{"OpenAI"}},
+	}
+	ns := Restart(s, b)
+	if ns.Progression.MaxUnlockedGen != 1 {
+		t.Fatalf("restart MaxUnlockedGen = %d, want 1", ns.Progression.MaxUnlockedGen)
+	}
+	if ns.Progression.IndustryTime != 0 {
+		t.Fatalf("IndustryTime not cleared: %v", ns.Progression.IndustryTime)
+	}
+	if ns.Progression.Frontier.Active || ns.Progression.Frontier.TargetGen != 0 {
+		t.Fatalf("frontier not cleared: %+v", ns.Progression.Frontier)
+	}
+	if len(ns.Progression.Eras) != 0 {
+		t.Fatalf("eras not cleared: %+v", ns.Progression.Eras)
+	}
+	if ns.Progression.Rivals.Era != 0 || len(ns.Progression.Rivals.Leaders) != 0 {
+		t.Fatalf("rivals not cleared: %+v", ns.Progression.Rivals)
+	}
+	if ns.Events.RandState != 11 || ns.Campaign.RandState != 22 {
+		t.Fatalf("RNG not preserved: events=%d campaign=%d", ns.Events.RandState, ns.Campaign.RandState)
+	}
 }
 
 func TestFreshRunTransfersAndConsumesPendingLegacy(t *testing.T) {

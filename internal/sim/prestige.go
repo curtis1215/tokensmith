@@ -81,6 +81,9 @@ func freshRun(p model.Prestige, b balance.Config) model.GameState {
 	// Compute starts empty (nil maps → 0), same as a brand-new run.
 	ns.Resources.Cash = b.StartingCash + pe.StartCash
 	ns.Resources.RnD = b.StartingRnD + pe.StartRnD
+	// Progression is run-scoped: restart/prestige reseeds Gen1 and clears
+	// frontier work, era choices, industry time, and rival-era leaders.
+	ns.Progression.MaxUnlockedGen = 1
 	if pending.Kind == model.LegacyTech {
 		// One-shot: unlock tech now; leave Campaign.Legacy empty (already consumed).
 		if pending.TechID != "" {
