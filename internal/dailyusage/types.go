@@ -26,8 +26,8 @@ type SourceUsage struct {
 
 // Document is the versioned daily-usage file contents.
 type Document struct {
-	SchemaVersion int                              `json:"schemaVersion"`
-	UpdatedAt     int64                            `json:"updatedAt"`
+	SchemaVersion int                               `json:"schemaVersion"`
+	UpdatedAt     int64                             `json:"updatedAt"`
 	Days          map[string]map[string]SourceUsage `json:"days"`
 }
 
