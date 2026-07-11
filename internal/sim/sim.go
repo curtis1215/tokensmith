@@ -180,6 +180,11 @@ func advanceTraining(ns model.GameState, dt float64, b balance.Config) model.Gam
 	te := techEffects(ns, b)
 	se := starEffects(ns, b)
 	job := ns.Training
+	spec, err := balance.Generation(job.Gen)
+	qualityScale := 0.0
+	if err == nil {
+		qualityScale = spec.QualityScale
+	}
 	m := model.Model{
 		Gen:     job.Gen,
 		Segment: job.Segment,
@@ -189,7 +194,7 @@ func advanceTraining(ns model.GameState, dt float64, b balance.Config) model.Gam
 		Name:    "",
 	}
 	for d := range model.NumQualityDims {
-		m.Quality[d] = job.Alloc[d] * b.GenQualityCap[job.Gen] * te.QualityMult[d] * se.QualityMult[d]
+		m.Quality[d] = job.Alloc[d] * qualityScale * te.QualityMult[d] * se.QualityMult[d]
 	}
 	cloned := append([]model.Model(nil), ns.Models...)
 	ns.Models = append(cloned, m)

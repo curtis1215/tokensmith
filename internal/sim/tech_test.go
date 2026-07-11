@@ -35,3 +35,12 @@ func TestIsUnlocked(t *testing.T) {
 		t.Fatalf("isUnlocked wrong")
 	}
 }
+
+func TestMaxUnlockedGenAlwaysAtLeastOne(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Progression.MaxUnlockedGen = 0
+	if got := MaxUnlockedGen(s, b); got != 1 {
+		t.Fatalf("zero Progression → %d, want 1", got)
+	}
+}

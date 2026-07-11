@@ -75,31 +75,37 @@ func TestEraStartEndGen(t *testing.T) {
 }
 
 func TestGenerationSpecGen1To5Compatibility(t *testing.T) {
-	c := Default()
-	wantBaseline := []float64{0, 0, 1000, 2500, 4500, 7000}
-	for gen := 1; gen <= 5; gen++ {
-		g, err := Generation(gen)
+	// Exact historical Gen1–5 training ladder (formerly Config fixed arrays).
+	want := []struct {
+		gen, era                     int
+		trainRnD, trainWork, quality float64
+		baseline                     float64
+	}{
+		{1, 1, 20000, 900000, 25, 0},
+		{2, 1, 150000, 3600000, 45, 1000},
+		{3, 2, 1000000, 14400000, 65, 2500},
+		{4, 2, 6000000, 57600000, 82, 4500},
+		{5, 3, 40000000, 230400000, 100, 7000},
+	}
+	for _, tc := range want {
+		g, err := Generation(tc.gen)
 		if err != nil {
-			t.Fatalf("Generation(%d): %v", gen, err)
+			t.Fatalf("Generation(%d): %v", tc.gen, err)
 		}
-		if g.Gen != gen {
-			t.Errorf("gen %d: Gen field = %d", gen, g.Gen)
+		if g.Gen != tc.gen || g.Era != tc.era {
+			t.Errorf("gen %d: Gen/Era = %d/%d, want %d/%d", tc.gen, g.Gen, g.Era, tc.gen, tc.era)
 		}
-		era, _ := EraForGen(gen)
-		if g.Era != era {
-			t.Errorf("gen %d: Era = %d, want %d", gen, g.Era, era)
+		if g.TrainRnD != tc.trainRnD {
+			t.Errorf("gen %d: TrainRnD = %v, want %v", tc.gen, g.TrainRnD, tc.trainRnD)
 		}
-		if g.TrainRnD != c.GenRnDCost[gen] {
-			t.Errorf("gen %d: TrainRnD = %v, want %v", gen, g.TrainRnD, c.GenRnDCost[gen])
+		if g.TrainWork != tc.trainWork {
+			t.Errorf("gen %d: TrainWork = %v, want %v", tc.gen, g.TrainWork, tc.trainWork)
 		}
-		if g.TrainWork != c.GenTrainWorkGPUSec[gen] {
-			t.Errorf("gen %d: TrainWork = %v, want %v", gen, g.TrainWork, c.GenTrainWorkGPUSec[gen])
+		if g.QualityScale != tc.quality {
+			t.Errorf("gen %d: QualityScale = %v, want %v", tc.gen, g.QualityScale, tc.quality)
 		}
-		if g.QualityScale != c.GenQualityCap[gen] {
-			t.Errorf("gen %d: QualityScale = %v, want %v", gen, g.QualityScale, c.GenQualityCap[gen])
-		}
-		if g.TimeBaselineDay != wantBaseline[gen] {
-			t.Errorf("gen %d: TimeBaselineDay = %v, want %v", gen, g.TimeBaselineDay, wantBaseline[gen])
+		if g.TimeBaselineDay != tc.baseline {
+			t.Errorf("gen %d: TimeBaselineDay = %v, want %v", tc.gen, g.TimeBaselineDay, tc.baseline)
 		}
 	}
 }

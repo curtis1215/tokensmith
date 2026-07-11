@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"tokensmith/internal/balance"
 	"tokensmith/internal/model"
 	"tokensmith/internal/sim"
 )
@@ -55,7 +56,10 @@ func trainCard(m Model, w int) string {
 	s := m.state
 	var body string
 	if s.HasTraining {
-		total := m.cfg.GenTrainWorkGPUSec[s.Training.Gen]
+		total := 0.0
+		if spec, err := balance.Generation(s.Training.Gen); err == nil {
+			total = spec.TrainWork
+		}
 		done := 1.0
 		if total > 0 {
 			done = 1.0 - s.Training.WorkRemaining/total

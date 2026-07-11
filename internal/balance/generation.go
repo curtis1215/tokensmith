@@ -106,7 +106,7 @@ func Generation(gen int) (GenerationSpec, error) {
 	return spec, nil
 }
 
-// gen1–5 training values mirror Default()'s legacy arrays (retired in Task 3).
+// gen1–5 training values preserve the historical Gen1–5 ladder.
 // Frontier fields are unused before Gen6 frontier projects; TimeBaselineDay is
 // the approved industry clock ladder.
 func gen1to5(gen int) GenerationSpec {

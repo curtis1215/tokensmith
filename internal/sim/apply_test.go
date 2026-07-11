@@ -74,9 +74,13 @@ func TestApplyStartTrainingErrors(t *testing.T) {
 	if _, err := Apply(busy, model.StartTraining{Gen: 1, Alloc: validAlloc()}, b); err != ErrTrainingInProgress {
 		t.Errorf("busy: err = %v, want ErrTrainingInProgress", err)
 	}
-	// invalid gen
-	if _, err := Apply(base, model.StartTraining{Gen: 9, Alloc: validAlloc()}, b); err != ErrInvalidGen {
-		t.Errorf("gen: err = %v, want ErrInvalidGen", err)
+	// invalid gen (catalog rejects gen < 1)
+	if _, err := Apply(base, model.StartTraining{Gen: 0, Alloc: validAlloc()}, b); !errors.Is(err, balance.ErrInvalidGenerationSpec) {
+		t.Errorf("gen: err = %v, want ErrInvalidGenerationSpec", err)
+	}
+	// Gen9 is a valid catalog row but still locked without progression unlock.
+	if _, err := Apply(base, model.StartTraining{Gen: 9, Alloc: validAlloc(), Price: 12}, b); err != ErrGenLocked {
+		t.Errorf("gen9 locked: err = %v, want ErrGenLocked", err)
 	}
 	// bad alloc (sums to 0.8)
 	bad := [model.NumQualityDims]float64{0.4, 0.2, 0.1, 0.1}
@@ -119,10 +123,12 @@ func TestStartTrainingCarriesSegment(t *testing.T) {
 
 func TestMaxUnlockedGen(t *testing.T) {
 	b := balance.Default()
+	// Zero-value legacy state still allows Gen1.
 	s := model.GameState{}
 	if MaxUnlockedGen(s, b) != 1 {
 		t.Fatalf("fresh game should allow only Gen1, got %d", MaxUnlockedGen(s, b))
 	}
+	// Contiguous legacy model-gen-2..5 nodes raise the gate.
 	s.UnlockedTech = []string{balance.GenUnlockNodeID(2), balance.GenUnlockNodeID(3)}
 	if MaxUnlockedGen(s, b) != 3 {
 		t.Fatalf("gen-2+gen-3 unlocked → max 3, got %d", MaxUnlockedGen(s, b))
@@ -131,6 +137,126 @@ func TestMaxUnlockedGen(t *testing.T) {
 	s.UnlockedTech = []string{balance.GenUnlockNodeID(3)}
 	if MaxUnlockedGen(s, b) != 1 {
 		t.Fatalf("gen-3 without gen-2 → max 1, got %d", MaxUnlockedGen(s, b))
+	}
+	// Full Gen2–5 chain.
+	s.UnlockedTech = []string{
+		balance.GenUnlockNodeID(2), balance.GenUnlockNodeID(3),
+		balance.GenUnlockNodeID(4), balance.GenUnlockNodeID(5),
+	}
+	if MaxUnlockedGen(s, b) != 5 {
+		t.Fatalf("gen-2..5 → max 5, got %d", MaxUnlockedGen(s, b))
+	}
+	// Progression.MaxUnlockedGen alone can open Gen6+ (frontier unlock path).
+	s = model.GameState{}
+	s.Progression.MaxUnlockedGen = 6
+	if MaxUnlockedGen(s, b) != 6 {
+		t.Fatalf("Progression.MaxUnlockedGen=6 → max 6, got %d", MaxUnlockedGen(s, b))
+	}
+	// Progression and legacy combine via max.
+	s.UnlockedTech = []string{balance.GenUnlockNodeID(2), balance.GenUnlockNodeID(3)}
+	s.Progression.MaxUnlockedGen = 1
+	if MaxUnlockedGen(s, b) != 3 {
+		t.Fatalf("legacy gen-3 with Progression=1 → max 3, got %d", MaxUnlockedGen(s, b))
+	}
+}
+
+func TestUnlockTechUpdatesProgression(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Resources.RnD = 1e12
+	s.Progression.MaxUnlockedGen = 1
+	// Unlock Gen2 node → Progression advances atomically.
+	ns, err := Apply(s, model.UnlockTech{NodeID: balance.GenUnlockNodeID(2)}, b)
+	if err != nil {
+		t.Fatalf("unlock gen2: %v", err)
+	}
+	if ns.Progression.MaxUnlockedGen != 2 {
+		t.Fatalf("after gen2 unlock Progression.MaxUnlockedGen = %d, want 2", ns.Progression.MaxUnlockedGen)
+	}
+	if s.Progression.MaxUnlockedGen != 1 {
+		t.Fatalf("Apply mutated input Progression: %d", s.Progression.MaxUnlockedGen)
+	}
+	// Contiguous Gen3.
+	ns, err = Apply(ns, model.UnlockTech{NodeID: balance.GenUnlockNodeID(3)}, b)
+	if err != nil {
+		t.Fatalf("unlock gen3: %v", err)
+	}
+	if ns.Progression.MaxUnlockedGen != 3 {
+		t.Fatalf("after gen3 unlock Progression.MaxUnlockedGen = %d, want 3", ns.Progression.MaxUnlockedGen)
+	}
+	// Non-generation tech must not change MaxUnlockedGen.
+	before := ns.Progression.MaxUnlockedGen
+	ns2, err := Apply(ns, model.UnlockTech{NodeID: "algo-cap-1"}, b)
+	if err != nil {
+		t.Fatalf("unlock algo: %v", err)
+	}
+	if ns2.Progression.MaxUnlockedGen != before {
+		t.Fatalf("non-gen tech changed MaxUnlockedGen: %d → %d", before, ns2.Progression.MaxUnlockedGen)
+	}
+}
+
+func TestStartTrainingGen6(t *testing.T) {
+	b := balance.Default()
+	spec, err := balance.Generation(6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := model.GameState{}
+	s.Resources.RnD = spec.TrainRnD * 2
+	s.Progression.MaxUnlockedGen = 6
+	before := s
+	ns, err := Apply(s, model.StartTraining{Gen: 6, Alloc: validAlloc(), Price: 12}, b)
+	if err != nil {
+		t.Fatalf("Gen6 train: %v", err)
+	}
+	if !approx(ns.Resources.RnD, before.Resources.RnD-spec.TrainRnD) {
+		t.Errorf("RnD = %v, want %v", ns.Resources.RnD, before.Resources.RnD-spec.TrainRnD)
+	}
+	if !ns.HasTraining || ns.Training.Gen != 6 {
+		t.Fatalf("training job wrong: %+v", ns.Training)
+	}
+	if !approx(ns.Training.WorkRemaining, spec.TrainWork) {
+		t.Errorf("WorkRemaining = %v, want %v", ns.Training.WorkRemaining, spec.TrainWork)
+	}
+	// Locked without progression/legacy unlock.
+	locked := model.GameState{Resources: model.Resources{RnD: 1e15}}
+	if _, err := Apply(locked, model.StartTraining{Gen: 6, Alloc: validAlloc(), Price: 12}, b); err != ErrGenLocked {
+		t.Fatalf("Gen6 without unlock: err = %v, want ErrGenLocked", err)
+	}
+	// Invalid generation returns typed catalog error without mutation.
+	bad := model.GameState{Resources: model.Resources{RnD: 1e15}}
+	bad.Progression.MaxUnlockedGen = 99
+	out, err := Apply(bad, model.StartTraining{Gen: 0, Alloc: validAlloc(), Price: 12}, b)
+	if !errors.Is(err, balance.ErrInvalidGenerationSpec) {
+		t.Fatalf("gen 0: err = %v, want ErrInvalidGenerationSpec", err)
+	}
+	if out.HasTraining || out.Resources.RnD != bad.Resources.RnD {
+		t.Fatalf("invalid gen mutated state: %+v", out)
+	}
+}
+
+func TestTrainingGen6Quality(t *testing.T) {
+	b := balance.Default()
+	spec, err := balance.Generation(6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := model.GameState{HasTraining: true}
+	s.Compute.RentedTraining = map[string]int{"N7": 10000}
+	s.Training = model.TrainingJob{
+		Gen: 6, Alloc: validAlloc(), Price: 12, WorkRemaining: 1,
+	}
+	ns := Tick(s, 1, nil, b)
+	if len(ns.Models) != 1 {
+		t.Fatalf("expected completed Gen6 draft, models=%d", len(ns.Models))
+	}
+	// alloc 0.4 * QualityScale 120 = 48 on capability
+	want := 0.4 * spec.QualityScale
+	if !approx(ns.Models[0].Quality[model.DimCapability], want) {
+		t.Fatalf("capability = %v, want %v (scale %v)", ns.Models[0].Quality[model.DimCapability], want, spec.QualityScale)
+	}
+	if ns.Models[0].Gen != 6 {
+		t.Fatalf("model gen = %d, want 6", ns.Models[0].Gen)
 	}
 }
 

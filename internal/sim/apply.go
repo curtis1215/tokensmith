@@ -2,6 +2,7 @@ package sim
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -133,8 +134,9 @@ func applyStartTraining(s model.GameState, c model.StartTraining, b balance.Conf
 	if s.HasTraining {
 		return s, ErrTrainingInProgress
 	}
-	if c.Gen < 1 || c.Gen > balance.MaxGen {
-		return s, ErrInvalidGen
+	spec, err := balance.Generation(c.Gen)
+	if err != nil {
+		return s, err
 	}
 	if c.Gen > MaxUnlockedGen(s, b) {
 		return s, ErrGenLocked
@@ -153,7 +155,7 @@ func applyStartTraining(s model.GameState, c model.StartTraining, b balance.Conf
 		return s, ErrInvalidPrice
 	}
 	te := techEffects(s, b)
-	cost := b.GenRnDCost[c.Gen] * te.TrainRnDMult
+	cost := spec.TrainRnD * te.TrainRnDMult
 	if s.Resources.RnD < cost {
 		return s, ErrInsufficientRnD
 	}
@@ -165,7 +167,7 @@ func applyStartTraining(s model.GameState, c model.StartTraining, b balance.Conf
 		Segment:       c.Segment,
 		Alloc:         c.Alloc,
 		Price:         c.Price,
-		WorkRemaining: b.GenTrainWorkGPUSec[c.Gen] * te.TrainWorkMult,
+		WorkRemaining: spec.TrainWork * te.TrainWorkMult,
 	}
 	return ns, nil
 }
@@ -339,7 +341,24 @@ func applyUnlockTech(s model.GameState, c model.UnlockTech, b balance.Config) (m
 	ns := s
 	ns.Resources.RnD -= cost
 	ns.UnlockedTech = append(append([]string(nil), s.UnlockedTech...), node.ID)
+	// Contiguous model-gen-N unlocks advance run-scoped progression atomically.
+	if _, ok := parseModelGenNodeID(node.ID); ok {
+		ns.Progression.MaxUnlockedGen = MaxUnlockedGen(ns, b)
+	}
 	return ns, nil
+}
+
+// parseModelGenNodeID returns N for IDs of the form "model-gen-N".
+func parseModelGenNodeID(id string) (int, bool) {
+	const prefix = "model-gen-"
+	if !strings.HasPrefix(id, prefix) {
+		return 0, false
+	}
+	n, err := strconv.Atoi(id[len(prefix):])
+	if err != nil || n < 2 {
+		return 0, false
+	}
+	return n, true
 }
 
 func findPrestigeNode(nodes []model.PrestigeNode, id string) (model.PrestigeNode, bool) {

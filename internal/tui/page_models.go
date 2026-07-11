@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"tokensmith/internal/balance"
 	"tokensmith/internal/model"
 	"tokensmith/internal/sim"
 )
@@ -88,7 +89,10 @@ func renderModelDetail(m Model, idx int) string {
 		return CardIn(CardDefault, m.contentWidth(), "模型詳情", "無選取模型")
 	}
 	md := m.state.Models[idx]
-	capVal := m.cfg.GenQualityCap[md.Gen]
+	capVal := 0.0
+	if spec, err := balance.Generation(md.Gen); err == nil {
+		capVal = spec.QualityScale
+	}
 
 	// 1. Quality Dims
 	qNames := [4]string{"能力", "成本", "安全", "速度"}

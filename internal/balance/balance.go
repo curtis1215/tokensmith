@@ -8,12 +8,6 @@ import (
 	"tokensmith/internal/model"
 )
 
-// MaxGen is the highest model generation still backed by the legacy fixed
-// arrays on Config (GenRnDCost / GenTrainWorkGPUSec / GenQualityCap).
-// Long-run generations resolve through Generation() in generation.go;
-// Task 3 retires these arrays once training reads the catalog.
-const MaxGen = 5
-
 // EntryProcessID is the process available from the first day (no tech unlock).
 const EntryProcessID = "N7"
 
@@ -52,11 +46,6 @@ type Config struct {
 	SoftCapFull      float64 // R&D granted at full rate before diminishing
 	SoftCapMult      float64 // multiplier applied beyond SoftCapFull
 	SoftCapWindowSec float64 // window length in seconds
-
-	// Per-generation model training (index by gen 1..MaxGen; 0 unused).
-	GenRnDCost         [MaxGen + 1]float64 // R&D cost to start training
-	GenTrainWorkGPUSec [MaxGen + 1]float64 // training work in GPU-seconds
-	GenQualityCap      [MaxGen + 1]float64 // per-dimension quality ceiling
 
 	// TrainRentPerGPUSec is cash cost per rented training GPU per second.
 	// v0 placeholder (spec §12 $500/GPU·day is game-day-ambiguous); tune later.
@@ -154,12 +143,7 @@ func Default() Config {
 	c.SoftCapMult = 0.3
 	c.SoftCapWindowSec = 86400
 
-	// gen:                      1        2         3          4           5
-	c.GenRnDCost = [MaxGen + 1]float64{0, 20000, 150000, 1000000, 6000000, 40000000}
-	// Training work (GPU-seconds). Scaled so a Gen1 model on ~4 rented GPU takes
-	// tens of real seconds (not a single tick); higher gens cost much more work.
-	c.GenTrainWorkGPUSec = [MaxGen + 1]float64{0, 900000, 3600000, 14400000, 57600000, 230400000}
-	c.GenQualityCap = [MaxGen + 1]float64{0, 25, 45, 65, 82, 100}
+	// Per-generation train costs/work/quality live in Generation() (generation.go).
 	c.TrainRentPerGPUSec = 0.01
 
 	c.QualityWeights = [model.NumQualityDims]float64{0.4, 0.2, 0.2, 0.2}
