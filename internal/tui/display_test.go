@@ -191,3 +191,27 @@ func TestDisplayApproachesUsersAndUtils(t *testing.T) {
 		t.Fatalf("TrainUtil=%v want ~1", d.TrainUtil)
 	}
 }
+
+func TestAdvanceDisplaySamplesSparks(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	for i := 0; i < 9; i++ { // 9 ticks → 至少 2 個樣本（tick 4 與 8）
+		m.advanceDisplay()
+	}
+	if m.sparkValuation.n < 2 {
+		t.Fatalf("valuation spark samples = %d, want >= 2", m.sparkValuation.n)
+	}
+	if m.sparkUsers.n < 2 || m.sparkRnD.n < 2 {
+		t.Fatal("users/rnd sparks not sampled")
+	}
+}
+
+func TestCompanyCardShowsTrend(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	for i := 0; i < 9; i++ {
+		m.advanceDisplay()
+	}
+	out := companyCard(m, 50)
+	if !strings.Contains(out, "趨勢") {
+		t.Fatalf("company card missing trend line: %q", out)
+	}
+}

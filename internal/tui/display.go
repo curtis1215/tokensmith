@@ -138,6 +138,12 @@ func (m *Model) advanceDisplay() {
 	if m.disp.PulseNotice > 0 {
 		m.disp.PulseNotice--
 	}
+	m.sparkTick++
+	if m.sparkTick%4 == 0 {
+		m.sparkValuation.push(m.disp.Valuation)
+		m.sparkUsers.push(m.disp.TotalUsers)
+		m.sparkRnD.push(sim.RnDRatePerSec(m.state, m.cfg) * gameSecPerRealSec)
+	}
 }
 
 // snapDisplay forces display to match truth (restart / prestige / load).

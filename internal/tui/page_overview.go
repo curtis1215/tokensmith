@@ -37,12 +37,16 @@ func companyCard(m Model, w int) string {
 		val = m.disp.Valuation
 		totalUsers = m.disp.TotalUsers
 	}
-	body := VStack(
+	lines := []string{
 		KV("估值", "$"+human(val)),
 		KV("總用戶", human(totalUsers)),
 		KV("排名", fmt.Sprintf("#%d / %d", rank, field)),
 		KV("月營收", "$"+human(sim.MonthlyRevenue(s))),
-	)
+	}
+	if tr := m.sparkValuation.Render(18); tr != "" {
+		lines = append(lines, styleCyan.Render("趨勢 ")+stylePurple.Render(tr))
+	}
+	body := VStack(lines...)
 	return CardIn(CardDefault, w, "公司", body)
 }
 

@@ -105,6 +105,11 @@ type Model struct {
 	vp               viewport.Model
 	disp             displayState
 	dispReady        bool // false until first snap after new game / restart
+	// Display-layer trend history (TUI memory only, never persisted).
+	sparkValuation spark
+	sparkUsers     spark
+	sparkRnD       spark
+	sparkTick      int
 }
 
 // New returns the game model wired to the real save/ledger/meta locations,
@@ -159,6 +164,9 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 		height:           40,
 		vp:               viewport.New(80, 20),
 	}
+	m.sparkValuation = newSpark(60)
+	m.sparkUsers = newSpark(60)
+	m.sparkRnD = newSpark(60)
 	m.resize(m.width, m.height)
 	m.refreshViewport()
 	return m
