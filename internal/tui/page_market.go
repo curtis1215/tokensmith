@@ -11,6 +11,12 @@ import (
 
 func renderMarket(m Model) string {
 	s := m.state
+	cw := m.contentWidth()
+	colW := cw
+	if cw >= minDashWidth {
+		colW = (cw - 2) / 2
+	}
+
 	var cards []string
 	segs := []model.Segment{model.SegConsumer, model.SegEnterprise, model.SegDeveloper}
 	for _, seg := range segs {
@@ -46,7 +52,7 @@ func renderMarket(m Model) string {
 			"",
 			VStack(shareLines...),
 		)
-		cards = append(cards, Card(segmentName(seg)+"市場", cardBody))
+		cards = append(cards, CardIn(CardDefault, colW, segmentName(seg)+"市場", cardBody))
 	}
 
 	var rivalLines []string
@@ -62,12 +68,12 @@ func renderMarket(m Model) string {
 		rivalLines = append(rivalLines, fmt.Sprintf("%-10s 能力 %s (%.0f) · 專長 %-4s · 威脅 %s",
 			c.Name, Bar(capFrac, 10), capVal, topSkillDim(c), label))
 	}
-	rivalsCard := Card("對手檔案", VStack(rivalLines...))
+	rivalsCard := CardIn(CardThreat, colW, "對手檔案", VStack(rivalLines...))
 
 	leftColumn := VStack(cards...)
 	rightColumn := rivalsCard
 
-	return ResponsiveRow(m.contentWidth(), 2, leftColumn, rightColumn)
+	return ResponsiveRow(cw, 2, leftColumn, rightColumn)
 }
 
 func threatLabel(level int) string {

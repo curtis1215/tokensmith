@@ -45,8 +45,9 @@ func renderTech(m Model) string {
 		branches[node.Branch].nodes = append(branches[node.Branch].nodes, i)
 	}
 
+	cw := m.contentWidth()
 	var rows []string
-	rows = append(rows, TruncateWidth(fmt.Sprintf("科技樹  可用 R&D %s", human(s.Resources.RnD)), m.contentWidth()))
+	rows = append(rows, TruncateWidth(fmt.Sprintf("科技樹  可用 R&D %s", human(s.Resources.RnD)), cw))
 	for _, br := range branches {
 		if len(br.nodes) == 0 {
 			continue
@@ -62,23 +63,29 @@ func renderTech(m Model) string {
 			meta := techLabel(node.ID)
 
 			stateStr := fmt.Sprintf("%s R&D", human(node.Cost))
+			locked := false
 			switch {
 			case techUnlocked(s, node.ID):
-				stateStr = "✓ 已解鎖"
+				stateStr = styleGain.Render("✓") + " 已解鎖"
 			case !prereqsMet(s, node.Prereqs):
 				var prereqNames []string
 				for _, p := range node.Prereqs {
 					prereqNames = append(prereqNames, techLabel(p).Name)
 				}
 				stateStr = "🔒 需 " + strings.Join(prereqNames, ",")
+				locked = true
 			}
 
 			nameWithID := fmt.Sprintf("%s (%s)", meta.Name, node.ID)
 			line := fmt.Sprintf("%s %-25s %-16s | %s",
 				cursor, nameWithID, stateStr, meta.Effect)
-			lines = append(lines, TruncateWidth(line, inner))
+			line = TruncateWidth(line, inner)
+			if locked {
+				line = styleMuted.Render(line)
+			}
+			lines = append(lines, line)
 		}
-		rows = append(rows, Card(br.name, VStack(lines...)))
+		rows = append(rows, CardIn(CardDefault, cw, br.name, VStack(lines...)))
 	}
 	return VStack(rows...)
 }

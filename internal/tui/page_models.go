@@ -10,9 +10,10 @@ import (
 
 func renderModels(m Model) string {
 	s := m.state
+	cw := m.contentWidth()
 	if len(s.Models) == 0 {
 		body := "（無 — 按 t 訓練第一個模型）"
-		listCard := Card("模型列表", body)
+		listCard := CardIn(CardDefault, cw, "模型列表", body)
 		return listCard
 	}
 
@@ -73,18 +74,18 @@ func renderModels(m Model) string {
 	if !anyLive {
 		b.WriteString("  （無）\n")
 	}
-	listCard := Card("模型列表", b.String())
+	listCard := CardIn(CardDefault, cw, "模型列表", b.String())
 
 	// 2. Detail card
 	detailCard := renderModelDetail(m, m.modelCursor)
 
 	// Combine into horizontal row (footer is fixed shell chrome)
-	return ResponsiveRow(m.contentWidth(), 2, listCard, detailCard)
+	return ResponsiveRow(cw, 2, listCard, detailCard)
 }
 
 func renderModelDetail(m Model, idx int) string {
 	if idx < 0 || idx >= len(m.state.Models) {
-		return Card("模型詳情", "無選取模型")
+		return CardIn(CardDefault, m.contentWidth(), "模型詳情", "無選取模型")
 	}
 	md := m.state.Models[idx]
 	capVal := m.cfg.GenQualityCap[md.Gen]
@@ -152,5 +153,5 @@ func renderModelDetail(m Model, idx int) string {
 		"",
 		VStack(infoLines...),
 	)
-	return Card("模型詳情", body)
+	return CardIn(CardDefault, m.contentWidth(), "模型詳情", body)
 }
