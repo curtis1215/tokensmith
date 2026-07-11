@@ -108,10 +108,10 @@ func directiveLabel(d model.DirectiveKind) string {
 }
 
 // renderCampaignStatusCard is the CEO war-room status card (doctrine / stage / gate).
-func renderCampaignStatusCard(m Model) string {
+func renderCampaignStatusCard(m Model, w int) string {
 	status := sim.CampaignStatus(m.state, m.cfg)
 	if !status.Active {
-		return Card("公司戰略", "第一個模型上線後可選公司戰略")
+		return CardIn(CardAccent, w, "公司戰略", "第一個模型上線後可選公司戰略")
 	}
 	camp := m.state.Campaign
 	var lines []string
@@ -151,11 +151,11 @@ func renderCampaignStatusCard(m Model) string {
 	if status.Victory || camp.Victory != model.DoctrineNone {
 		lines = append(lines, styleAccent.Render("✓ 路線勝利 — 按 P 結算"))
 	}
-	return Card("公司戰略", VStack(lines...))
+	return CardIn(CardAccent, w, "公司戰略", VStack(lines...))
 }
 
 // renderRivalRoadmapCard shows primary + wildcard confirmed/rumored actions.
-func renderRivalRoadmapCard(m Model) string {
+func renderRivalRoadmapCard(m Model, w int) string {
 	var blocks []string
 	if primary, ok := sim.CampaignRivalIntel(m.state, m.cfg, true); ok {
 		blocks = append(blocks, renderRivalIntelBlock("主要宿敵", primary, m.cfg))
@@ -167,7 +167,7 @@ func renderRivalRoadmapCard(m Model) string {
 	} else {
 		blocks = append(blocks, styleMuted.Render("攪局者：尚無情報"))
 	}
-	return Card("宿敵路線", VStack(blocks...))
+	return CardIn(CardThreat, w, "宿敵路線", VStack(blocks...))
 }
 
 func renderRivalIntelBlock(role string, intel sim.RivalIntelView, cfg balance.Config) string {
@@ -216,15 +216,15 @@ func formatActionIntelDetail(actionID string, full bool, cfg balance.Config, ind
 }
 
 // renderBoardReportCard shows the latest board report (newest four entries).
-func renderBoardReportCard(m Model) string {
+func renderBoardReportCard(m Model, w int) string {
 	reports := m.state.Campaign.Reports
 	if len(reports) == 0 {
-		return Card("董事會報告", styleMuted.Render("尚無董事會報告"))
+		return CardIn(CardDefault, w, "董事會報告", styleMuted.Render("尚無董事會報告"))
 	}
 	latest := reports[len(reports)-1]
 	entries := latest.Entries
 	if len(entries) == 0 {
-		return Card("董事會報告", styleMuted.Render(fmt.Sprintf("第 %d 週期：無事項", latest.Cycle)))
+		return CardIn(CardDefault, w, "董事會報告", styleMuted.Render(fmt.Sprintf("第 %d 週期：無事項", latest.Cycle)))
 	}
 	// Newest four: take from the end.
 	start := 0
@@ -236,7 +236,7 @@ func renderBoardReportCard(m Model) string {
 	for _, e := range entries[start:] {
 		lines = append(lines, formatReportEntry(e))
 	}
-	return Card("董事會報告", VStack(lines...))
+	return CardIn(CardDefault, w, "董事會報告", VStack(lines...))
 }
 
 func formatReportEntry(e model.CampaignReportEntry) string {

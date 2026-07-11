@@ -16,6 +16,31 @@ const cardFrameWidth = 4
 
 const minDashWidth = 80
 
+// Grid lays cells out in two equal-width columns; below minDashWidth it
+// stacks vertically with full-width cells. An odd trailing cell gets full width.
+func Grid(cw, gap int, cells ...func(w int) string) string {
+	if len(cells) == 0 {
+		return ""
+	}
+	if cw < minDashWidth {
+		parts := make([]string, len(cells))
+		for i, c := range cells {
+			parts[i] = c(cw)
+		}
+		return VStack(parts...)
+	}
+	colW := (cw - gap) / 2
+	var rows []string
+	for i := 0; i < len(cells); i += 2 {
+		if i+1 < len(cells) {
+			rows = append(rows, HRow(gap, cells[i](colW), cells[i+1](colW)))
+		} else {
+			rows = append(rows, cells[i](cw))
+		}
+	}
+	return VStack(rows...)
+}
+
 // ResponsiveRow joins parts horizontally with a gap if width >= minDashWidth and the horizontal row width does not exceed the available width.
 // Otherwise, it stacks them vertically using VStack.
 func ResponsiveRow(width int, gap int, parts ...string) string {

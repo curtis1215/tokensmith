@@ -1,8 +1,12 @@
 package tui
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"tokensmith/internal/model"
 )
@@ -73,5 +77,19 @@ func TestOverviewShowsShare(t *testing.T) {
 	v := renderOverview(m)
 	if !strings.Contains(v, "市佔") {
 		t.Errorf("expected '市佔', got:\n%s", v)
+	}
+}
+
+func TestOverviewCardsAlignFlush(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	mm, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 40})
+	m = mm.(Model)
+	out := renderOverview(m)
+	// 每一行都不超過 content width，且格線行等寬（左右卡齊平）
+	cw := m.contentWidth()
+	for i, ln := range strings.Split(out, "\n") {
+		if lipgloss.Width(ln) > cw {
+			t.Fatalf("line %d overflows content width %d: %q", i, cw, ln)
+		}
 	}
 }

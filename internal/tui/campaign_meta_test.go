@@ -107,7 +107,7 @@ func TestEndlessShowsNonPrimaryRouteLines(t *testing.T) {
 		Doctrine: model.DoctrineConsumer, Stage: model.CampaignStageWon,
 		Victory: model.DoctrineConsumer, Endless: true, Cycle: 12,
 	}
-	card := renderCampaignStatusCard(m)
+	card := renderCampaignStatusCard(m, 0)
 	// Non-primary doctrines get optional route lines.
 	if !strings.Contains(card, "可選 "+doctrineLabel(model.DoctrineEnterprise)) {
 		t.Fatalf("endless missing enterprise optional route:\n%s", card)
@@ -138,7 +138,7 @@ func TestBoardReportShowsNewestFourOnly(t *testing.T) {
 			{Kind: model.ReportVictory, SubjectID: "consumer"}, // newest
 		},
 	}}
-	card := renderBoardReportCard(m)
+	card := renderBoardReportCard(m, 0)
 	if strings.Contains(card, reportKindLabel(model.ReportDoctrineChosen)) {
 		t.Fatalf("oldest entry must be absent:\n%s", card)
 	}

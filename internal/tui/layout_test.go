@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestCardContainsTitleAndBody(t *testing.T) {
@@ -97,5 +99,32 @@ func TestResponsiveRow(t *testing.T) {
 	wideFit := ResponsiveRow(100, 2, "AAA", "BBB")
 	if strings.Contains(wideFit, "\n") {
 		t.Errorf("expected wide fitting row to be horizontal (no newline), got %q", wideFit)
+	}
+}
+
+func TestGridEqualWidths(t *testing.T) {
+	cell := func(label string) func(int) string {
+		return func(w int) string { return CardIn(CardDefault, w, label, "x") }
+	}
+	got := Grid(100, 2, cell("A"), cell("B"), cell("C"))
+	lines := strings.Split(got, "\n")
+	// 第一行是兩張 49 寬卡 + 2 gap = 100
+	if lipgloss.Width(lines[0]) != 100 {
+		t.Fatalf("row width = %d, want 100", lipgloss.Width(lines[0]))
+	}
+	// 奇數尾 cell 拿全寬
+	last := lines[len(lines)-1]
+	if lipgloss.Width(last) != 100 {
+		t.Fatalf("orphan cell width = %d, want 100", lipgloss.Width(last))
+	}
+}
+
+func TestGridStacksWhenNarrow(t *testing.T) {
+	cell := func(w int) string { return CardIn(CardDefault, w, "T", "B") }
+	got := Grid(60, 2, cell, cell)
+	for _, ln := range strings.Split(got, "\n") {
+		if lipgloss.Width(ln) > 60 {
+			t.Fatalf("narrow grid line overflows: %d > 60", lipgloss.Width(ln))
+		}
 	}
 }

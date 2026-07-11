@@ -28,7 +28,7 @@ func TestEventLabelKnownAndFallback(t *testing.T) {
 
 func TestEventsCardEmptyState(t *testing.T) {
 	m := testModel(t)
-	out := renderEventsCard(m)
+	out := renderEventsCard(m, 0)
 	if !strings.Contains(out, "產業動態") || !strings.Contains(out, "風平浪靜") {
 		t.Fatalf("empty card wrong:\n%s", out)
 	}
@@ -43,7 +43,7 @@ func TestEventsCardShowsPendingAndLog(t *testing.T) {
 	m.state.Events.Log = []model.EventRecord{
 		{EventID: balance.EvMarketCycle, At: 50000, Choice: 0, Auto: false},
 	}
-	out := renderEventsCard(m)
+	out := renderEventsCard(m, 0)
 	if !strings.Contains(out, eventLabel(balance.EvChipShortage).Name) {
 		t.Fatal("pending event name missing")
 	}
