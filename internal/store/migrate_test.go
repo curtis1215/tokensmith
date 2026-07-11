@@ -9,6 +9,7 @@ import (
 
 	"tokensmith/internal/balance"
 	"tokensmith/internal/model"
+	"tokensmith/internal/sim"
 )
 
 func TestMigrateV0InfersMaxGenTrainingAndIndustryTime(t *testing.T) {
@@ -223,4 +224,121 @@ func TestMigrateV0ActiveTrainingRaisesMaxGen(t *testing.T) {
 
 func q(a, b, c, d float64) [model.NumQualityDims]float64 {
 	return [model.NumQualityDims]float64{a, b, c, d}
+}
+
+func TestMigratedExplodedSavePlayable(t *testing.T) {
+	b := balance.Default()
+	path := filepath.Join(t.TempDir(), "exploded.json")
+	// Legacy bare save with exploded OpenAI quality and high player model.
+	legacy := model.GameState{
+		GameTime:  7000 * 86400,
+		Resources: model.Resources{Cash: 1e6, RnD: 1e9},
+		Models: []model.Model{{
+			Gen: 5, Online: true, Users: 5000, Price: 12, Name: "Flagship",
+			Quality: q(100, 80, 90, 70),
+		}},
+		UnlockedTech: []string{
+			balance.GenUnlockNodeID(2), balance.GenUnlockNodeID(3),
+			balance.GenUnlockNodeID(4), balance.GenUnlockNodeID(5),
+		},
+		Competitors: balance.DefaultCompetitors(),
+		Campaign: model.CampaignState{
+			Doctrine: model.DoctrineConsumer, Stage: model.CampaignStageExpand, Cycle: 2,
+			Primary:   model.RivalRoadmap{Company: "OpenAI", ActionIndex: 0, CyclesUntilAction: 1},
+			Wildcard:  model.RivalRoadmap{Company: "DeepSeek", ActionIndex: 0, CyclesUntilAction: 3},
+			RandState: 7,
+		},
+	}
+	// Explode OpenAI absolute quality (pre-migration runaway).
+	legacy.Competitors[0].Quality = q(135185, 90000, 50000, 40000)
+	legacy.Competitors[0].Skill = q(1.25, 1.1, 0.8, 1.0)
+	raw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s, ok, err := LoadWithConfig(path, b)
+	if err != nil || !ok {
+		t.Fatalf("migrate load: ok=%v err=%v", ok, err)
+	}
+	// After migration, OpenAI must sit inside the frontier band.
+	assertRivalsBounded(t, s, b)
+
+	// Tick still works.
+	s = sim.Tick(s, 3600, nil, b)
+	assertRivalsBounded(t, s, b)
+
+	// Campaign board cycles still work and stay bounded.
+	for i := 0; i < 20; i++ {
+		s = sim.AdvanceCampaignCycle(s, b)
+	}
+	assertRivalsBounded(t, s, b)
+
+	// Save/reload envelope remains playable and bounded.
+	if err := Save(path, s); err != nil {
+		t.Fatal(err)
+	}
+	s2, ok, err := LoadWithConfig(path, b)
+	if err != nil || !ok {
+		t.Fatalf("reload: ok=%v err=%v", ok, err)
+	}
+	assertRivalsBounded(t, s2, b)
+	// Player model quality preserved through migrate+save+reload.
+	if len(s2.Models) == 0 || s2.Models[0].Quality[model.DimCapability] != 100 {
+		t.Fatalf("model quality lost: %+v", s2.Models)
+	}
+	s2 = sim.Tick(s2, 100, nil, b)
+	assertRivalsBounded(t, s2, b)
+}
+
+func TestModelQualityStableAcrossReload(t *testing.T) {
+	b := balance.Default()
+	path := filepath.Join(t.TempDir(), "stable.json")
+	s := model.GameState{
+		Resources: model.Resources{Cash: 100, RnD: 100},
+		Models: []model.Model{{
+			Gen: 3, Online: true, Users: 10, Price: 12,
+			Quality: q(40, 20, 15, 10),
+		}},
+		Progression: model.ProgressionState{MaxUnlockedGen: 3, IndustryTime: 2500 * 86400},
+		Competitors: balance.DefaultCompetitors(),
+	}
+	want := s.Models[0].Quality
+	if err := Save(path, s); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := LoadWithConfig(path, b)
+	if err != nil || !ok {
+		t.Fatalf("load: %v", err)
+	}
+	if got.Models[0].Quality != want {
+		t.Fatalf("quality after load: %v want %v", got.Models[0].Quality, want)
+	}
+	// Frontier/industry movement must not rewrite stored quality.
+	got.Progression.IndustryTime += 20000 * 86400
+	got = sim.Tick(got, 3600, nil, b)
+	if got.Models[0].Quality != want {
+		t.Fatalf("quality after frontier move: %v want %v", got.Models[0].Quality, want)
+	}
+}
+
+func assertRivalsBounded(t *testing.T, s model.GameState, b balance.Config) {
+	t.Helper()
+	gf := sim.GlobalFrontier(s, b)
+	for _, c := range s.Competitors {
+		for d := range model.NumQualityDims {
+			if gf[d] <= 0 {
+				continue
+			}
+			hi := gf[d] * 1.15
+			q := c.Quality[d]
+			// Anti-runaway ceiling; floor is approach-target soft constraint.
+			if q > hi+1e-3 || q < 0 {
+				t.Fatalf("%s dim %d = %v above ceiling %v or negative (gf=%v)", c.Name, d, q, hi, gf[d])
+			}
+		}
+	}
 }

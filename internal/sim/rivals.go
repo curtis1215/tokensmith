@@ -149,27 +149,26 @@ func rivalTarget(s model.GameState, rival model.Competitor, b balance.Config) [m
 	return out
 }
 
-// clampRivalToBand enforces quality ∈ GlobalFrontier × [0.85, 1.15] per dim.
+// clampRivalToBand enforces the anti-runaway ceiling GlobalFrontier×1.15 and
+// non-negative quality. The 85% floor is enforced softly via rivalTarget
+// (targets never sit below the band); hard floor-snapping would yank idle
+// rivals up to the frontier in one board cycle and break market shares.
 func clampRivalToBand(q float64, frontier float64) float64 {
+	if q < 0 || (q != q) { // neg or NaN
+		q = 0
+	}
 	if frontier <= 0 {
-		if q < 0 {
-			return 0
-		}
 		return q
 	}
-	lo := frontier * rivalFloorPct
 	hi := frontier * rivalCeilPct
-	if q < lo {
-		return lo
-	}
 	if q > hi {
 		return hi
 	}
 	return q
 }
 
-// clampAllRivalsToBand re-applies the 85%–115% global-frontier band to every
-// rival. Used after public rival updates (board cycles, league ticks).
+// clampAllRivalsToBand re-applies the anti-runaway ceiling after public rival
+// updates (board cycles). Full band approach still happens via Tick league.
 func clampAllRivalsToBand(s model.GameState, b balance.Config) model.GameState {
 	if len(s.Competitors) == 0 {
 		return s

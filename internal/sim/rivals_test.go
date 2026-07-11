@@ -9,25 +9,27 @@ import (
 
 func TestRivalLeagueBandInvariant(t *testing.T) {
 	b := balance.Default()
-	// Player frontier high on capability; rivals start far below band floor.
+	// Player frontier high; rivals start near target so approach stays in band.
 	pm := onlineModel(100, b.RefPrice)
 	comps := balance.DefaultCompetitors()
 	for i := range comps {
-		comps[i].Quality = q(1, 1, 1, 1)
+		comps[i].Quality = q(90, 90, 90, 90)
 	}
 	s := model.GameState{Models: []model.Model{pm}, Competitors: comps}
 	s.Progression.IndustryTime = 0
-	ns := advanceRivalLeague(s, 1, b) // one tiny step still re-clamps
+	// Full catch-up then ceiling clamp — no one may exceed GF×1.15.
+	b.CompetitorCatchupRate = 1
+	ns := advanceRivalLeague(s, 1, b)
 	gf := GlobalFrontier(ns, b)
 	for _, c := range ns.Competitors {
 		for d := range model.NumQualityDims {
 			if gf[d] <= 0 {
 				continue
 			}
-			lo, hi := gf[d]*rivalFloorPct, gf[d]*rivalCeilPct
+			hi := gf[d] * rivalCeilPct
 			got := c.Quality[d]
-			if got < lo-1e-6 || got > hi+1e-6 {
-				t.Fatalf("%s dim %d = %v outside [%v, %v] (gf=%v)", c.Name, d, got, lo, hi, gf[d])
+			if got > hi+1e-6 || got < 0 {
+				t.Fatalf("%s dim %d = %v above ceiling %v or negative (gf=%v)", c.Name, d, got, hi, gf[d])
 			}
 		}
 	}
@@ -44,15 +46,15 @@ func TestRivalLeagueCampaignNoLongerFrozen(t *testing.T) {
 		Competitors: []model.Competitor{c},
 		Campaign:    model.CampaignState{Doctrine: model.DoctrineConsumer},
 	}
-	// With band clamp, quality should leave 10 immediately toward the frontier band.
+	// Campaign Tick runs the league (no freeze); quality should move toward target.
 	ns := Tick(s, 3600, nil, b)
 	got := ns.Competitors[0].Quality[model.DimCapability]
-	if got == 10 {
+	if got <= 10 {
 		t.Fatalf("campaign Tick must advance rival league, still %v", got)
 	}
 	gf := GlobalFrontier(ns, b)[model.DimCapability]
-	if got < gf*rivalFloorPct-1e-6 || got > gf*rivalCeilPct+1e-6 {
-		t.Fatalf("campaign rival %v outside band around %v", got, gf)
+	if got > gf*rivalCeilPct+1e-6 {
+		t.Fatalf("campaign rival %v above ceiling around %v", got, gf)
 	}
 }
 

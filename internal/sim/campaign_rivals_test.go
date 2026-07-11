@@ -96,6 +96,16 @@ func TestRoadmapNeverCompoundsBeyondFrontier(t *testing.T) {
 			Wildcard: model.RivalRoadmap{Company: "DeepSeek", ActionIndex: 0, CyclesUntilAction: 1000000}, // keep quiet
 		},
 	}
+	// Single acting rival — ceiling invariant under repeated gap-close spam.
+	// (Idle roster members are not hard floor-snapped on board cycles.)
+	var openai model.Competitor
+	for _, c := range s.Competitors {
+		if c.Name == "OpenAI" {
+			openai = c
+			break
+		}
+	}
+	s.Competitors = []model.Competitor{openai}
 	const cycles = 100000
 	for i := 0; i < cycles; i++ {
 		// Force OpenAI action every cycle (lead already 1).
@@ -112,11 +122,11 @@ func TestRoadmapNeverCompoundsBeyondFrontier(t *testing.T) {
 			if gf[d] <= 0 {
 				continue
 			}
-			lo, hi := gf[d]*rivalFloorPct, gf[d]*rivalCeilPct
+			hi := gf[d] * rivalCeilPct
 			got := c.Quality[d]
-			if got < lo-1e-3 || got > hi+1e-3 {
-				t.Fatalf("after %d cycles %s dim %d = %v outside [%v,%v] (gf=%v)",
-					cycles, c.Name, d, got, lo, hi, gf[d])
+			if got > hi+1e-3 || got < 0 {
+				t.Fatalf("after %d cycles %s dim %d = %v above ceiling %v (gf=%v)",
+					cycles, c.Name, d, got, hi, gf[d])
 			}
 		}
 	}

@@ -211,9 +211,14 @@ func TestCampaignShowdownFailureBeforeFirstHoldRequiresNewAttack(t *testing.T) {
 	s.Campaign.Perks = []string{"consumer-premium", "consumer-resilience"}
 	s.Campaign.Cycle = 10
 	s.Campaign.Primary = model.RivalRoadmap{Company: "OpenAI", ActionIndex: 0, CyclesUntilAction: 2}
-	// OpenAI starts tied with the player; the telegraphed flagship action
-	// raises capability and moves it ahead of the rank-1 showdown gate.
-	s.Competitors = []model.Competitor{{Name: "OpenAI", Quality: [4]float64{80, 80, 80, 80}}}
+	// OpenAI starts tied on quality; skill at the ceiling makes the flagship
+	// gap-close toward GF×1.15 so capability moves ahead of the rank-1 gate.
+	// (Skill 0 would target the soft floor and pull quality down instead.)
+	s.Competitors = []model.Competitor{{
+		Name:    "OpenAI",
+		Quality: [4]float64{80, 80, 80, 80},
+		Skill:   [4]float64{rivalCeilPct, rivalCeilPct, rivalCeilPct, rivalCeilPct},
+	}}
 
 	started, entries := advanceCampaignProgress(s, b)
 	if started.Campaign.ShowdownStartedCycle != 10 || started.Campaign.Primary.CyclesUntilAction != 1 {

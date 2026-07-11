@@ -65,6 +65,37 @@ func TestBankruptcyAutoRestarts(t *testing.T) {
 	}
 }
 
+func TestManualRestartClearsProgressionKeepsPrestige(t *testing.T) {
+	m := testModel(t)
+	m.state.Prestige.Patents = 4
+	m.state.Prestige.UnlockedPrestige = []string{"start-cash-1"}
+	m.state.Prestige.RouteBadges = []model.Doctrine{model.DoctrineConsumer}
+	m.state.Progression = model.ProgressionState{
+		MaxUnlockedGen: 9,
+		IndustryTime:   12345,
+		Frontier:       model.FrontierProject{Active: true, TargetGen: 10, AllocationPct: 50},
+		Eras:           []model.EraProgress{{Era: 3, UnlockedMask: 0b11}},
+		Rivals:         model.RivalEraState{Era: 3, Leaders: []string{"OpenAI"}},
+	}
+	m.state.Models = []model.Model{{Online: true, Gen: 9}}
+	// Confirm restart.
+	nm, _ := m.Update(key("X"))
+	nm2, _ := nm.(Model).Update(key("X"))
+	g := nm2.(Model)
+	if g.state.Progression.MaxUnlockedGen != 1 || g.state.Progression.Frontier.Active || g.state.Progression.IndustryTime != 0 {
+		t.Fatalf("restart should clear progression: %+v", g.state.Progression)
+	}
+	if len(g.state.Progression.Eras) != 0 || len(g.state.Progression.Rivals.Leaders) != 0 {
+		t.Fatalf("era/rivals not cleared: %+v", g.state.Progression)
+	}
+	if g.state.Prestige.Patents < 4 {
+		t.Fatalf("patents not preserved: %v", g.state.Prestige.Patents)
+	}
+	if len(g.state.Prestige.UnlockedPrestige) != 1 || g.state.Prestige.RouteBadges[0] != model.DoctrineConsumer {
+		t.Fatalf("permanent prestige lost: %+v", g.state.Prestige)
+	}
+}
+
 func TestBankruptcySkipsActiveCampaign(t *testing.T) {
 	m := testModel(t)
 	m.state.Campaign.Doctrine = model.DoctrineConsumer

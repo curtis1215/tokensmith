@@ -402,14 +402,16 @@ func TestCompetitorTracksPlayerNoRunaway(t *testing.T) {
 		s = Tick(s, 3600, nil, b)
 	}
 	got := s.Competitors[0].Quality[model.DimCapability]
-	// Long horizon stays inside the 85%–115% global-frontier band.
-	if got < 60*0.85-1e-6 || got > 60*1.15+1e-6 {
-		t.Fatalf("competitor left frontier band around 60: got %v", got)
+	// Long horizon must not exceed the anti-runaway ceiling GF×1.15.
+	if got > 60*1.15+1e-6 {
+		t.Fatalf("competitor exceeded ceiling around 60: got %v", got)
+	}
+	if got <= 10 {
+		t.Fatalf("competitor should catch up from 10, got %v", got)
 	}
 }
 
-// Bounded league: with a Gen1-cap model online, rivals stay inside the
-// global-frontier band rather than running away past Gen2.
+// Bounded league: with a Gen1-cap model online, rivals may not run away past GF×1.15.
 func TestCompetitorCatchupRespectsGen1FarmWindow(t *testing.T) {
 	b := balance.Default()
 	c := model.Competitor{Name: "OpenAI"}
@@ -427,9 +429,12 @@ func TestCompetitorCatchupRespectsGen1FarmWindow(t *testing.T) {
 		left -= step
 	}
 	got := s.Competitors[0].Quality[model.DimCapability]
-	lo, hi := 25*rivalFloorPct, 25*rivalCeilPct
-	if got < lo-1e-6 || got > hi+1e-6 {
-		t.Fatalf("after 14d Gen1-only, rival cap=%v outside band [%v, %v]", got, lo, hi)
+	hi := 25 * rivalCeilPct
+	if got > hi+1e-6 {
+		t.Fatalf("after 14d Gen1-only, rival cap=%v above ceiling %v", got, hi)
+	}
+	if got <= 10 {
+		t.Fatalf("rival should still inch up from 10, got %v", got)
 	}
 }
 
@@ -443,10 +448,12 @@ func rival(cap float64) model.Competitor {
 func TestTickCompetitorHalvesUserTarget(t *testing.T) {
 	b := balance.Default()
 	pinLegacyBalance(&b)
-	// your model appeal 20 (cap 50 * 0.4). equal competitor appeal 20 → share 0.5.
+	// Equal appeal on capability only; skill=1 so league target matches player.
+	// Disable industry catch-up for this micro-step so quality stays put.
+	b.CompetitorCatchupRate = 0
 	s := model.GameState{
 		Models:      []model.Model{onlineModel(50, b.RefPrice)},
-		Competitors: []model.Competitor{rival(50)}, // GrowthPerSec 0 → stays 20
+		Competitors: []model.Competitor{rival(50)}, // appeal 20
 	}
 	ns := Tick(s, 1, nil, b)
 	want := 10000.0 * (1.0 - math.Exp(-b.UserGrowthRate*1))
@@ -458,15 +465,18 @@ func TestTickCompetitorHalvesUserTarget(t *testing.T) {
 func TestTickStrongCompetitorChurnsUsers(t *testing.T) {
 	b := balance.Default()
 	pinLegacyBalance(&b)
+	b.CompetitorCatchupRate = 0      // freeze league approach; ceiling still clamps
 	m := onlineModel(50, b.RefPrice) // appeal 20
-	m.Users = 5000
+	// Rival quality is ceiling-clamped to GF×1.15 (~57.5 → appeal ~23, share ~0.465),
+	// so equilibrium target is ~9300. Start above that so competition still churns.
+	m.Users = 12000
 	s := model.GameState{
 		Models:      []model.Model{m},
-		Competitors: []model.Competitor{rival(200)}, // appeal 80 → share 0.2 → target 4000 < 5000
+		Competitors: []model.Competitor{rival(200)},
 	}
 	ns := Tick(s, 1, nil, b)
-	if ns.Models[0].Users >= 5000 {
-		t.Fatalf("Users = %v, want < 5000 (churn vs strong competitor)", ns.Models[0].Users)
+	if ns.Models[0].Users >= 12000 {
+		t.Fatalf("Users = %v, want < 12000 (churn vs strong competitor)", ns.Models[0].Users)
 	}
 }
 

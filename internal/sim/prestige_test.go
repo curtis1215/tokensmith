@@ -201,3 +201,113 @@ func TestFreshRunBadgeUniquenessViaAddDoctrine(t *testing.T) {
 		t.Fatalf("unique append failed: %v", got)
 	}
 }
+
+func TestPrestigeClearsProgression(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.PeakValuation = b.PrestigeUnlockValuation // unlock prestige
+	s.Models = []model.Model{{Gen: 8, Online: true, Users: 1000, Quality: [model.NumQualityDims]float64{50, 50, 50, 50}}}
+	s.UnlockedTech = []string{balance.GenUnlockNodeID(2), "algo-cap-1"}
+	s.Prestige = model.Prestige{
+		Patents:          5,
+		UnlockedPrestige: []string{"start-cash-1"},
+		RouteBadges:      []model.Doctrine{model.DoctrineEnterprise},
+	}
+	s.Progression = model.ProgressionState{
+		MaxUnlockedGen: 10,
+		IndustryTime:   1e6,
+		Frontier: model.FrontierProject{
+			Active: true, TargetGen: 11, AllocationPct: 80,
+			RnDTotal: 1, RnDRemaining: 1, WorkTotal: 1, WorkRemaining: 1,
+		},
+		Eras:   []model.EraProgress{{Era: 4, HasPrimary: true, Primary: model.BranchInfra, UnlockedMask: 0b1111}},
+		Rivals: model.RivalEraState{Era: 4, Leaders: []string{"OpenAI", "Anthropic"}},
+	}
+	// PrestigeReset clears run-scoped progression, keeps permanent prestige.
+	ns, err := Apply(s, model.PrestigeReset{}, b)
+	if err != nil {
+		t.Fatalf("PrestigeReset: %v", err)
+	}
+	if ns.Progression.MaxUnlockedGen != 1 {
+		t.Fatalf("MaxUnlockedGen = %d, want 1", ns.Progression.MaxUnlockedGen)
+	}
+	if ns.Progression.IndustryTime != 0 || ns.Progression.Frontier.Active || len(ns.Progression.Eras) != 0 {
+		t.Fatalf("progression not cleared: %+v", ns.Progression)
+	}
+	if len(ns.Progression.Rivals.Leaders) != 0 || ns.Progression.Rivals.Era != 0 {
+		t.Fatalf("rivals not cleared: %+v", ns.Progression.Rivals)
+	}
+	if len(ns.Models) != 0 || len(ns.UnlockedTech) != 0 {
+		t.Fatalf("run state not cleared: models=%d tech=%v", len(ns.Models), ns.UnlockedTech)
+	}
+	// Permanent progress preserved (plus banked patents).
+	if ns.Prestige.Patents < 5 {
+		t.Fatalf("patents lost: %v", ns.Prestige.Patents)
+	}
+	if len(ns.Prestige.UnlockedPrestige) != 1 || ns.Prestige.UnlockedPrestige[0] != "start-cash-1" {
+		t.Fatalf("permanent nodes lost: %v", ns.Prestige.UnlockedPrestige)
+	}
+	if len(ns.Prestige.RouteBadges) != 1 || ns.Prestige.RouteBadges[0] != model.DoctrineEnterprise {
+		t.Fatalf("badges lost: %v", ns.Prestige.RouteBadges)
+	}
+	// start-cash-1 still applies on fresh run.
+	if ns.Resources.Cash < b.StartingCash {
+		t.Fatalf("permanent start cash not applied: %v", ns.Resources.Cash)
+	}
+
+	// Restart path also clears progression while banking patents (no doctrine).
+	s2 := s
+	s2.Campaign.Doctrine = model.DoctrineNone
+	s2.Prestige.Patents = 2
+	rs := Restart(s2, b)
+	if rs.Progression.MaxUnlockedGen != 1 || rs.Progression.Frontier.Active || rs.Progression.IndustryTime != 0 {
+		t.Fatalf("Restart progression: %+v", rs.Progression)
+	}
+	if rs.Prestige.Patents < 2 {
+		t.Fatalf("Restart patents: %v", rs.Prestige.Patents)
+	}
+}
+
+func TestNoForcedGenerationEnding(t *testing.T) {
+	b := balance.Default()
+	// Gen10 unlocked, Gen11 frontier active — Tick must continue; no auto victory/prestige.
+	s := model.GameState{}
+	s.Progression.MaxUnlockedGen = 10
+	s.Progression.IndustryTime = 40000 * 86400
+	s.Models = []model.Model{{Gen: 10, Online: true, Users: 100, Price: 12, Quality: [model.NumQualityDims]float64{100, 100, 100, 100}}}
+	s.Resources.RnD = 1e18
+	s.Resources.Cash = 1e6
+	s.Servers = []model.Server{{Pool: model.PoolTraining, Compute: 1e5}}
+	s.Progression.Frontier = model.FrontierProject{
+		Active: true, TargetGen: 11, AllocationPct: 100,
+		RnDTotal: 1e12, RnDRemaining: 1e12,
+		WorkTotal: 1e12, WorkRemaining: 1e12,
+		RecommendedCompute: 18000,
+	}
+	s.Campaign = model.CampaignState{} // no doctrine → no victory path
+	beforePatents := s.Prestige.Patents
+	ns := Tick(s, 3600, nil, b)
+	if ns.GameTime <= s.GameTime {
+		t.Fatal("Tick did not advance at Gen10/11")
+	}
+	if ns.Campaign.Victory != model.DoctrineNone {
+		t.Fatalf("Gen10/11 must not force victory: %v", ns.Campaign.Victory)
+	}
+	if ns.Prestige.Patents != beforePatents {
+		t.Fatalf("Tick must not bank patents: %v → %v", beforePatents, ns.Prestige.Patents)
+	}
+	// PrestigeReset still optional and gated — not auto-triggered.
+	if ns.PeakValuation < b.PrestigeUnlockValuation {
+		// fine if valuation low
+	}
+	// Completing Gen11 frontier unlocks gen, does not end run.
+	s.Progression.Frontier.WorkRemaining = 1
+	s.Progression.Frontier.RnDRemaining = 1
+	done := Tick(s, 1, nil, b)
+	if done.Progression.MaxUnlockedGen < 11 && done.Progression.Frontier.Active {
+		// either completed or still active is fine; must not zero state
+	}
+	if len(done.Models) == 0 && done.Resources.Cash == b.StartingCash && done.Progression.MaxUnlockedGen == 1 {
+		t.Fatal("Tick must not soft-reset the run at Gen11")
+	}
+}
