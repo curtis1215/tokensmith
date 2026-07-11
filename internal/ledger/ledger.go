@@ -14,12 +14,14 @@ import (
 )
 
 // Ledger is the monotonically-growing per-source harvest totals plus durable
-// cursors. Sources is keyed by TokenEvent.Source ("claude-code" / "codex").
+// append cursors and mutable-source snapshot watermarks. Sources is keyed by
+// TokenEvent.Source (for example "claude-code", "codex", "grok", "opencode").
 // Older ledger.json files used flat cumIn/cumOut ints instead of Sources —
 // those legacy fields are simply absent from a freshly-loaded Ledger (zero
 // value), which the daemon treats as "start counting from here."
 type Ledger struct {
 	Sources   map[string]model.SourceTotals `json:"sources"`
+	Snapshots map[string]model.SourceTotals `json:"snapshots,omitempty"`
 	UpdatedAt int64                         `json:"updatedAt"`
 	Cursors   []ingest.CursorState          `json:"cursors,omitempty"`
 }

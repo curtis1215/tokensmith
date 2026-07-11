@@ -19,6 +19,10 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 			"claude-code": {In: 100, Out: 50},
 			"codex":       {In: 20, Out: 10},
 		},
+		Snapshots: map[string]model.SourceTotals{
+			"grok":     {In: 500},
+			"opencode": {In: 80, Out: 40},
+		},
 		UpdatedAt: 1700000000,
 		Cursors:   []ingest.CursorState{{Path: "/x.jsonl", Inode: 7, Offset: 42}},
 	}
@@ -34,6 +38,10 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 	if got.Sources["codex"] != (model.SourceTotals{In: 20, Out: 10}) {
 		t.Fatalf("codex totals not round-tripped: %+v", got.Sources["codex"])
+	}
+	if got.Snapshots["grok"] != (model.SourceTotals{In: 500}) ||
+		got.Snapshots["opencode"] != (model.SourceTotals{In: 80, Out: 40}) {
+		t.Fatalf("snapshot watermarks not round-tripped: %+v", got.Snapshots)
 	}
 	if got.UpdatedAt != 1700000000 {
 		t.Fatalf("UpdatedAt not round-tripped: %v", got.UpdatedAt)

@@ -5,7 +5,7 @@ Reference for humans and agents: how to install, run, and release the game.
 ## What it is
 
 - Terminal (TUI) management/idle game about running an AI company, written in Go (module `tokensmith`, Go 1.22+; `go.mod` pins 1.25).
-- **Signature mechanic:** it harvests your *real* Claude Code / Codex token usage (from `~/.claude/projects` and `~/.codex/sessions` JSONL logs) and converts it into in-game R&D.
+- **Signature mechanic:** it automatically harvests real Claude Code, Codex, standalone Grok CLI, and OpenCode usage and converts it into in-game R&D. Collection is local/read-only and requires no per-agent registration.
 - **Two binaries:**
   - `tokensmith` — the game (Bubble Tea TUI). Entry: `main.go`.
   - `tokensmithd` — background daemon that continuously harvests token logs into a ledger the game consumes. Entry: `cmd/tokensmithd/main.go`.
@@ -38,7 +38,7 @@ go build -o tokensmithd ./cmd/tokensmithd   # the daemon
 ## Run / usage
 
 - `tokensmith` — launch the TUI game. Keys are shown per page (Tab switches pages; `q` quits and saves).
-- `tokensmithd` — background daemon: every ~5s it tails `~/.claude` + `~/.codex` and accumulates token usage into `ledger.json` (with durable cursors). Start via `brew services start tokensmith`, or run directly: `./tokensmithd &`.
+- `tokensmithd` — background daemon: every ~5s it tails/snapshots the supported local tool stores and accumulates token usage into `ledger.json` (with durable cursors and snapshot watermarks). Start via `brew services start tokensmith`, or run directly: `./tokensmithd &`.
 - Without a running daemon the game falls back to its built-in poller (standalone mode); the daemon adds continuous + offline capture.
 - `tokensmith --version` / `tokensmithd --version` print the build version.
 
@@ -49,9 +49,20 @@ go build -o tokensmithd ./cmd/tokensmithd   # the daemon
 | File | Owner | Purpose |
 |---|---|---|
 | `save.json` | game | game save (autosaved ~every 40 ticks + on quit) |
-| `ledger.json` | daemon | cumulative token harvest + per-file cursors |
+| `ledger.json` | daemon | cumulative token harvest + per-file cursors + snapshot watermarks |
 | `meta.json` | game | consumed-token watermark + last-play wall time (for offline settlement) |
 | `ledger.json.lock` | daemon | single-instance PID lock |
+
+### Automatically discovered usage sources
+
+| Tool source | Locations | Accounting |
+|---|---|---|
+| Claude Code | `~/.claude/projects/**/*.jsonl` | Exact input/output deltas |
+| Codex | `$CODEX_HOME/sessions`, `~/.codex/sessions`, and Orca's Codex runtime sessions | Exact `token_count` deltas; hard-linked rollouts are deduplicated |
+| Grok CLI | `$GROK_HOME/sessions/**/signals.json` or `~/.grok/sessions/**/signals.json` | Estimated cumulative context tokens; shown as estimated in the TUI |
+| OpenCode | `$XDG_DATA_HOME/opencode/opencode.db` or `~/.local/share/opencode/opencode.db` | Exact completed assistant input/output tokens, regardless of selected model provider |
+
+Existing history is primed when a source is first discovered and is not awarded retroactively. Quota percentages, billing cents, browser cookies, and OAuth credentials are not used for R&D.
 
 **Reset a run** (needed after balance changes): quit the game, `rm ~/Library/Application\ Support/tokensmith/save.json`, relaunch.
 
@@ -108,7 +119,7 @@ Requires `goreleaser` (`brew install goreleaser`) and a clean tree on the tag. G
 | `internal/model` | shared value types (pure, no deps) |
 | `internal/balance` | all tunable numbers (`Config`, `Default()`) |
 | `internal/sim` | pure deterministic simulation core — **no wall-clock/rand/IO; time advances only via `dt`** |
-| `internal/ingest` | reads Claude/Codex JSONL token logs (poller + cursors) |
+| `internal/ingest` | reads Claude/Codex JSONL plus Grok/OpenCode cumulative snapshots |
 | `internal/ledger` / `internal/store` | persistence (ledger; save + meta) |
 | `internal/daemon` | harvest loop + single-instance lock |
 | `internal/game` | new-run seeding |

@@ -100,6 +100,22 @@ func TestRenderResourceBarShowsPerSourceRnD(t *testing.T) {
 	}
 }
 
+func TestRenderResourceBarShowsGrokEstimateAndOpenCode(t *testing.T) {
+	m := testModel(t)
+	m.lastTokenRnD = map[string]float64{"opencode": 955, "grok": 730}
+	m.disp.PulseToken = 5
+	bar := renderResourceBar(m)
+	if !strings.Contains(bar, "Grok（估算） +730 R&D") {
+		t.Fatalf("expected estimated Grok segment, got:\n%s", bar)
+	}
+	if !strings.Contains(bar, "OpenCode +955 R&D") {
+		t.Fatalf("expected OpenCode segment, got:\n%s", bar)
+	}
+	if strings.Index(bar, "Grok（估算）") > strings.Index(bar, "OpenCode") {
+		t.Fatalf("known sources should use stable order, got:\n%s", bar)
+	}
+}
+
 // TestPerSourceRnDDisplayIncludesPrestigeMult proves the status-bar per-source
 // R&D includes pe.RnDMult (e.g. rnd-mult-1 → 1.1x), matching what sim.Tick
 // actually books — without this, prestiging permanently under-reports the bar.

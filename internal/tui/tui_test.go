@@ -20,6 +20,19 @@ func ingestEmptyPoller(t *testing.T) *ingest.Poller {
 	return ingest.NewPoller(t.TempDir(), t.TempDir())
 }
 
+type fakeSnapshotSource struct {
+	source string
+	totals model.SourceTotals
+	absent bool
+	calls  int
+}
+
+func (s *fakeSnapshotSource) Source() string { return s.source }
+func (s *fakeSnapshotSource) Totals() (model.SourceTotals, bool, error) {
+	s.calls++
+	return s.totals, !s.absent, nil
+}
+
 func TestUpdateTickAdvancesState(t *testing.T) {
 	m := newAt(filepath.Join(t.TempDir(), "s.json"))
 	m.poller = ingestEmptyPoller(t)
@@ -85,6 +98,64 @@ func TestTickPollsTokens(t *testing.T) {
 	nm, _ := m.Update(tickMsg(time.Unix(0, 0)))
 	if nm.(Model).state.GameTime <= before {
 		t.Fatalf("tick did not advance after polling")
+	}
+}
+
+func TestStandaloneSnapshotSourcesPrimeThenEmitDelta(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "s.json"))
+	m.poller = ingestEmptyPoller(t)
+	grok := &fakeSnapshotSource{source: "grok", totals: model.SourceTotals{In: 100}}
+	m.snapshotSources = []ingest.SnapshotSource{grok}
+	m.primeSnapshotSources()
+
+	for range snapshotPollEveryTicks - 1 {
+		if got := m.pollTokens(); len(got) != 0 {
+			t.Fatalf("primed snapshot emitted history: %+v", got)
+		}
+	}
+	grok.totals = model.SourceTotals{In: 135}
+	got := m.pollTokens()
+	if len(got) != 1 || got[0].Source != "grok" || got[0].InputTokens != 35 {
+		t.Fatalf("snapshot delta = %+v, want one grok event with In=35", got)
+	}
+}
+
+func TestInitPrimesStandaloneSnapshotMapAcrossValueReceiver(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "s.json"))
+	m.poller = ingestEmptyPoller(t)
+	grok := &fakeSnapshotSource{source: "grok", totals: model.SourceTotals{In: 400}}
+	m.snapshotSources = []ingest.SnapshotSource{grok}
+	m.snapshotTotals = make(map[string]model.SourceTotals)
+	_ = m.Init()
+
+	grok.totals = model.SourceTotals{In: 425}
+	var got []model.TokenEvent
+	for range snapshotPollEveryTicks {
+		got = m.pollTokens()
+	}
+	if len(got) != 1 || got[0].InputTokens != 25 {
+		t.Fatalf("Init baseline did not survive value receiver: %+v", got)
+	}
+}
+
+func TestStandaloneSnapshotPollingIsThrottled(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "s.json"))
+	m.poller = ingestEmptyPoller(t)
+	source := &fakeSnapshotSource{source: "opencode", totals: model.SourceTotals{In: 100}}
+	m.snapshotSources = []ingest.SnapshotSource{source}
+	m.primeSnapshotSources()
+	if source.calls != 1 {
+		t.Fatalf("prime calls = %d, want 1", source.calls)
+	}
+	for range snapshotPollEveryTicks - 1 {
+		m.pollTokens()
+	}
+	if source.calls != 1 {
+		t.Fatalf("snapshot queried during throttle window: %d calls", source.calls)
+	}
+	m.pollTokens()
+	if source.calls != 2 {
+		t.Fatalf("snapshot not queried after throttle window: %d calls", source.calls)
 	}
 }
 

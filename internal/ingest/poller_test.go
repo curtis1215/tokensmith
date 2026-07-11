@@ -125,3 +125,117 @@ func TestPollerDedupsByMessageID(t *testing.T) {
 		t.Fatalf("poll = %d events, want 2 (deduped by message id)", len(got))
 	}
 }
+
+func TestCodexSessionRootsIncludeDefaultEnvAndOrcaWithoutDuplicates(t *testing.T) {
+	home := t.TempDir()
+	custom := filepath.Join(home, "custom-codex")
+	roots := CodexSessionRoots(home, map[string]string{"CODEX_HOME": custom})
+
+	want := []string{
+		filepath.Join(custom, "sessions"),
+		filepath.Join(home, ".codex", "sessions"),
+		filepath.Join(home, "Library", "Application Support", "orca", "codex-runtime-home", "home", "sessions"),
+	}
+	if len(roots) != len(want) {
+		t.Fatalf("CodexSessionRoots = %v, want %v", roots, want)
+	}
+	for i := range want {
+		if roots[i] != want[i] {
+			t.Fatalf("root[%d] = %q, want %q", i, roots[i], want[i])
+		}
+	}
+
+	dup := CodexSessionRoots(home, map[string]string{"CODEX_HOME": filepath.Join(home, ".codex")})
+	if len(dup) != 2 {
+		t.Fatalf("duplicate CODEX_HOME should collapse, got %v", dup)
+	}
+}
+
+func TestPollerReadsMultipleCodexRoots(t *testing.T) {
+	claude := t.TempDir()
+	codexA, codexB := t.TempDir(), t.TempDir()
+	line := `{"timestamp":"2026-07-07T10:59:19Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":30,"output_tokens":15}}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(codexA, "a.jsonl"), []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexB, "b.jsonl"), []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := NewPollerWithRoots([]string{claude}, []string{codexA, codexB, codexA})
+	if got := p.Poll(); len(got) != 2 {
+		t.Fatalf("multi-root poll = %d events, want 2", len(got))
+	}
+}
+
+func TestPollerDoesNotDoubleReadHardLinkedSessionAcrossRoots(t *testing.T) {
+	codexA, codexB := t.TempDir(), t.TempDir()
+	original := filepath.Join(codexA, "shared.jsonl")
+	linked := filepath.Join(codexB, "shared.jsonl")
+	line := `{"timestamp":"2026-07-07T10:59:19Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":30,"output_tokens":15}}}}` + "\n"
+	if err := os.WriteFile(original, []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(original, linked); err != nil {
+		t.Skipf("hard links unavailable: %v", err)
+	}
+
+	p := NewPollerWithRoots(nil, []string{codexA, codexB})
+	if got := p.Poll(); len(got) != 1 {
+		t.Fatalf("hard-linked rollout emitted %d events, want 1", len(got))
+	}
+}
+
+func TestPollerInheritsCursorWhenHardLinkAppearsInEarlierRootLater(t *testing.T) {
+	codexA, codexB := t.TempDir(), t.TempDir()
+	original := filepath.Join(codexB, "shared.jsonl")
+	lateLink := filepath.Join(codexA, "shared.jsonl")
+	line := `{"timestamp":"2026-07-07T10:59:19Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":30,"output_tokens":15}}}}` + "\n"
+	if err := os.WriteFile(original, []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := NewPollerWithRoots(nil, []string{codexA, codexB})
+	if got := p.Poll(); len(got) != 1 {
+		t.Fatalf("initial poll = %d events, want 1", len(got))
+	}
+	if err := os.Link(original, lateLink); err != nil {
+		t.Skipf("hard links unavailable: %v", err)
+	}
+	if got := p.Poll(); len(got) != 0 {
+		t.Fatalf("late hard link replayed %d historical events, want 0", len(got))
+	}
+	af, err := os.OpenFile(original, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := af.WriteString(line); err != nil {
+		t.Fatal(err)
+	}
+	if err := af.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Poll(); len(got) != 1 {
+		t.Fatalf("new data through hard links emitted %d events, want 1", len(got))
+	}
+}
+
+func TestSnapshotSourcePathsRespectEnvironment(t *testing.T) {
+	home := t.TempDir()
+	env := map[string]string{
+		"GROK_HOME":     filepath.Join(home, "grok-custom"),
+		"XDG_DATA_HOME": filepath.Join(home, "xdg-data"),
+	}
+	if got := GrokHome(home, env); got != env["GROK_HOME"] {
+		t.Fatalf("GrokHome = %q, want %q", got, env["GROK_HOME"])
+	}
+	if got := OpenCodeDatabasePath(home, env); got != filepath.Join(env["XDG_DATA_HOME"], "opencode", "opencode.db") {
+		t.Fatalf("OpenCodeDatabasePath = %q", got)
+	}
+
+	if got := GrokHome(home, nil); got != filepath.Join(home, ".grok") {
+		t.Fatalf("default GrokHome = %q", got)
+	}
+	if got := OpenCodeDatabasePath(home, nil); got != filepath.Join(home, ".local", "share", "opencode", "opencode.db") {
+		t.Fatalf("default OpenCodeDatabasePath = %q", got)
+	}
+}

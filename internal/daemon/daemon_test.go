@@ -1,14 +1,50 @@
 package daemon
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"tokensmith/internal/ingest"
 	"tokensmith/internal/ledger"
+	"tokensmith/internal/model"
 )
+
+type fakeSnapshotSource struct {
+	source string
+	totals model.SourceTotals
+	absent bool
+	err    error
+}
+
+func (s *fakeSnapshotSource) Source() string { return s.source }
+func (s *fakeSnapshotSource) Totals() (model.SourceTotals, bool, error) {
+	return s.totals, !s.absent, s.err
+}
+
+func TestHarvesterSnapshotErrorStillPersistsHealthySources(t *testing.T) {
+	lp := filepath.Join(t.TempDir(), "ledger.json")
+	good := &fakeSnapshotSource{source: "opencode", totals: model.SourceTotals{In: 10}}
+	bad := &fakeSnapshotSource{source: "grok", err: errors.New("temporarily unavailable")}
+	h := NewWithSources(nil, nil, []ingest.SnapshotSource{good, bad}, lp)
+	if err := h.Step(1000); err == nil {
+		t.Fatal("snapshot failure should be reported")
+	}
+	good.totals = model.SourceTotals{In: 15}
+	if err := h.Step(1001); err == nil {
+		t.Fatal("snapshot failure should remain visible")
+	}
+	got, ok, err := ledger.Load(lp)
+	if err != nil || !ok {
+		t.Fatalf("healthy ledger update was not persisted: ok=%v err=%v", ok, err)
+	}
+	if got.Sources["opencode"] != (model.SourceTotals{In: 5}) {
+		t.Fatalf("healthy snapshot delta missing: %+v", got.Sources)
+	}
+}
 
 func writeLine(t *testing.T, f, id string) {
 	line := `{"type":"assistant","timestamp":"2026-07-07T10:59:19Z","message":{"id":"` + id + `","usage":{"input_tokens":100,"output_tokens":50}}}` + "\n"
@@ -148,5 +184,96 @@ func TestHarvesterPrimesHistoryOnFirstStart(t *testing.T) {
 	h.Step(1001)
 	if l := h.Ledger(); l.TotalIn() != 100 {
 		t.Fatalf("post-prime line should count, got %+v", l)
+	}
+}
+
+func TestHarvesterSnapshotSourcesPrimeDeltaAndRebaseline(t *testing.T) {
+	lp := filepath.Join(t.TempDir(), "ledger.json")
+	grok := &fakeSnapshotSource{source: "grok", totals: model.SourceTotals{In: 1000}}
+	opencode := &fakeSnapshotSource{source: "opencode", totals: model.SourceTotals{In: 200, Out: 50}}
+	h := NewWithSources(nil, nil, []ingest.SnapshotSource{grok, opencode}, lp)
+
+	// Existing source history is a baseline, not an initial windfall.
+	if err := h.Step(1000); err != nil {
+		t.Fatal(err)
+	}
+	if l := h.Ledger(); l.TotalIn() != 0 || l.TotalOut() != 0 {
+		t.Fatalf("first snapshot observation must prime only: %+v", l)
+	}
+	if l := h.Ledger(); l.Snapshots["grok"] != (model.SourceTotals{In: 1000}) ||
+		l.Snapshots["opencode"] != (model.SourceTotals{In: 200, Out: 50}) {
+		t.Fatalf("snapshot baselines not persisted in memory: %+v", l.Snapshots)
+	}
+
+	grok.totals = model.SourceTotals{In: 1120}
+	opencode.totals = model.SourceTotals{In: 230, Out: 59}
+	if err := h.Step(1001); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.Ledger().Sources["grok"]; got != (model.SourceTotals{In: 120}) {
+		t.Fatalf("Grok delta = %+v, want In=120", got)
+	}
+	if got := h.Ledger().Sources["opencode"]; got != (model.SourceTotals{In: 30, Out: 9}) {
+		t.Fatalf("OpenCode delta = %+v, want 30/9", got)
+	}
+
+	// Cleanup or DB rebuild may reduce a cumulative snapshot. Rebaseline now,
+	// then count growth from the new lower value on the next step.
+	grok.totals = model.SourceTotals{In: 20}
+	if err := h.Step(1002); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.Ledger().Sources["grok"]; got != (model.SourceTotals{In: 120}) {
+		t.Fatalf("decrease must not add or subtract credits: %+v", got)
+	}
+	grok.totals = model.SourceTotals{In: 27}
+	if err := h.Step(1003); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.Ledger().Sources["grok"]; got != (model.SourceTotals{In: 127}) {
+		t.Fatalf("post-rebaseline growth = %+v, want In=127", got)
+	}
+
+	// A restart resumes the persisted snapshot watermark.
+	grok.totals = model.SourceTotals{In: 30}
+	h2 := NewWithSources(nil, nil, []ingest.SnapshotSource{grok}, lp)
+	if err := h2.Step(1004); err != nil {
+		t.Fatal(err)
+	}
+	if got := h2.Ledger().Sources["grok"]; got != (model.SourceTotals{In: 130}) {
+		t.Fatalf("restart snapshot delta = %+v, want In=130", got)
+	}
+}
+
+func TestHarvesterSnapshotAbsencePreservesPersistedWatermark(t *testing.T) {
+	lp := filepath.Join(t.TempDir(), "ledger.json")
+	source := &fakeSnapshotSource{source: "opencode", totals: model.SourceTotals{In: 100, Out: 20}}
+	h := NewWithSources(nil, nil, []ingest.SnapshotSource{source}, lp)
+	if err := h.Step(1000); err != nil {
+		t.Fatal(err)
+	}
+	source.totals = model.SourceTotals{In: 110, Out: 25}
+	if err := h.Step(1001); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate a daemon restart while an optional source is unmounted. Its
+	// persisted high-water mark must remain intact rather than becoming zero.
+	source.absent = true
+	h2 := NewWithSources(nil, nil, []ingest.SnapshotSource{source}, lp)
+	if err := h2.Step(1002); err != nil {
+		t.Fatal(err)
+	}
+	if got := h2.Ledger().Snapshots["opencode"]; got != (model.SourceTotals{In: 110, Out: 25}) {
+		t.Fatalf("absence changed watermark to %+v", got)
+	}
+
+	// Restoring the same database must not replay all of its history.
+	source.absent = false
+	if err := h2.Step(1003); err != nil {
+		t.Fatal(err)
+	}
+	if got := h2.Ledger().Sources["opencode"]; got != (model.SourceTotals{In: 10, Out: 5}) {
+		t.Fatalf("restored source replayed history: %+v", got)
 	}
 }

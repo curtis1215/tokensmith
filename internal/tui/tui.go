@@ -30,6 +30,10 @@ const tickInterval = 250 * time.Millisecond
 // ticksPerRealSec is the tick frequency (250ms interval).
 const ticksPerRealSec = 4
 
+// snapshotPollEveryTicks keeps standalone SQLite/filesystem snapshots off the
+// 250ms render loop. Append-only JSONL polling remains per tick.
+const snapshotPollEveryTicks = 5 * ticksPerRealSec
+
 // gameSecPerRealSec converts a per-game-second rate to the per-real-second rate
 // the player actually perceives (each real second advances several ticks of
 // tickDT game-seconds).
@@ -64,23 +68,26 @@ var pageNames = [numPages]string{"總覽", "模型", "市場", "算力", "團隊
 
 // Model is the Bubble Tea root model.
 type Model struct {
-	state           model.GameState
-	cfg             balance.Config
-	poller          *ingest.Poller
-	savePath        string
-	ticksSinceSave  int
-	page            Page
-	dialog          *trainDialog       // non-nil while the training modal is open
-	publish         *publishDialog     // non-nil while the publish/price modal is open
-	event           *eventDialog       // non-nil while the event-choice modal is open
-	doctrineDialog  *doctrineDialog    // non-nil while doctrine/perk/secondary/pivot modal is open
-	directiveDialog *directiveDialog   // non-nil while executive-directive modal is open
-	campaignEnd     *campaignEndDialog // non-nil while victory/exit modal is open
-	campaignError   string             // last rejected campaign command; survives ticks
-	techCursor      int                // visible tech-entry index on the tech page
-	techEra         int                // selected era (1-based); 0 = current era
-	procCursor      int                // selected process node on the compute page
-	modelCursor     int                // selected index into state.Models on models page
+	state             model.GameState
+	cfg               balance.Config
+	poller            *ingest.Poller
+	snapshotSources   []ingest.SnapshotSource
+	snapshotTotals    map[string]model.SourceTotals
+	snapshotPollTicks int
+	savePath          string
+	ticksSinceSave    int
+	page              Page
+	dialog            *trainDialog       // non-nil while the training modal is open
+	publish           *publishDialog     // non-nil while the publish/price modal is open
+	event             *eventDialog       // non-nil while the event-choice modal is open
+	doctrineDialog    *doctrineDialog    // non-nil while doctrine/perk/secondary/pivot modal is open
+	directiveDialog   *directiveDialog   // non-nil while executive-directive modal is open
+	campaignEnd       *campaignEndDialog // non-nil while victory/exit modal is open
+	campaignError     string             // last rejected campaign command; survives ticks
+	techCursor        int                // visible tech-entry index on the tech page
+	techEra           int                // selected era (1-based); 0 = current era
+	procCursor        int                // selected process node on the compute page
+	modelCursor       int                // selected index into state.Models on models page
 	// Harvest-daemon integration (§10.2).
 	ledgerPath     string
 	metaPath       string
@@ -150,6 +157,8 @@ func (m *Model) pushBanner(mo Moment) {
 // with offline progress settled if a daemon ledger is present.
 func New() Model {
 	m := newAtPaths(store.DefaultPath(), ledger.DefaultPath(), store.DefaultMetaPath())
+	m.snapshotSources = ingest.NewDefaultSnapshotSources()
+	m.snapshotTotals = make(map[string]model.SourceTotals, len(m.snapshotSources))
 	return m.startup(time.Now().Unix())
 }
 
@@ -380,6 +389,7 @@ func (m Model) Init() tea.Cmd {
 	}
 	if !m.daemonMode {
 		m.poller.Prime() // standalone: start at end of logs, harvest new coding
+		m.primeSnapshotSources()
 	}
 	return tick()
 }
@@ -388,7 +398,13 @@ func (m Model) Init() tea.Cmd {
 // ledger (advancing the consumed watermark) or the built-in poller.
 func (m *Model) pollTokens() []model.TokenEvent {
 	if !m.daemonMode {
-		return m.poller.Poll()
+		events := m.poller.Poll()
+		m.snapshotPollTicks++
+		if m.snapshotPollTicks < snapshotPollEveryTicks {
+			return events
+		}
+		m.snapshotPollTicks = 0
+		return append(events, m.pollSnapshotSources()...)
 	}
 	l, ok, _ := ledger.Load(m.ledgerPath)
 	if !ok {
@@ -408,6 +424,46 @@ func (m *Model) pollTokens() []model.TokenEvent {
 		return nil
 	}
 	m.consumed = copySourceTotals(l.Sources)
+	return events
+}
+
+func (m *Model) primeSnapshotSources() {
+	m.snapshotPollTicks = 0
+	if m.snapshotTotals == nil {
+		m.snapshotTotals = make(map[string]model.SourceTotals, len(m.snapshotSources))
+	}
+	for _, source := range m.snapshotSources {
+		if totals, present, err := source.Totals(); err == nil && present {
+			m.snapshotTotals[source.Source()] = totals
+		}
+	}
+}
+
+func (m *Model) pollSnapshotSources() []model.TokenEvent {
+	if m.snapshotTotals == nil {
+		m.snapshotTotals = make(map[string]model.SourceTotals, len(m.snapshotSources))
+	}
+	var events []model.TokenEvent
+	for _, source := range m.snapshotSources {
+		current, present, err := source.Totals()
+		if err != nil || !present {
+			continue
+		}
+		name := source.Source()
+		previous, known := m.snapshotTotals[name]
+		m.snapshotTotals[name] = current
+		if !known || current.In < previous.In || current.Out < previous.Out {
+			continue
+		}
+		delta := model.TokenEvent{
+			Source:       name,
+			InputTokens:  current.In - previous.In,
+			OutputTokens: current.Out - previous.Out,
+		}
+		if delta.InputTokens > 0 || delta.OutputTokens > 0 {
+			events = append(events, delta)
+		}
+	}
 	return events
 }
 
@@ -1245,9 +1301,9 @@ func renderResourceBar(m Model) string {
 	return bar
 }
 
-// knownSourceOrder fixes the display order of the two known token sources;
+// knownSourceOrder fixes the display order of known token sources;
 // any future/unknown source is appended after them in map-iteration order.
-var knownSourceOrder = []string{"claude-code", "codex"}
+var knownSourceOrder = []string{"claude-code", "codex", "grok", "opencode"}
 
 // sourceKeysOrdered returns m's keys in a stable, deterministic order so the
 // status bar doesn't reorder itself between renders.
@@ -1275,6 +1331,10 @@ func sourceLabel(src string) string {
 		return "Claude Code"
 	case "codex":
 		return "Codex"
+	case "grok":
+		return "Grok（估算）"
+	case "opencode":
+		return "OpenCode"
 	default:
 		return src
 	}
