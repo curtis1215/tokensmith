@@ -20,6 +20,16 @@ func ingestEmptyPoller(t *testing.T) *ingest.Poller {
 	return ingest.NewPoller(t.TempDir(), t.TempDir())
 }
 
+type fakeSnapshotSource struct {
+	source string
+	totals model.SourceTotals
+}
+
+func (s *fakeSnapshotSource) Source() string { return s.source }
+func (s *fakeSnapshotSource) Totals() (model.SourceTotals, error) {
+	return s.totals, nil
+}
+
 func TestUpdateTickAdvancesState(t *testing.T) {
 	m := newAt(filepath.Join(t.TempDir(), "s.json"))
 	m.poller = ingestEmptyPoller(t)
@@ -85,6 +95,38 @@ func TestTickPollsTokens(t *testing.T) {
 	nm, _ := m.Update(tickMsg(time.Unix(0, 0)))
 	if nm.(Model).state.GameTime <= before {
 		t.Fatalf("tick did not advance after polling")
+	}
+}
+
+func TestStandaloneSnapshotSourcesPrimeThenEmitDelta(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "s.json"))
+	m.poller = ingestEmptyPoller(t)
+	grok := &fakeSnapshotSource{source: "grok", totals: model.SourceTotals{In: 100}}
+	m.snapshotSources = []ingest.SnapshotSource{grok}
+	m.primeSnapshotSources()
+
+	if got := m.pollTokens(); len(got) != 0 {
+		t.Fatalf("primed snapshot emitted history: %+v", got)
+	}
+	grok.totals = model.SourceTotals{In: 135}
+	got := m.pollTokens()
+	if len(got) != 1 || got[0].Source != "grok" || got[0].InputTokens != 35 {
+		t.Fatalf("snapshot delta = %+v, want one grok event with In=35", got)
+	}
+}
+
+func TestInitPrimesStandaloneSnapshotMapAcrossValueReceiver(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "s.json"))
+	m.poller = ingestEmptyPoller(t)
+	grok := &fakeSnapshotSource{source: "grok", totals: model.SourceTotals{In: 400}}
+	m.snapshotSources = []ingest.SnapshotSource{grok}
+	m.snapshotTotals = make(map[string]model.SourceTotals)
+	_ = m.Init()
+
+	grok.totals = model.SourceTotals{In: 425}
+	got := m.pollTokens()
+	if len(got) != 1 || got[0].InputTokens != 25 {
+		t.Fatalf("Init baseline did not survive value receiver: %+v", got)
 	}
 }
 

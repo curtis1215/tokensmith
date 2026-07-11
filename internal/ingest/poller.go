@@ -27,12 +27,24 @@ type fileCursor struct {
 	offset int64
 }
 
+type fileIdentity struct {
+	device uint64
+	inode  uint64
+}
+
 // inodeOf returns the file's inode, or 0 on platforms without Unix stat.
 func inodeOf(fi os.FileInfo) uint64 {
 	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
 		return st.Ino
 	}
 	return 0
+}
+
+func identityOf(fi os.FileInfo) fileIdentity {
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+		return fileIdentity{device: uint64(st.Dev), inode: st.Ino}
+	}
+	return fileIdentity{}
 }
 
 // Poller tails Claude Code and Codex JSONL logs, tracking a per-file cursor
@@ -46,32 +58,77 @@ type Poller struct {
 
 // NewPoller builds a poller over explicit directories (injectable for tests).
 func NewPoller(claudeDir, codexDir string) *Poller {
+	return NewPollerWithRoots([]string{claudeDir}, []string{codexDir})
+}
+
+// NewPollerWithRoots builds a poller over multiple Claude Code and Codex log
+// roots. Duplicate roots are collapsed so a session cannot be harvested twice
+// merely because two discovery mechanisms resolved to the same directory.
+func NewPollerWithRoots(claudeDirs, codexDirs []string) *Poller {
+	sources := make([]dirSource, 0, len(claudeDirs)+len(codexDirs))
+	for _, root := range uniqueRoots(claudeDirs) {
+		sources = append(sources, dirSource{root: root, parse: ParseClaudeCodeLine})
+	}
+	for _, root := range uniqueRoots(codexDirs) {
+		sources = append(sources, dirSource{root: root, parse: ParseCodexLine})
+	}
 	return &Poller{
-		sources: []dirSource{
-			{claudeDir, ParseClaudeCodeLine},
-			{codexDir, ParseCodexLine},
-		},
+		sources: sources,
 		cursors: map[string]fileCursor{},
 		seen:    map[string]bool{},
 	}
 }
 
+func uniqueRoots(roots []string) []string {
+	out := make([]string, 0, len(roots))
+	seen := make(map[string]bool, len(roots))
+	for _, root := range roots {
+		if root == "" {
+			continue
+		}
+		root = filepath.Clean(root)
+		key := root
+		if resolved, err := filepath.EvalSymlinks(root); err == nil {
+			key = resolved
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, root)
+	}
+	return out
+}
+
 // NewDefaultPoller uses the standard log locations under the home directory.
 func NewDefaultPoller() *Poller {
 	home, _ := os.UserHomeDir()
-	return NewPoller(
-		filepath.Join(home, ".claude", "projects"),
-		filepath.Join(home, ".codex", "sessions"),
+	return NewPollerWithRoots(
+		[]string{filepath.Join(home, ".claude", "projects")},
+		CodexSessionRoots(home, envMap()),
 	)
 }
 
 // Poll returns token events appended to any tracked log since the last call.
 func (p *Poller) Poll() []model.TokenEvent {
 	var events []model.TokenEvent
+	visited := make(map[fileIdentity]fileCursor)
 	for _, src := range p.sources {
 		_ = filepath.WalkDir(src.root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
 				return nil
+			}
+			if info, infoErr := d.Info(); infoErr == nil {
+				identity := identityOf(info)
+				if identity.inode != 0 {
+					if cursor, duplicate := visited[identity]; duplicate {
+						p.cursors[path] = cursor
+						return nil
+					}
+					events = append(events, p.tailFile(path, src.parse)...)
+					visited[identity] = p.cursors[path]
+					return nil
+				}
 			}
 			events = append(events, p.tailFile(path, src.parse)...)
 			return nil

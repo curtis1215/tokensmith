@@ -67,6 +67,8 @@ type Model struct {
 	state           model.GameState
 	cfg             balance.Config
 	poller          *ingest.Poller
+	snapshotSources []ingest.SnapshotSource
+	snapshotTotals  map[string]model.SourceTotals
 	savePath        string
 	ticksSinceSave  int
 	page            Page
@@ -150,6 +152,8 @@ func (m *Model) pushBanner(mo Moment) {
 // with offline progress settled if a daemon ledger is present.
 func New() Model {
 	m := newAtPaths(store.DefaultPath(), ledger.DefaultPath(), store.DefaultMetaPath())
+	m.snapshotSources = ingest.NewDefaultSnapshotSources()
+	m.snapshotTotals = make(map[string]model.SourceTotals, len(m.snapshotSources))
 	return m.startup(time.Now().Unix())
 }
 
@@ -380,6 +384,7 @@ func (m Model) Init() tea.Cmd {
 	}
 	if !m.daemonMode {
 		m.poller.Prime() // standalone: start at end of logs, harvest new coding
+		m.primeSnapshotSources()
 	}
 	return tick()
 }
@@ -388,7 +393,8 @@ func (m Model) Init() tea.Cmd {
 // ledger (advancing the consumed watermark) or the built-in poller.
 func (m *Model) pollTokens() []model.TokenEvent {
 	if !m.daemonMode {
-		return m.poller.Poll()
+		events := m.poller.Poll()
+		return append(events, m.pollSnapshotSources()...)
 	}
 	l, ok, _ := ledger.Load(m.ledgerPath)
 	if !ok {
@@ -408,6 +414,45 @@ func (m *Model) pollTokens() []model.TokenEvent {
 		return nil
 	}
 	m.consumed = copySourceTotals(l.Sources)
+	return events
+}
+
+func (m *Model) primeSnapshotSources() {
+	if m.snapshotTotals == nil {
+		m.snapshotTotals = make(map[string]model.SourceTotals, len(m.snapshotSources))
+	}
+	for _, source := range m.snapshotSources {
+		if totals, err := source.Totals(); err == nil {
+			m.snapshotTotals[source.Source()] = totals
+		}
+	}
+}
+
+func (m *Model) pollSnapshotSources() []model.TokenEvent {
+	if m.snapshotTotals == nil {
+		m.snapshotTotals = make(map[string]model.SourceTotals, len(m.snapshotSources))
+	}
+	var events []model.TokenEvent
+	for _, source := range m.snapshotSources {
+		current, err := source.Totals()
+		if err != nil {
+			continue
+		}
+		name := source.Source()
+		previous, known := m.snapshotTotals[name]
+		m.snapshotTotals[name] = current
+		if !known || current.In < previous.In || current.Out < previous.Out {
+			continue
+		}
+		delta := model.TokenEvent{
+			Source:       name,
+			InputTokens:  current.In - previous.In,
+			OutputTokens: current.Out - previous.Out,
+		}
+		if delta.InputTokens > 0 || delta.OutputTokens > 0 {
+			events = append(events, delta)
+		}
+	}
 	return events
 }
 
@@ -1245,9 +1290,9 @@ func renderResourceBar(m Model) string {
 	return bar
 }
 
-// knownSourceOrder fixes the display order of the two known token sources;
+// knownSourceOrder fixes the display order of known token sources;
 // any future/unknown source is appended after them in map-iteration order.
-var knownSourceOrder = []string{"claude-code", "codex"}
+var knownSourceOrder = []string{"claude-code", "codex", "grok", "opencode"}
 
 // sourceKeysOrdered returns m's keys in a stable, deterministic order so the
 // status bar doesn't reorder itself between renders.
@@ -1275,6 +1320,10 @@ func sourceLabel(src string) string {
 		return "Claude Code"
 	case "codex":
 		return "Codex"
+	case "grok":
+		return "Grok（估算）"
+	case "opencode":
+		return "OpenCode"
 	default:
 		return src
 	}

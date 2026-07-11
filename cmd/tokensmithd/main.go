@@ -1,6 +1,6 @@
 // Command tokensmithd is the background token-harvest daemon. It continuously
-// tails the local Claude Code and Codex logs and accumulates token usage into
-// the ledger the game consumes (online and offline).
+// reads local Claude Code, Codex, Grok CLI, and OpenCode usage and accumulates
+// token totals into the ledger the game consumes (online and offline).
 package main
 
 import (
@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"tokensmith/internal/daemon"
+	"tokensmith/internal/ingest"
 	"tokensmith/internal/ledger"
 )
 
@@ -25,8 +26,17 @@ func main() {
 		return
 	}
 	home, _ := os.UserHomeDir()
-	claude := filepath.Join(home, ".claude", "projects")
-	codex := filepath.Join(home, ".codex", "sessions")
+	env := map[string]string{
+		"CODEX_HOME":    os.Getenv("CODEX_HOME"),
+		"GROK_HOME":     os.Getenv("GROK_HOME"),
+		"XDG_DATA_HOME": os.Getenv("XDG_DATA_HOME"),
+	}
+	claudeRoots := []string{filepath.Join(home, ".claude", "projects")}
+	codexRoots := ingest.CodexSessionRoots(home, env)
+	snapshots := []ingest.SnapshotSource{
+		ingest.NewGrokSnapshotSource(ingest.GrokHome(home, env)),
+		ingest.NewOpenCodeSnapshotSource(ingest.OpenCodeDatabasePath(home, env)),
+	}
 	lp := ledger.DefaultPath()
 
 	if err := os.MkdirAll(filepath.Dir(lp), 0o755); err != nil {
@@ -38,7 +48,7 @@ func main() {
 	}
 	defer release()
 
-	h := daemon.New(claude, codex, lp)
+	h := daemon.NewWithSources(claudeRoots, codexRoots, snapshots, lp)
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	stop := make(chan os.Signal, 1)
