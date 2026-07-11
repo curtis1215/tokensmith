@@ -63,6 +63,11 @@ var (
 	ErrEraNotOpen           = errors.New("sim: era not open")
 	ErrEraBreakthroughOwned = errors.New("sim: era breakthrough already unlocked")
 	ErrInvalidEraBranch     = errors.New("sim: invalid era branch")
+
+	ErrFrontierActive            = errors.New("sim: frontier project already active")
+	ErrInvalidFrontierTarget     = errors.New("sim: invalid frontier target generation")
+	ErrNoFrontierProject         = errors.New("sim: no active frontier project")
+	ErrInvalidFrontierAllocation = errors.New("sim: frontier allocation must be 0–100")
 )
 
 // Apply validates and applies a single player command, returning the new
@@ -87,6 +92,10 @@ func Apply(s model.GameState, cmd model.Command, b balance.Config) (model.GameSt
 		return applyUnlockTech(s, c, b)
 	case model.UnlockEraBreakthrough:
 		return applyUnlockEraBreakthrough(s, c, b)
+	case model.StartFrontierProject:
+		return applyStartFrontierProject(s, c, b)
+	case model.SetFrontierAllocation:
+		return applySetFrontierAllocation(s, c)
 	case model.BuyPrestigeNode:
 		return applyBuyPrestigeNode(s, c, b)
 	case model.PrestigeReset:
