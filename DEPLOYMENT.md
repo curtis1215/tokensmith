@@ -52,6 +52,18 @@ go build -o tokensmithd ./cmd/tokensmithd   # the daemon
 | `ledger.json` | daemon | cumulative token harvest + per-file cursors + snapshot watermarks |
 | `meta.json` | game | consumed-token watermark + last-play wall time (for offline settlement) |
 | `ledger.json.lock` | daemon | single-instance PID lock |
+| `daily-usage.json` | daemon (write) / game (read; standalone also writes) | raw per-source daily token growth for the overview card |
+| `daily-usage.json.lock` | writers | advisory flock for atomic daily-usage updates |
+
+### Daily usage statistics (`daily-usage.json`)
+
+- **Purpose:** show today’s raw input/output token harvest per tool (`claude-code`, `codex`, `grok`, `opencode`) on the overview page. Independent of R&D settlement, game multipliers, streak, prestige, and save state.
+- **Owner:** `tokensmithd` records exact harvested deltas on every poll. Standalone TUI (no live daemon) records its built-in poller/snapshot events. Daemon-mode TUI only reads the shared file (never double-counts).
+- **Keys:** date buckets are `YYYY-MM-DD` in the host machine’s local calendar (`time.Local`). At local midnight the TUI selects the new date immediately (card goes to zero) without deleting prior days.
+- **Fields:** per source `in`, `out`, `lastUpdatedAt` (unix seconds); document `updatedAt` and `schemaVersion`. Totals are raw tokens only (`in + out`).
+- **Retention:** at most the seven most recent valid date keys; pruning happens on successful update. **No historical backfill** — statistics start when the feature is installed.
+- **Permissions:** data and lock files are owner-only (`0600`); parent dir `0700` when created by the store.
+- **Failure isolation:** daily-stat write failures never block ledger persistence, token-to-R&D conversion, save, or gameplay; failed batches stay in memory and retry on later polls.
 
 ### Automatically discovered usage sources
 
