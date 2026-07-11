@@ -52,7 +52,28 @@ type CampaignConfig struct {
 	Rivals                []RivalProfile
 }
 
-// DefaultCampaign returns the exact Phase A campaign catalog.
+// HardBandShareCeiling is the theoretical max playerSegmentShare when the
+// player defines GlobalFrontier and all N default rivals are hard-clamped to
+// the 85% floor: 1/(1+N×0.85). With N=7 this is ≈0.1439. Campaign share gates
+// must sit strictly below this ceiling or expand/win is unreachable under the
+// hard band invariant (raw share still sums all competitors).
+const HardBandFloorPct = 0.85
+
+// HardBandPlayerShareCeiling returns 1/(1+nRivals×HardBandFloorPct).
+func HardBandPlayerShareCeiling(nRivals int) float64 {
+	if nRivals < 0 {
+		nRivals = 0
+	}
+	return 1 / (1 + float64(nRivals)*HardBandFloorPct)
+}
+
+// DefaultCampaign returns the Phase A campaign catalog with share gates
+// recalibrated under the hard rival band (85%–115% of GlobalFrontier).
+//
+// Ordering (establish < expand < win) and relative doctrine difficulty are
+// preserved: consumer expand/win are strictest; enterprise win is easiest.
+// Absolute levels sit under HardBandPlayerShareCeiling(7)≈0.1439 so a full
+// default roster remains winnable when the player leads the frontier.
 func DefaultCampaign() CampaignConfig {
 	return CampaignConfig{
 		CycleSec:              28800,
@@ -61,13 +82,13 @@ func DefaultCampaign() CampaignConfig {
 		PivotCashFloor:        20000,
 		PivotRevenueMonths:    1,
 		PivotRnDFrac:          0.10,
-		EstablishShare:        0.10,
-		ConsumerExpandShare:   0.25,
-		EnterpriseExpandShare: 0.20,
-		DeveloperExpandShare:  0.20,
-		ConsumerWinShare:      0.35,
-		EnterpriseWinShare:    0.30,
-		DeveloperWinShare:     0.35,
+		EstablishShare:        0.07,
+		ConsumerExpandShare:   0.11,
+		EnterpriseExpandShare: 0.095,
+		DeveloperExpandShare:  0.095,
+		ConsumerWinShare:      0.13,
+		EnterpriseWinShare:    0.12,
+		DeveloperWinShare:     0.13,
 		StrategyExitCycle:     18,
 		Perks:                 defaultCampaignPerks(),
 		RivalActions:          defaultRivalActions(),

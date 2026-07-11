@@ -460,14 +460,9 @@ func TestTickCompetitorHalvesUserTarget(t *testing.T) {
 		Competitors: []model.Competitor{rival(50)},
 	}
 	ns := Tick(s, 1, nil, b)
-	// appeal equals rival → share 0.5; target half of monopoly.
-	want := 10000.0 * (1.0 - math.Exp(-b.UserGrowthRate*1))
-	// Monopoly target for full quality would be larger; pinLegacy SegmentTargetScale
-	// with equal share: use the same historical want when cap-weight only was
-	// considered. With full quality both sides, recompute from post-tick GF band.
-	// Equal rivals → users must be half of a no-competitor control.
+	// Equal multi-dim appeal → share 0.5; users half of a no-competitor control.
 	solo := Tick(model.GameState{Models: []model.Model{pm}}, 1, nil, b)
-	want = solo.Models[0].Users * 0.5
+	want := solo.Models[0].Users * 0.5
 	if !approx(ns.Models[0].Users, want) {
 		t.Fatalf("Users = %v, want %v (halved by equal competitor; solo=%v)",
 			ns.Models[0].Users, want, solo.Models[0].Users)

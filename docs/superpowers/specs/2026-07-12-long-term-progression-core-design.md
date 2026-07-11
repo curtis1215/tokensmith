@@ -1,8 +1,8 @@
 # Tokensmith Long-Term Progression Core Design
 
-**Date:** 2026-07-12
-**Status:** Approved design
-**Scope:** Long-term model generations, era progression, frontier research, bounded rivals, TUI integration, and save migration
+- **Date:** 2026-07-12
+- **Status:** Approved design
+- **Scope:** Long-term model generations, era progression, frontier research, bounded rivals, TUI integration, and save migration
 
 ## 1. Context
 
@@ -356,6 +356,8 @@ target = GlobalFrontier[d] × targetPct
 ```
 
 The rival quality approaches this target with the configured catch-up rate. Every public rival update re-applies the band invariant.
+
+Because raw campaign and economy share still sum the full default roster, a player who defines the global frontier faces a hard share ceiling of `1 / (1 + N × 0.85)` (≈0.1439 for `N = 7`). Campaign establish / expand / win share gates must remain strictly below that ceiling; they were recalibrated accordingly when the band floor became hard. Segment share bars and economic share math are unchanged.
 
 ### 9.2 Era leaders
 
