@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"math"
 	"testing"
 
 	"tokensmith/internal/balance"
@@ -99,6 +100,7 @@ func TestRivalLeagueCampaignNoLongerFrozen(t *testing.T) {
 func TestRivalLeagueApproachesTarget(t *testing.T) {
 	b := balance.Default()
 	b.CompetitorCatchupRate = 1 // complete catch-up in 1s for the test
+	b.TrainBoostRivalPicks = 0  // isolate skill×frontier catch-up (no investment boost)
 	c := model.Competitor{Name: "Rival"}
 	c.Skill[model.DimCapability] = 1.0
 	c.Quality[model.DimCapability] = 50
@@ -239,14 +241,80 @@ func TestRivalTargetLeaderBonus(t *testing.T) {
 		},
 	}
 	gf := GlobalFrontier(s, b)
-	lt := rivalTarget(s, leader, gf)
-	ot := rivalTarget(s, other, gf)
+	lt := rivalTarget(s, leader, gf, b)
+	ot := rivalTarget(s, other, gf, b)
 	// Leader target higher by leaderBonusPct on capability (both skill 1.0).
+	// Train boost also applies to top Skill dims (all equal → lowest indices);
+	// leader vs other comparison is independent of that additive boost.
 	if lt[model.DimCapability] <= ot[model.DimCapability] {
 		t.Fatalf("leader target %v should exceed other %v", lt[model.DimCapability], ot[model.DimCapability])
 	}
-	wantLead := 100 * (1.0 + leaderBonusPct)
+	// Base leader: 100*(1.0+leaderBonus); plus β*gf on top-K skill dims (cap is index 0).
+	wantLead := 100*(1.0+leaderBonusPct) + b.TrainBoostBeta*100
 	if !approx(lt[model.DimCapability], wantLead) {
 		t.Fatalf("leader target = %v, want %v", lt[model.DimCapability], wantLead)
+	}
+}
+
+func TestRivalTargetIncludesTrainBoostOnTopSkillDims(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	// Ensure era leaders init not required for target math
+	gf := [model.NumQualityDims]float64{100, 100, 100, 100}
+	rival := model.Competitor{
+		Name:  "OpenAI",
+		Skill: [model.NumQualityDims]float64{1.08, 1.00, 0.96, 1.04}, // top: cap, speed
+	}
+	got := rivalTarget(s, rival, gf, b)
+	// base for cap: 100 * clamp(1.08)=108; plus 0.15*100=15 → 123
+	if got[model.DimCapability] < 108+14.9 {
+		t.Fatalf("cap target missing boost: %v", got[model.DimCapability])
+	}
+	// efficiency not in top-2 → no +15
+	baseEff := 100 * 1.00
+	if got[model.DimEfficiency] > baseEff+0.01 {
+		t.Fatalf("eff should not get boost: %v", got[model.DimEfficiency])
+	}
+	// speed is top-2: base 104 + 15
+	if got[model.DimSpeed] < 104+14.9 {
+		t.Fatalf("speed target missing boost: %v", got[model.DimSpeed])
+	}
+}
+
+func TestUnlockGenTechDoesNotSpikeRivalQualityOneTick(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{
+		Competitors: balance.DefaultCompetitors(),
+		// published gen1 model so GF stable from player side
+		Models: []model.Model{{
+			Online: true, Gen: 1,
+			Quality: [4]float64{10, 10, 10, 10},
+			Users:   1000, Price: 12, Segment: model.SegConsumer,
+		}},
+	}
+	s = ensureRivalEraState(s, b)
+	// Warm one tick
+	s = advanceRivalLeague(s, 3600, b)
+	before := append([]model.Competitor(nil), s.Competitors...)
+	// Unlock gen2 tech only (no Apply cash/RnD path needed for cliff gate)
+	s.UnlockedTech = append(append([]string(nil), s.UnlockedTech...), balance.GenUnlockNodeID(2))
+	s.Progression.MaxUnlockedGen = 2
+	after := advanceRivalLeague(s, 3600, b)
+	// No discontinuous jump larger than one catch-up step toward the new target.
+	factor := b.CompetitorCatchupRate * 3600
+	if factor > 1 {
+		factor = 1
+	}
+	gf := GlobalFrontier(s, b)
+	for i, c := range after.Competitors {
+		prev := before[i].Quality
+		tgt := rivalTarget(s, c, gf, b)
+		for d := range model.NumQualityDims {
+			maxStep := math.Abs(tgt[d]-prev[d]) * factor
+			delta := math.Abs(c.Quality[d] - prev[d])
+			if delta > maxStep+1e-6 {
+				t.Fatalf("%s dim %d jumped %v > max step %v", c.Name, d, delta, maxStep)
+			}
+		}
 	}
 }

@@ -1,6 +1,8 @@
 package sim
 
 import (
+	"sort"
+
 	"tokensmith/internal/balance"
 	"tokensmith/internal/model"
 )
@@ -128,9 +130,12 @@ func isRivalLeader(s model.GameState, name string) bool {
 }
 
 // rivalTarget is the per-dimension quality the rival approaches this tick:
-// GlobalFrontier[d] × clamp(Skill[d] + leaderBonus + MomentumPct[d], 0.85, 1.15).
-// Callers pass a precomputed GlobalFrontier to avoid O(gen) recompute per rival.
-func rivalTarget(s model.GameState, rival model.Competitor, gf [model.NumQualityDims]float64) [model.NumQualityDims]float64 {
+// GlobalFrontier[d] × clamp(Skill[d] + leaderBonus + MomentumPct[d], 0.85, 1.15),
+// plus β×GF on the top TrainBoostRivalPicks Skill dims (tie: lower index).
+// Rival investment raises catch-up targets only; Quality still moves at
+// CompetitorCatchupRate (no unlock cliffs). Callers pass a precomputed
+// GlobalFrontier to avoid O(gen) recompute per rival.
+func rivalTarget(s model.GameState, rival model.Competitor, gf [model.NumQualityDims]float64, b balance.Config) [model.NumQualityDims]float64 {
 	var out [model.NumQualityDims]float64
 	lead := 0.0
 	if isRivalLeader(s, rival.Name) {
@@ -145,6 +150,32 @@ func rivalTarget(s model.GameState, rival model.Competitor, gf [model.NumQuality
 			pct = rivalCeilPct
 		}
 		out[d] = gf[d] * pct
+	}
+	// Train-cash-boost investment: raise targets on specialty dims only.
+	picks := b.TrainBoostRivalPicks
+	if picks < 0 {
+		picks = 0
+	}
+	if picks > model.NumQualityDims {
+		picks = model.NumQualityDims
+	}
+	type pair struct {
+		d  model.QualityDim
+		sk float64
+	}
+	all := make([]pair, 0, model.NumQualityDims)
+	for d := model.QualityDim(0); d < model.NumQualityDims; d++ {
+		all = append(all, pair{d, rival.Skill[d]})
+	}
+	sort.SliceStable(all, func(i, j int) bool {
+		if all[i].sk == all[j].sk {
+			return all[i].d < all[j].d
+		}
+		return all[i].sk > all[j].sk
+	})
+	for i := 0; i < picks && i < len(all); i++ {
+		d := all[i].d
+		out[d] += b.TrainBoostBeta * gf[d]
 	}
 	return out
 }
@@ -203,7 +234,7 @@ func advanceRivalLeague(s model.GameState, dt float64, b balance.Config) model.G
 	}
 	comps := append([]model.Competitor(nil), ns.Competitors...)
 	for i := range comps {
-		target := rivalTarget(ns, comps[i], gf)
+		target := rivalTarget(ns, comps[i], gf, b)
 		for d := range model.NumQualityDims {
 			comps[i].Quality[d] += (target[d] - comps[i].Quality[d]) * factor
 			comps[i].Quality[d] = clampRivalToBand(comps[i].Quality[d], gf[d])
