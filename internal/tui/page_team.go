@@ -46,27 +46,6 @@ func roleNameZH(r model.Role) string {
 	}
 }
 
-// officeSeatCap mirrors sim seat capacity for display (office table + skill ExtraSeats, soft-cap +2).
-func officeSeatCap(s model.GameState, b balance.Config) int {
-	level := s.Office.Level
-	if level < 1 {
-		level = 1
-	}
-	seats := balance.OfficeSeatsAt(level, b)
-	extra := 0
-	for _, e := range s.Employees {
-		for _, id := range e.SkillIDs {
-			if sk, ok := balance.SkillByID(b, id); ok {
-				extra += sk.ExtraSeats
-			}
-		}
-	}
-	if extra > 2 {
-		extra = 2
-	}
-	return seats + extra
-}
-
 // totalMonthlyPayroll sums roster MonthlySalary (UI primary unit).
 func totalMonthlyPayroll(emps []model.Employee) float64 {
 	var sum float64
@@ -136,7 +115,7 @@ func renderTeamOffice(m Model, w int) string {
 	}
 	stage := hqStageFromOffice(level)
 	name := hqStageNames[stage]
-	seats := officeSeatCap(s, m.cfg)
+	seats := sim.SeatCap(s, m.cfg)
 	filled := len(s.Employees)
 	body := VStack(
 		KV("等級", fmt.Sprintf("Lv%d %s", level, name)),
@@ -197,13 +176,14 @@ func renderTeamMarket(m Model, w int) string {
 			}
 			lines = append(lines, fmt.Sprintf("%s%s · %s · %s · %s",
 				cur, e.Name, rankNameZH(e.Rank), roleNameZH(e.PrimaryRole), employeeStatsBlurb(e)))
+			hire := sim.HireCostQuote(s, e, m.cfg)
 			lines = append(lines, fmt.Sprintf("    簽約 $%s · 月薪 $%s/月 · %s",
-				human(e.HireCost), human(e.MonthlySalary), skillCountLabel(len(e.SkillIDs))))
+				human(hire), human(e.MonthlySalary), skillCountLabel(len(e.SkillIDs))))
 		}
 	}
 	lines = append(lines, "")
 	remain := marketRefreshRemainSec(s)
-	reroll := balance.RerollCost(s.Market.RerollCount, m.cfg)
+	reroll := sim.RerollCostQuote(s, m.cfg)
 	lines = append(lines, KV("自動刷新", formatETASec(remain)))
 	lines = append(lines, KV("下次重抽", fmt.Sprintf("$%s  [r]", human(reroll))))
 	focusHint := ""

@@ -2,6 +2,7 @@ package sim
 
 import (
 	"fmt"
+	"math"
 
 	"tokensmith/internal/balance"
 	"tokensmith/internal/model"
@@ -128,7 +129,36 @@ func salarySkillScore(skillIDs []string, b balance.Config) float64 {
 	return s
 }
 
+// marketOfficeLevel is office level plus hired MarketRarityBonus (soft-cap +2),
+// used only for talent-market rank weights. Clamped to 1..8.
+func marketOfficeLevel(ns model.GameState, b balance.Config) int {
+	base := effectiveOfficeLevel(ns)
+	bonus := 0.0
+	for _, e := range ns.Employees {
+		for _, id := range e.SkillIDs {
+			sk, ok := balance.SkillByID(b, id)
+			if !ok || sk.MarketRarityBonus <= 0 {
+				continue
+			}
+			bonus += sk.MarketRarityBonus
+		}
+	}
+	if bonus > 2 {
+		bonus = 2
+	}
+	level := base + int(math.Round(bonus))
+	if level < 1 {
+		level = 1
+	}
+	if level > 8 {
+		level = 8
+	}
+	return level
+}
+
 // generateEmployee rolls one market candidate and advances randState.
+// ID embeds gameTime, seq, and pre-roll RandState bits so hire+reroll at the
+// same GameTime cannot collide with retained roster IDs.
 func generateEmployee(
 	randState uint64,
 	officeLevel int,
@@ -142,6 +172,9 @@ func generateEmployee(
 	if officeLevel > 8 {
 		officeLevel = 8
 	}
+
+	// Capture uniqueness bits before advancing RNG for this roll.
+	idTag := randState
 
 	var u float64
 	randState, u = nextRand(randState)
@@ -164,7 +197,7 @@ func generateEmployee(
 	name, randState = rollName(randState)
 
 	e := model.Employee{
-		ID:            fmt.Sprintf("e-%d-%d", int(gameTime), seq),
+		ID:            fmt.Sprintf("e-%d-%d-%x", int(gameTime), seq, idTag),
 		Name:          name,
 		Rank:          rank,
 		Stats:         stats,
@@ -179,7 +212,7 @@ func generateEmployee(
 // regenerateCandidatesOnly rolls a fresh candidate pool and advances RandState
 // without touching NextRefreshAt or RerollCount (used by paid reroll).
 func regenerateCandidatesOnly(ns model.GameState, b balance.Config) model.GameState {
-	level := effectiveOfficeLevel(ns)
+	level := marketOfficeLevel(ns, b)
 	st := ns.Market.RandState
 	n := b.MarketPoolSize
 	if n < 0 {

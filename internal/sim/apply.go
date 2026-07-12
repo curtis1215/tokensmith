@@ -166,7 +166,7 @@ func applyHireEmployee(s model.GameState, c model.HireEmployee, b balance.Config
 	if rosterFull(s, b) {
 		return s, ErrNoSeats
 	}
-	cost := cand.HireCost * companyHireCostMult(s, b)
+	cost := HireCostQuote(s, cand, b)
 	if s.Resources.Cash < cost {
 		return s, ErrInsufficientCash
 	}
@@ -210,7 +210,7 @@ func applyFireEmployee(s model.GameState, c model.FireEmployee, b balance.Config
 }
 
 func applyRerollMarket(s model.GameState, b balance.Config) (model.GameState, error) {
-	cost := balance.RerollCost(s.Market.RerollCount, b) * companyRerollBaseMult(s, b)
+	cost := RerollCostQuote(s, b)
 	if s.Resources.Cash < cost {
 		return s, ErrInsufficientCash
 	}
@@ -222,6 +222,22 @@ func applyRerollMarket(s model.GameState, b balance.Config) (model.GameState, er
 	ns.Market.NextRefreshAt = keepRefresh
 	ns.Market.RerollCount = keepN + 1
 	return ns, nil
+}
+
+// HireCostQuote is the cash charged to hire cand (base HireCost × company mults).
+// Exported so TUI can display the same figure Apply deducts.
+func HireCostQuote(s model.GameState, cand model.Employee, b balance.Config) float64 {
+	return cand.HireCost * companyHireCostMult(s, b)
+}
+
+// RerollCostQuote is the cash charged for the next paid market reroll.
+func RerollCostQuote(s model.GameState, b balance.Config) float64 {
+	return balance.RerollCost(s.Market.RerollCount, b) * companyRerollBaseMult(s, b)
+}
+
+// SeatCap is office seats at the effective level plus capped skill ExtraSeats.
+func SeatCap(ns model.GameState, b balance.Config) int {
+	return seatCap(ns, b)
 }
 
 // companyHireCostMult is the product of HireCostMult hooks across the roster.
