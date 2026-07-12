@@ -151,6 +151,8 @@ type Config struct {
 	StaffPowerRef float64
 	// RnDPerPower R&D/sec per unit research RolePower before EfficiencyMult.
 	RnDPerPower float64
+	// Skills passive catalog (design §5); ~57 manager/director/god/signature.
+	Skills []SkillDef
 	// Industry events (industry-events plan).
 	Events           []EventSpec
 	EventCheckSec    float64 // mean game-seconds between trigger rolls
@@ -244,6 +246,7 @@ func Default() Config {
 	c.PrestigeNodes = DefaultPrestigeNodes()
 	// Stars catalog removed (model.Star deleted in employee-office refactor).
 	applyEmployeeDefaults(&c)
+	c.Skills = DefaultSkills()
 	c.Processes = DefaultProcesses()
 	c.TrainRentMult = 1.667
 	c.RevenueMult = 2
