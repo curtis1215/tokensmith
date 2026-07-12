@@ -47,8 +47,8 @@ func TestTickWithClocksSplitsEconomyAndIndustry(t *testing.T) {
 	if !approx(ns.Progression.IndustryTime, 110) {
 		t.Fatalf("IndustryTime = %v, want 110", ns.Progression.IndustryTime)
 	}
-	// R&D uses economyDT (staff rate * 1000), not industry.
-	wantRnD := staffRnDPerSec(s.Research, b) * 1000
+	// R&D uses economyDT (employee rate * 1000), not industry. Empty roster → 0.
+	wantRnD := staffRnDPerSecFromEmployees(s, b) * 1000
 	if !approx(ns.Resources.RnD, wantRnD) {
 		t.Fatalf("RnD = %v, want %v (economy clock)", ns.Resources.RnD, wantRnD)
 	}

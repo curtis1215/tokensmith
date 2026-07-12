@@ -11,13 +11,6 @@ import (
 	"tokensmith/internal/model"
 )
 
-// staffRnDPerSec is a temporary stub (aggregate researchers removed).
-// Employee R&D is staffRnDPerSecFromEmployees; Task 7 rewires Tick callers.
-func staffRnDPerSec(r model.Research, _ balance.Config) float64 {
-	_ = r
-	return 0
-}
-
 // TokenRawRnD returns the raw R&D produced by a batch of token events, before
 // any soft-cap diminishing is applied. Exported so the TUI display layer can
 // compute the same per-source amount it's about to book (avoids the display
@@ -30,20 +23,15 @@ func TokenRawRnD(events []model.TokenEvent, b balance.Config) float64 {
 	return raw
 }
 
-// totalSalaryPerSec is the aggregate staff salary per second.
-// Temporary: employee path until Tick fully rewires in Task 7.
+// totalSalaryPerSec is employee monthly pay converted to per-second accrual.
 func totalSalaryPerSec(ns model.GameState, b balance.Config) float64 {
 	return totalSalaryPerSecFromEmployees(ns, b)
-}
-
-// starSalaryPerSec is a neutral stub (stars removed).
-func starSalaryPerSec(_ model.GameState, _ balance.Config) float64 {
-	return 0
 }
 
 // Valuation is the company's estimated worth (spec §7.0).
 func Valuation(ns model.GameState, b balance.Config) float64 {
 	ce := campaignEffects(ns, b)
+	sk := passiveSkillEffects(ns, b)
 	var monthlyRev, users float64
 	for _, m := range ns.Models {
 		if m.Online {
@@ -51,7 +39,7 @@ func Valuation(ns model.GameState, b balance.Config) float64 {
 			if int(m.Segment) >= 0 && int(m.Segment) < model.NumSegments {
 				revMult = ce.RevenueMult[m.Segment]
 			}
-			monthlyRev += m.Users * m.Price * b.RevenueMult * revMult
+			monthlyRev += m.Users * m.Price * b.RevenueMult * revMult * sk.RevenueMult
 			users += m.Users
 		}
 	}
@@ -87,24 +75,28 @@ func tickWithClocks(s model.GameState, economyDT, industryDT float64, events []m
 	ns := s
 	ns.GameTime += economyDT
 	ns.Progression.IndustryTime += industryDT
+	// Free talent-market refresh when the scheduled timer elapses.
+	// NextRefreshAt==0 means "not scheduled" (freshRun seeds the market).
+	if ns.Market.NextRefreshAt > 0 && ns.GameTime >= ns.Market.NextRefreshAt {
+		ns = refreshMarket(ns, b)
+	}
 	// Events age with the economy clock (same as historical offline settle).
 	ns = advanceEvents(ns, b)
 	ee := eventEffects(ns, b)
+	sk := passiveSkillEffects(ns, b)
 
-	staffRnD := staffRnDPerSec(s.Research, b) * economyDT
-
+	staffRnD := staffRnDPerSecFromEmployees(ns, b) * economyDT
 	tokenRnD := TokenRawRnD(events, b)
 
 	pe := PrestigeEffects(ns.Prestige.UnlockedPrestige, b)
-	starRnD := starEffects(ns, b).RnDPerSec * economyDT
-	ns.Resources.RnD += (staffRnD+starRnD)*pe.RnDMult + tokenRnD*b.StreakMult*pe.RnDMult
+	ns.Resources.RnD += staffRnD*pe.RnDMult + tokenRnD*b.StreakMult*pe.RnDMult*sk.TokenRnDMult
 	ns.Resources.Cash -= poolRentPerSec(ns, b) * economyDT
 	serverPower := 0.0
 	for _, sv := range ns.Servers {
 		serverPower += sv.PowerKW
 	}
 	ns.Resources.Cash -= serverPower * b.ElectricityPerKWSec * ee.PowerCostMult * economyDT
-	ns.Resources.Cash -= (totalSalaryPerSec(ns, b) + starSalaryPerSec(ns, b)) * economyDT
+	ns.Resources.Cash -= totalSalaryPerSec(ns, b) * economyDT
 
 	// Shared training pool (economy clock).
 	trainEff := effectiveTraining(ns, b)
@@ -139,10 +131,10 @@ func tickWithClocks(s model.GameState, economyDT, industryDT float64, events []m
 	return ns
 }
 
-// infraEfficiency scales compute effectiveness. Temporary neutral stub;
-// Task 7 wires employeeInfraMult (and skill InfraMult) into this path.
-func infraEfficiency(_ model.GameState, _ balance.Config) float64 {
-	return 1
+// infraEfficiency scales compute effectiveness from engineer role power and
+// passive skill InfraMult products (empty roster → 1).
+func infraEfficiency(ns model.GameState, b balance.Config) float64 {
+	return employeeInfraMult(ns, b) * passiveSkillEffects(ns, b).InfraMult
 }
 
 // effectiveTraining is rented plus self-built training compute, scaled by engineer efficiency.
@@ -153,7 +145,7 @@ func effectiveTraining(ns model.GameState, b balance.Config) float64 {
 			c += sv.Compute
 		}
 	}
-	return c * infraEfficiency(ns, b) * techEffects(ns, b).InfraMult * starEffects(ns, b).InfraMult
+	return c * infraEfficiency(ns, b) * techEffects(ns, b).InfraMult
 }
 
 // effectiveInference is rented plus self-built inference compute, scaled by engineer efficiency.
@@ -164,7 +156,7 @@ func effectiveInference(ns model.GameState, b balance.Config) float64 {
 			c += sv.Compute
 		}
 	}
-	return c * infraEfficiency(ns, b) * techEffects(ns, b).InfraMult * starEffects(ns, b).InfraMult
+	return c * infraEfficiency(ns, b) * techEffects(ns, b).InfraMult
 }
 
 // advanceTraining progresses the in-progress training job by dt using the
@@ -180,7 +172,7 @@ func advanceTraining(ns model.GameState, dt, allocated float64, b balance.Config
 	}
 	// Completed → append draft (not online until PublishModel).
 	te := techEffects(ns, b)
-	se := starEffects(ns, b)
+	sk := passiveSkillEffects(ns, b)
 	job := ns.Training
 	spec, err := balance.Generation(job.Gen)
 	qualityScale := 0.0
@@ -196,7 +188,7 @@ func advanceTraining(ns model.GameState, dt, allocated float64, b balance.Config
 		Name:    "",
 	}
 	for d := range model.NumQualityDims {
-		m.Quality[d] = (job.Alloc[d]*qualityScale + job.CashBonus[d]) * te.QualityMult[d] * se.QualityMult[d]
+		m.Quality[d] = (job.Alloc[d]*qualityScale + job.CashBonus[d]) * te.QualityMult[d] * sk.TrainQualityMult
 	}
 	cloned := append([]model.Model(nil), ns.Models...)
 	ns.Models = append(cloned, m)
@@ -222,9 +214,10 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 		return ns
 	}
 	pe := PrestigeEffects(ns.Prestige.UnlockedPrestige, b)
-	se := starEffects(ns, b)
+	sk := passiveSkillEffects(ns, b)
 	ee := eventEffects(ns, b)
 	ce := campaignEffects(ns, b)
+	marketingMult := employeeMarketingMult(ns, b) * sk.UserGrowthMult
 	models := append([]model.Model(nil), ns.Models...)
 	for i := range models {
 		m := &models[i]
@@ -236,7 +229,8 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 		if int(m.Segment) < 0 || int(m.Segment) >= model.NumSegments {
 			continue
 		}
-		ns.Resources.Cash += m.Users * m.Price * ce.RevenueMult[m.Segment] * dt / b.MonthSec * pe.CashMult * b.RevenueMult
+		ns.Resources.Cash += m.Users * m.Price * ce.RevenueMult[m.Segment] * dt / b.MonthSec *
+			pe.CashMult * b.RevenueMult * sk.RevenueMult
 
 		w := b.SegmentWeights[m.Segment]
 		w[model.DimSafety] *= ee.SafetyWeightMult // arrays copy by value; safe
@@ -258,10 +252,8 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 		if appeal+rivalAppeal > 0 {
 			share = appeal / (appeal + rivalAppeal)
 		}
-		// Marketing headcount removed; employee mult lands in Task 7.
-		marketingMult := 1.0
 		target := appeal * b.SegmentTargetScale[m.Segment] * demandMult * share *
-			marketingMult * te.UserGrowthMult * se.UserGrowthMult *
+			marketingMult * te.UserGrowthMult *
 			ee.UserGrowthMult * ee.TAMMult
 		target *= ce.UserGrowthMult[m.Segment]
 		decay := math.Exp(-b.UserGrowthRate * dt)
@@ -329,8 +321,8 @@ func advanceServing(ns model.GameState, dt float64, b balance.Config) model.Game
 	if capacity <= 0 || load <= capacity {
 		return ns
 	}
-	// Ops headcount removed; employeeOpsChurnFactor lands in Task 7.
-	opsFactor := 1.0
+	// Ops role power + skill ChurnMult (<1 softens churn). Lower opsFactor is better.
+	opsFactor := employeeOpsChurnFactor(ns, b) * passiveSkillEffects(ns, b).ChurnMult
 	// Continuous approach of total load toward capacity.
 	newLoad := capacity + (load-capacity)*math.Exp(-b.ServiceChurnRate*ce.ServiceChurnMult*dt*opsFactor)
 	if newLoad < 0 {

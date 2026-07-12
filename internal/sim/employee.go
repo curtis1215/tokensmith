@@ -112,8 +112,26 @@ func employeeRolePower(e model.Employee, b balance.Config) [model.NumRoles]float
 	return p
 }
 
-// totalRolePower sums employeeRolePower across the roster.
-// Company-wide skill mults (CompanyRolePower) land in skillEffects (Task 6).
+// companyRolePowerAdd sums CompanyRolePower contributions across hired skills.
+// Applied as (1+sum) on totalRolePower (additive within role, product across skills).
+func companyRolePowerAdd(ns model.GameState, b balance.Config) [model.NumRoles]float64 {
+	var add [model.NumRoles]float64
+	for _, e := range ns.Employees {
+		for _, id := range e.SkillIDs {
+			sk, ok := balance.SkillByID(b, id)
+			if !ok {
+				continue
+			}
+			for r := range add {
+				add[r] += sk.CompanyRolePower[r]
+			}
+		}
+	}
+	return add
+}
+
+// totalRolePower sums employeeRolePower across the roster, then scales by
+// company-wide CompanyRolePower skill hooks: total[r] *= (1 + sum).
 func totalRolePower(ns model.GameState, b balance.Config) [model.NumRoles]float64 {
 	var total [model.NumRoles]float64
 	for _, e := range ns.Employees {
@@ -122,7 +140,67 @@ func totalRolePower(ns model.GameState, b balance.Config) [model.NumRoles]float6
 			total[r] += p[r]
 		}
 	}
+	add := companyRolePowerAdd(ns, b)
+	for r := range total {
+		total[r] *= 1 + add[r]
+	}
 	return total
+}
+
+// skillPassives aggregates hired-employee passive skill multipliers.
+// Mult fields use product-of-nonzero convention (0 = unused in catalog).
+// Empty roster → all mults 1 (neutral).
+type skillPassives struct {
+	TokenRnDMult     float64
+	InfraMult        float64
+	UserGrowthMult   float64
+	ChurnMult        float64
+	TrainQualityMult float64
+	RevenueMult      float64
+	EventNegMult     float64
+}
+
+// passiveSkillEffects products skill mult hooks from the hired roster.
+func passiveSkillEffects(ns model.GameState, b balance.Config) skillPassives {
+	p := skillPassives{
+		TokenRnDMult:     1,
+		InfraMult:        1,
+		UserGrowthMult:   1,
+		ChurnMult:        1,
+		TrainQualityMult: 1,
+		RevenueMult:      1,
+		EventNegMult:     1,
+	}
+	for _, e := range ns.Employees {
+		for _, id := range e.SkillIDs {
+			sk, ok := balance.SkillByID(b, id)
+			if !ok {
+				continue
+			}
+			if sk.TokenRnDMult > 0 {
+				p.TokenRnDMult *= sk.TokenRnDMult
+			}
+			if sk.InfraMult > 0 {
+				p.InfraMult *= sk.InfraMult
+			}
+			if sk.UserGrowthMult > 0 {
+				p.UserGrowthMult *= sk.UserGrowthMult
+			}
+			if sk.ChurnMult > 0 {
+				p.ChurnMult *= sk.ChurnMult
+			}
+			if sk.TrainQualityMult > 0 {
+				p.TrainQualityMult *= sk.TrainQualityMult
+			}
+			if sk.RevenueMult > 0 {
+				p.RevenueMult *= sk.RevenueMult
+			}
+			if sk.EventNegMult > 0 {
+				p.EventNegMult *= sk.EventNegMult
+			}
+		}
+	}
+	return p
 }
 
 // staffRnDPerSecFromEmployees is R&D/sec from research RolePower × RnDPerPower,
@@ -186,7 +264,7 @@ func roleBonus(totalPower float64, b balance.Config) float64 {
 	return b.StaffPowerCap * (1 - math.Exp(-b.StaffPowerK*totalPower/b.StaffPowerRef))
 }
 
-// employeeInfraMult is 1 + diminishing engineer roleBonus (Task 7 wires into infraEfficiency).
+// employeeInfraMult is 1 + diminishing engineer roleBonus (used by infraEfficiency).
 func employeeInfraMult(ns model.GameState, b balance.Config) float64 {
 	return 1 + roleBonus(totalRolePower(ns, b)[model.RoleEngineer], b)
 }

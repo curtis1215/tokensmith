@@ -10,12 +10,27 @@ import (
 
 func approx(a, b float64) bool { return math.Abs(a-b) < 1e-6 }
 
-func TestStaffRnDPerSecStub(t *testing.T) {
-	// Aggregate researchers removed; staffRnDPerSec is a 0 stub until Task 7.
+func TestEmployeeStaffRnDInTick(t *testing.T) {
 	b := balance.Default()
-	r := model.Research{EfficiencyMult: 1.0}
-	if got := staffRnDPerSec(r, b); got != 0 {
-		t.Fatalf("staffRnDPerSec stub = %v, want 0", got)
+	s := model.GameState{
+		Research: model.Research{EfficiencyMult: 1},
+		Employees: []model.Employee{{
+			PrimaryRole:   model.RoleResearcher,
+			Stats:         [model.NumRoles]int{50, 0, 0, 0},
+			MonthlySalary: 0,
+		}},
+		Office: model.Office{Level: 1},
+		Market: model.TalentMarket{NextRefreshAt: 1e12, RandState: 1},
+	}
+	before := s.Resources.RnD
+	ns := Tick(s, 10, nil, b)
+	if ns.Resources.RnD <= before {
+		t.Fatal("expected R&D from employee")
+	}
+	// Rate = 50 * PrimaryWeight * RnDPerPower * EfficiencyMult * dt
+	want := 50 * b.PrimaryWeight * b.RnDPerPower * 1 * 10
+	if !approx(ns.Resources.RnD, want) {
+		t.Fatalf("RnD = %v, want %v", ns.Resources.RnD, want)
 	}
 }
 
@@ -24,7 +39,7 @@ func TestTickAdvancesTimeWithoutStaffRnD(t *testing.T) {
 	s := model.GameState{Research: model.Research{EfficiencyMult: 1.0}}
 	ns := Tick(s, 10, nil, b)
 	if !approx(ns.Resources.RnD, 0) {
-		t.Fatalf("RnD = %v, want 0 (no employee R&D wired into Tick yet)", ns.Resources.RnD)
+		t.Fatalf("RnD = %v, want 0 (empty roster)", ns.Resources.RnD)
 	}
 	if !approx(ns.GameTime, 10) {
 		t.Fatalf("GameTime = %v, want 10", ns.GameTime)
@@ -80,7 +95,7 @@ func TestOfflineFastForwardEquivalenceEmptyStaff(t *testing.T) {
 	b := balance.Default()
 	base := model.GameState{Research: model.Research{EfficiencyMult: 1.5}}
 
-	// One big tick of 100s, no token events.
+	// One big tick of 100s, no token events, empty roster.
 	oneShot := Tick(base, 100, nil, b)
 
 	// 100 small ticks of 1s each.
@@ -97,8 +112,165 @@ func TestOfflineFastForwardEquivalenceEmptyStaff(t *testing.T) {
 		t.Fatalf("GameTime mismatch: oneShot=%v stepwise=%v",
 			oneShot.GameTime, stepwise.GameTime)
 	}
-	if !approx(oneShot.Resources.RnD, 14.25/balance.RealSecCompression) { // (3*0.005 + 2*0.04)*1.5 = 0.1425/s * 100s = 14.25, scaled
-		t.Fatalf("expected RnD %v, got %v", 14.25/balance.RealSecCompression, oneShot.Resources.RnD)
+	if !approx(oneShot.Resources.RnD, 0) {
+		t.Fatalf("expected RnD 0 with empty roster, got %v", oneShot.Resources.RnD)
+	}
+}
+
+func TestOfflineFastForwardEquivalenceWithEmployee(t *testing.T) {
+	b := balance.Default()
+	base := model.GameState{
+		Research: model.Research{EfficiencyMult: 1.5},
+		Employees: []model.Employee{{
+			PrimaryRole: model.RoleResearcher,
+			Stats:       [model.NumRoles]int{40, 0, 0, 0},
+		}},
+		Market: model.TalentMarket{NextRefreshAt: 1e12, RandState: 1},
+	}
+
+	oneShot := Tick(base, 100, nil, b)
+	stepwise := base
+	for range 100 {
+		stepwise = Tick(stepwise, 1, nil, b)
+	}
+	if !approx(oneShot.Resources.RnD, stepwise.Resources.RnD) {
+		t.Fatalf("fast-forward mismatch: oneShot=%v stepwise=%v",
+			oneShot.Resources.RnD, stepwise.Resources.RnD)
+	}
+	want := staffRnDPerSecFromEmployees(base, b) * 100
+	if !approx(oneShot.Resources.RnD, want) {
+		t.Fatalf("expected RnD %v, got %v", want, oneShot.Resources.RnD)
+	}
+}
+
+func TestTickAutoRefreshesMarket(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{
+		Office: model.Office{Level: 1},
+		Market: model.TalentMarket{
+			NextRefreshAt: 5,
+			RandState:     42,
+			Candidates: []model.Employee{{
+				ID: "stale", Name: "舊人",
+			}},
+			RerollCount: 3,
+		},
+	}
+	// Before timer: pool unchanged.
+	ns := Tick(s, 4, nil, b) // GameTime=4 < 5
+	if len(ns.Market.Candidates) != 1 || ns.Market.Candidates[0].ID != "stale" {
+		t.Fatalf("before refresh: %+v", ns.Market.Candidates)
+	}
+	if ns.Market.RerollCount != 3 {
+		t.Fatalf("RerollCount should stay until free refresh, got %d", ns.Market.RerollCount)
+	}
+	// At/after timer: regenerates pool and resets reroll count.
+	ns2 := Tick(s, 5, nil, b) // GameTime=5 >= 5
+	if len(ns2.Market.Candidates) != b.MarketPoolSize {
+		t.Fatalf("after refresh pool size = %d, want %d", len(ns2.Market.Candidates), b.MarketPoolSize)
+	}
+	if ns2.Market.Candidates[0].ID == "stale" {
+		t.Fatal("expected new candidates after free refresh")
+	}
+	if ns2.Market.RerollCount != 0 {
+		t.Fatalf("RerollCount = %d, want 0 after free refresh", ns2.Market.RerollCount)
+	}
+	if ns2.Market.NextRefreshAt != 5+b.MarketRefreshSec {
+		t.Fatalf("NextRefreshAt = %v, want %v", ns2.Market.NextRefreshAt, 5+b.MarketRefreshSec)
+	}
+}
+
+func TestTickTokenRnDSkillMult(t *testing.T) {
+	b := balance.Default()
+	base := model.GameState{Research: model.Research{EfficiencyMult: 1}}
+	withSkill := model.GameState{
+		Research: model.Research{EfficiencyMult: 1},
+		Employees: []model.Employee{{
+			PrimaryRole:   model.RoleResearcher,
+			Stats:         [model.NumRoles]int{1, 0, 0, 0},
+			SkillIDs:      []string{"m-pipeline"}, // TokenRnDMult 1.02
+			MonthlySalary: 0,
+		}},
+		Market: model.TalentMarket{NextRefreshAt: 1e12},
+	}
+	events := []model.TokenEvent{{OutputTokens: 1000}} // raw 2000
+	nb := Tick(base, 1, events, b)
+	ns := Tick(withSkill, 1, events, b)
+	// Staff R&D is tiny; token path should show skill mult.
+	// withSkill token portion = 2000 * 1.02; staff adds a bit more.
+	if ns.Resources.RnD <= nb.Resources.RnD {
+		t.Fatalf("token skill mult should raise R&D: skill=%v base=%v", ns.Resources.RnD, nb.Resources.RnD)
+	}
+	// Exact: staff + token*1.02
+	staff := staffRnDPerSecFromEmployees(withSkill, b)
+	want := staff*1 + 2000*1.02
+	if !approx(ns.Resources.RnD, want) {
+		t.Fatalf("RnD = %v, want %v", ns.Resources.RnD, want)
+	}
+}
+
+func TestEmployeeInfraBoostsTraining(t *testing.T) {
+	b := balance.Default()
+	base := model.GameState{HasTraining: true, Market: model.TalentMarket{NextRefreshAt: 1e12}}
+	base.Compute.RentedTraining = map[string]int{"N7": 10}
+	base.Training = model.TrainingJob{Gen: 1, WorkRemaining: 1e9}
+	withEng := base
+	withEng.Employees = []model.Employee{{
+		PrimaryRole: model.RoleEngineer,
+		Stats:       [model.NumRoles]int{0, 80, 0, 0},
+	}}
+	nb := Tick(base, 1, nil, b)
+	ne := Tick(withEng, 1, nil, b)
+	if ne.Training.WorkRemaining >= nb.Training.WorkRemaining {
+		t.Fatalf("engineer should speed training: eng=%v base=%v",
+			ne.Training.WorkRemaining, nb.Training.WorkRemaining)
+	}
+}
+
+func TestEmployeeMarketingBoostsUsers(t *testing.T) {
+	b := balance.Default()
+	pinLegacyBalance(&b)
+	base := model.GameState{
+		Models: []model.Model{onlineModel(50, b.RefPrice)},
+		Market: model.TalentMarket{NextRefreshAt: 1e12},
+	}
+	withMkt := base
+	withMkt.Employees = []model.Employee{{
+		PrimaryRole: model.RoleMarketing,
+		Stats:       [model.NumRoles]int{0, 0, 0, 80},
+	}}
+	nb := Tick(base, 1, nil, b)
+	nm := Tick(withMkt, 1, nil, b)
+	if nm.Models[0].Users <= nb.Models[0].Users {
+		t.Fatalf("marketing should boost users: mkt=%v base=%v", nm.Models[0].Users, nb.Models[0].Users)
+	}
+}
+
+func TestEmployeeTrainQualityMult(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{
+		HasTraining: true,
+		Employees: []model.Employee{{
+			PrimaryRole: model.RoleResearcher,
+			Stats:       [model.NumRoles]int{1, 0, 0, 0},
+			SkillIDs:    []string{"d-qa-gate"}, // TrainQualityMult 1.04
+		}},
+		Market: model.TalentMarket{NextRefreshAt: 1e12},
+	}
+	s.Compute.RentedTraining = map[string]int{"N7": 1000}
+	s.Training = model.TrainingJob{
+		Gen:           2,
+		Alloc:         [model.NumQualityDims]float64{0.4, 0.2, 0.2, 0.2},
+		WorkRemaining: 1,
+	}
+	ns := Tick(s, 1, nil, b)
+	if len(ns.Models) != 1 {
+		t.Fatalf("expected completed model, got %d", len(ns.Models))
+	}
+	// Gen2 QualityScale=45 → cap = 0.4*45*1.04
+	want := 0.4 * 45 * 1.04
+	if !approx(ns.Models[0].Quality[model.DimCapability], want) {
+		t.Fatalf("capability = %v, want %v", ns.Models[0].Quality[model.DimCapability], want)
 	}
 }
 
@@ -551,8 +723,6 @@ func TestTickDeductsEmployeeSalary(t *testing.T) {
 	}
 }
 
-// Engineer/marketing/ops aggregate headcount tests removed; employee mults wire in Task 7.
-
 // Large TUI ticks (dt=3600) must not thrash users 0↔market-target when inference
 // is overloaded. After an hour-scale tick, users should settle near the count
 // capacity can serve (capacity / InferenceLoadPerUser), not collapse to 0.
@@ -707,8 +877,6 @@ func TestPrestigeCashMult(t *testing.T) {
 		t.Fatalf("prestige cash mult should boost revenue: %v vs %v", np.Resources.Cash, nb.Resources.Cash)
 	}
 }
-
-// Star-system integration tests removed with HiredStars; skill effects replace them later.
 
 func TestUserGrowthClampedAtLargeDt(t *testing.T) {
 	b := balance.Default()

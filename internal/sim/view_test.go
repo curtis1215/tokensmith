@@ -25,9 +25,16 @@ func TestRnDRatePerSec(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{}
 	s.Research.EfficiencyMult = 1
-	// Aggregate researchers removed; empty roster → 0 R&D/s until Tick rewires to employees.
 	if RnDRatePerSec(s, b) != 0 {
-		t.Errorf("RnDRatePerSec = %v, want 0 (no employees wired yet)", RnDRatePerSec(s, b))
+		t.Errorf("RnDRatePerSec empty = %v, want 0", RnDRatePerSec(s, b))
+	}
+	s.Employees = []model.Employee{{
+		PrimaryRole: model.RoleResearcher,
+		Stats:       [model.NumRoles]int{50, 0, 0, 0},
+	}}
+	want := staffRnDPerSecFromEmployees(s, b)
+	if !approx(RnDRatePerSec(s, b), want) {
+		t.Errorf("RnDRatePerSec = %v, want %v", RnDRatePerSec(s, b), want)
 	}
 }
 

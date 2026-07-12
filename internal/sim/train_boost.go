@@ -47,9 +47,9 @@ func PredictedTrainQuality(s model.GameState, gen int, alloc [model.NumQualityDi
 		return out, err
 	}
 	te := techEffects(s, b)
-	se := starEffects(s, b)
+	sk := passiveSkillEffects(s, b)
 	for d := range model.NumQualityDims {
-		out[d] = (alloc[d]*spec.QualityScale + bonus[d]) * te.QualityMult[d] * se.QualityMult[d]
+		out[d] = (alloc[d]*spec.QualityScale + bonus[d]) * te.QualityMult[d] * sk.TrainQualityMult
 	}
 	return out, nil
 }
