@@ -923,7 +923,23 @@ func (m Model) updateDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	if confirm {
-		m.applyNotice(d.command(m.cfg), "🚂 訓練已啟動")
+		ns, err := sim.Apply(m.state, d.command(m.cfg), m.cfg)
+		if err != nil {
+			switch {
+			case errors.Is(err, sim.ErrInsufficientCash):
+				d.errMsg = "現金不足"
+			case errors.Is(err, sim.ErrInsufficientRnD):
+				d.errMsg = "R&D 不足"
+			case errors.Is(err, sim.ErrTrainingInProgress):
+				d.errMsg = "已有訓練進行中"
+			default:
+				d.errMsg = "無法開始訓練"
+			}
+			m.dialog = &d
+			return m, nil
+		}
+		m.state = ns
+		m.setNotice("🚂 訓練已啟動")
 		m.dialog = nil
 		return m, nil
 	}
