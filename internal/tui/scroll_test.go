@@ -114,7 +114,7 @@ func TestPageChangeGotoTop(t *testing.T) {
 }
 
 func TestTeamKStillHiresNotScroll(t *testing.T) {
-	// Team reserves `k` (no viewport scroll). Hire rebind is Task 11.
+	// Team uses k for focus navigation (not viewport scroll).
 	m := tallViewport(t, PageTeam)
 	beforeOff := m.vp.YOffset
 	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})

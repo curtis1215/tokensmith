@@ -35,4 +35,7 @@ func TestNewGameSeed(t *testing.T) {
 	if s.Progression.IndustryTime != 0 || s.Progression.Frontier.Active || len(s.Progression.Eras) != 0 {
 		t.Errorf("rest of Progression should be zero on new game: %+v", s.Progression)
 	}
+	if len(s.Market.Candidates) == 0 {
+		t.Errorf("NewGame should seed talent market candidates")
+	}
 }

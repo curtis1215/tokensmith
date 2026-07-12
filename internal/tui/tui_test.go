@@ -405,13 +405,22 @@ func TestSaveMetaPersistsAchievements(t *testing.T) {
 }
 
 func TestHireShowsSuccessNotice(t *testing.T) {
-	// HireStaff removed; Task 11 rebinds team hire keys to HireEmployee.
-	// Keep a smoke check that team page still renders without panicking.
 	m := newAt(filepath.Join(t.TempDir(), "save.json"))
 	m.page = PageTeam
-	v := renderTeam(m)
-	if !strings.Contains(v, "團隊") {
-		t.Fatalf("team page should render, got %q", v)
+	m.state.Resources.Cash = 100_000
+	m.state.Office.Level = 1
+	m.state.Employees = nil
+	m.state.Market.Candidates = []model.Employee{
+		{ID: "c1", Name: "測試員", HireCost: 100, MonthlySalary: 500, Rank: model.RankGrunt, PrimaryRole: model.RoleResearcher},
+	}
+	m.marketCursor = 0
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	m = mm.(Model)
+	if !strings.Contains(m.notice, "已雇用") {
+		t.Fatalf("hire should set notice, got %q", m.notice)
+	}
+	if len(m.state.Employees) != 1 {
+		t.Fatalf("hire should add employee, got %d", len(m.state.Employees))
 	}
 }
 

@@ -94,6 +94,9 @@ type Model struct {
 	techEra           int                // selected era (1-based); 0 = current era
 	procCursor        int                // selected process node on the compute page
 	modelCursor       int                // selected index into state.Models on models page
+	marketCursor      int                // focused talent-market candidate on team page
+	rosterCursor      int                // focused roster employee on team page
+	teamFocusRoster   bool               // false = market focus; true = roster focus
 	// Harvest-daemon integration (§10.2).
 	ledgerPath     string
 	metaPath       string
@@ -716,6 +719,9 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 					m.modelCursor = vis[idx-1]
 				}
 			}
+			if m.page == PageTeam {
+				teamMoveFocus(&m, -1)
+			}
 			return m, nil
 		case "down":
 			if m.page == PageTech {
@@ -730,6 +736,9 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 				if idx >= 0 && idx < len(vis)-1 {
 					m.modelCursor = vis[idx+1]
 				}
+			}
+			if m.page == PageTeam {
+				teamMoveFocus(&m, +1)
 			}
 			return m, nil
 		case "[":
@@ -864,6 +873,8 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 					d = -1
 				}
 				m.applyNotice(model.RentCompute{Process: p.ID, Pool: pool, Delta: d}, "")
+			} else if m.page == PageTeam && (msg.String() == "r" || msg.String() == "R") {
+				applyTeamReroll(&m)
 			}
 			return m, nil
 		case "b", "B":
@@ -885,13 +896,38 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			} else if m.page == PageCompute {
 				m.applyNotice(model.ExpandDatacenter{PowerDelta: 100, SlotDelta: 5}, "🏗 機房擴建完成")
 			}
-			// PageTeam hire keys are rewired in Task 11 (employee market).
 			return m, nil
-		case "h", "o", "s":
-			// Placeholder: old HireStaff/SignStar removed; Task 11 binds employee hire/fire.
+		case "u":
+			if m.page == PageTeam {
+				applyTeamUpgrade(&m)
+			}
+			return m, nil
+		case "h":
+			if m.page == PageTeam {
+				applyTeamHire(&m)
+			}
+			return m, nil
+		case "f":
+			if m.page == PageTeam {
+				applyTeamFire(&m)
+			}
+			return m, nil
+		case "j":
+			if m.page == PageTeam {
+				teamMoveFocus(&m, +1)
+			}
 			return m, nil
 		case "k":
-			// Team still reserves `k` (no scroll); hire rebind in Task 11.
+			// Team: k moves focus up (not viewport scroll; see tryScroll).
+			if m.page == PageTeam {
+				teamMoveFocus(&m, -1)
+			}
+			return m, nil
+		case " ":
+			// Space toggles market ↔ roster focus on the team page.
+			if m.page == PageTeam {
+				teamToggleFocus(&m)
+			}
 			return m, nil
 		}
 	}
@@ -1179,10 +1215,10 @@ func (m *Model) refreshViewport() {
 	m.vp.SetContent(m.contentBody())
 }
 
-// pageUsesListCursor reports pages where ↑↓ move a selection cursor.
+// pageUsesListCursor reports pages where ↑↓/j/k move a selection cursor.
 func (m Model) pageUsesListCursor() bool {
 	switch m.page {
-	case PageModels, PageTech, PageCompute:
+	case PageModels, PageTech, PageCompute, PageTeam:
 		return true
 	default:
 		return false
@@ -1205,11 +1241,8 @@ func (m Model) tryScroll(msg tea.KeyMsg) (bool, Model) {
 			return true, m
 		}
 	case "k", "up":
-		// Preserve Team `k` = hire marketing; only pure browse pages scroll with k/up.
+		// Team/Models/Tech/Compute use k/up for list cursors, not scroll.
 		if !m.pageUsesListCursor() {
-			if msg.String() == "k" && m.page == PageTeam {
-				return false, m
-			}
 			m.vp.LineUp(1)
 			return true, m
 		}
@@ -1246,7 +1279,7 @@ func pageKeys(m Model) string {
 	case PageCompute:
 		return "[↑↓]選製程 [r/R]±訓練 [i/I]±推理 [b/B]建訓練/推理伺服器 [e]擴機房"
 	case PageTeam:
-		return "[h]雇研究員 [e]雇工程 [o]雇營運 [k]雇行銷 [s]簽明星"
+		return "[j/k]選擇 [space]市場/名冊 [h]雇用 [f]解雇 [u]升級 [r]重抽"
 	case PageTech:
 		return "[↑↓]條目 [ ]時代 [Enter]執行 [+]/[-]前沿分配"
 	case PageAchievements:

@@ -4,6 +4,7 @@ package game
 import (
 	"tokensmith/internal/balance"
 	"tokensmith/internal/model"
+	"tokensmith/internal/sim"
 )
 
 // NewGame returns the initial state for a new run. The starting baseline is
@@ -20,7 +21,9 @@ func NewGame() model.GameState {
 	s.Progression.MaxUnlockedGen = 1
 	// Compute starts empty (nil maps → 0): rent on demand, no rent burn
 	// before a product exists.
-	// Talent market is seeded by sim.freshRun / store migrate on load paths;
-	// NewGame leaves Market zero until the first Tick or explicit refresh.
+	// Seed talent market so Team page has hireable candidates before first Tick
+	// (matches sim.freshRun / store migrate paths).
+	s.Market = model.TalentMarket{RandState: 1}
+	s = sim.RefreshMarket(s, b)
 	return s
 }
