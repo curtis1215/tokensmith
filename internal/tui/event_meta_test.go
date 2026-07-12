@@ -55,9 +55,17 @@ func TestEventsCardShowsPendingAndLog(t *testing.T) {
 	}
 }
 
-func TestOverviewIncludesEventsCard(t *testing.T) {
+func TestOverviewOmitsEventsCard(t *testing.T) {
+	// Overview skeleton B: events live on war room; overview only shows pending strip.
 	m := testModel(t)
-	if !strings.Contains(renderOverview(m), "產業動態") {
-		t.Fatal("overview must include the events card")
+	if strings.Contains(renderOverview(m), "產業動態") {
+		t.Fatal("overview must not include the events card")
+	}
+}
+
+func TestWarRoomIncludesEventsCard(t *testing.T) {
+	m := testModel(t)
+	if !strings.Contains(renderWarRoom(m), "產業動態") {
+		t.Fatal("war room must include the events card")
 	}
 }

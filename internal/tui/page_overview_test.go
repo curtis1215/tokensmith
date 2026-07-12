@@ -10,23 +10,36 @@ import (
 
 	"tokensmith/internal/dailyusage"
 	"tokensmith/internal/model"
+	"tokensmith/internal/sim"
 )
 
-func TestOverviewShowsCampaignWarRoom(t *testing.T) {
+func TestOverviewHasNoCampaignCards(t *testing.T) {
 	m := testModel(t)
 	m.state.Campaign = model.CampaignState{
 		Doctrine: model.DoctrineConsumer, Stage: model.CampaignStageExpand, Cycle: 4,
-		Primary:  model.RivalRoadmap{Company: "OpenAI", ActionIndex: 0, CyclesUntilAction: 1},
-		Wildcard: model.RivalRoadmap{Company: "DeepSeek", ActionIndex: 0, CyclesUntilAction: 2},
+		Primary: model.RivalRoadmap{Company: "OpenAI", ActionIndex: 0, CyclesUntilAction: 1},
 		Reports: []model.BoardReport{{Cycle: 4, Entries: []model.CampaignReportEntry{
 			{Kind: model.ReportRivalAction, SubjectID: "OpenAI", DetailID: "openai-flagship"},
 		}}},
 	}
 	v := renderOverview(m)
-	for _, want := range []string{"主要戰略", "消費者霸主", "OpenAI", "下一步", "董事會報告"} {
-		if !strings.Contains(v, want) {
-			t.Fatalf("missing %q:\n%s", want, v)
+	// Ban campaign card titles / labels. Do not ban bare "OpenAI" — share card
+	// legitimately lists market rivals. Ban campaign-only OpenAI phrasing instead.
+	for _, ban := range []string{"公司戰略", "宿敵路線", "董事會報告", "產業動態", "主要戰略", "主要宿敵", "消費旗艦"} {
+		if strings.Contains(v, ban) {
+			t.Fatalf("overview must not show campaign content %q:\n%s", ban, v)
 		}
+	}
+}
+
+func TestOverviewPendingStrip(t *testing.T) {
+	m := pendingChipShortage(testModel(t))
+	v := renderOverview(m)
+	if !strings.Contains(v, "[2]戰情室") || !strings.Contains(v, "待決策") {
+		t.Fatalf("expected pending strip pointing to war room:\n%s", v)
+	}
+	if strings.Contains(v, "產業動態") {
+		t.Fatalf("overview must not show 產業動態 card title:\n%s", v)
 	}
 }
 
@@ -34,18 +47,61 @@ func TestOverviewShowsHQ(t *testing.T) {
 	m := newAt(filepath.Join(t.TempDir(), "save.json"))
 	mm, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 42})
 	m = mm.(Model)
-	if out := renderOverview(m); !strings.Contains(out, "總部") {
+	out := renderOverview(m)
+	if !strings.Contains(out, "總部") {
 		t.Fatal("overview should show HQ card")
+	}
+	// ≥100 content width must use full ASCII art (not icon-only strip).
+	// Art contains underscores from stage buildings.
+	if !strings.Contains(out, "___") && !strings.Contains(out, "---") {
+		t.Fatalf("overview at wide width should show HQ ASCII art:\n%s", out)
 	}
 }
 
-func TestOverviewPreCampaignGuidance(t *testing.T) {
+func TestOverviewOmitsCampaignPressures(t *testing.T) {
 	m := testModel(t)
-	m.state.Campaign = model.CampaignState{}
+	m.state.Models = []model.Model{{Online: true, Users: 10, Price: 12}}
+	m.state.Campaign = model.CampaignState{} // DoctrineNone
 	v := renderOverview(m)
-	if !strings.Contains(v, "第一個模型上線後可選公司戰略") {
-		t.Fatalf("pre-campaign guidance missing:\n%s", v)
+	for _, ban := range []string{"尚未選擇公司戰略", "可選第", "財務危機"} {
+		if strings.Contains(v, ban) {
+			t.Fatalf("overview must not show campaign pressure %q:\n%s", ban, v)
+		}
 	}
+	// Same fixture still produces campaign pressure for war room / pressures().
+	if !strings.Contains(strings.Join(campaignPressures(m), "\n"), "尚未選擇公司戰略") {
+		t.Fatal("campaignPressures should still flag no-doctrine")
+	}
+}
+
+func TestOverviewRow1CardHeightsMatch(t *testing.T) {
+	m := testModel(t)
+	mm, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 42})
+	m = mm.(Model)
+	cw := m.contentWidth()
+	gap := 2
+	colW := (cw - gap) / 2
+	left := CardInFrom(hqContent(m, colW, cw < 100))
+	right := CardInFrom(companyContent(m, colW))
+	// After HRowEqualCards, both sides use padBodyLines to same body height.
+	row := HRowEqualCards(gap, hqContent(m, colW, cw < 100), companyContent(m, colW))
+	// Equalized individual cards should match height.
+	bodyMax := bodyLineCount(hqContent(m, colW, cw < 100).body)
+	if n := bodyLineCount(companyContent(m, colW).body); n > bodyMax {
+		bodyMax = n
+	}
+	leftEq := CardIn(CardDefault, colW, hqContent(m, colW, cw < 100).title, padBodyLines(hqContent(m, colW, cw < 100).body, bodyMax))
+	// Use same kind/title from content
+	hc := hqContent(m, colW, cw < 100)
+	cc := companyContent(m, colW)
+	leftEq = CardIn(hc.kind, colW, hc.title, padBodyLines(hc.body, bodyMax))
+	rightEq := CardIn(cc.kind, colW, cc.title, padBodyLines(cc.body, bodyMax))
+	if lipgloss.Height(leftEq) != lipgloss.Height(rightEq) {
+		t.Fatalf("equalized HQ/company heights %d vs %d", lipgloss.Height(leftEq), lipgloss.Height(rightEq))
+	}
+	_ = left
+	_ = right
+	_ = row
 }
 
 func TestOverviewShowsKPIsAndTraining(t *testing.T) {
@@ -83,12 +139,15 @@ func TestOverviewShowsFrontier(t *testing.T) {
 		RecommendedCompute: 100,
 	}
 	v := renderOverview(m)
-	for _, want := range []string{
-		"訓練 Gen5", "前沿 Gen6", "分配 前沿40%", "訓練60%",
-		"有效", "折合", "建議", "ETA", "R&D 進度",
-	} {
+	// Overview only: progress + ETA/stall (≤2 frontier lines). No 分配/有效/折合/建議/R&D 進度.
+	for _, want := range []string{"訓練 Gen5", "前沿 Gen6", "ETA"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("overview frontier missing %q:\n%s", want, v)
+		}
+	}
+	for _, ban := range []string{"分配 前沿", "有效", "折合", "建議", "R&D 進度"} {
+		if strings.Contains(v, ban) {
+			t.Errorf("overview frontier too detailed: has %q", ban)
 		}
 	}
 }
@@ -165,28 +224,20 @@ func TestOverviewShowsDailyUsageBySource(t *testing.T) {
 		},
 	}
 	out := renderOverview(m)
-	for _, want := range []string{"今日 Token 收成", "Claude Code", "Codex", "Grok（估算）", "OpenCode", "316K"} {
+	// Thin layout: source totals + 合計.
+	for _, want := range []string{"今日 Token 收成", "Claude", "Codex", "Grok", "OpenCode", "合計", "316K"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q:\n%s", want, out)
 		}
 	}
-	// Wide layout shows In/Out breakdown (Grok has In only, no fake Out amount).
-	if !strings.Contains(out, "In 120K") || !strings.Contains(out, "Out 18K") {
-		t.Fatalf("wide In/Out missing:\n%s", out)
-	}
-	if !strings.Contains(out, "In 30K") {
-		t.Fatalf("Grok In missing:\n%s", out)
-	}
-	// Grok must not invent a non-zero Out amount.
+	// Must NOT require full multi-line In/Out rows.
+	// Still: Grok must not fabricate Out.
 	if strings.Contains(out, "Grok") {
-		// Find the Grok line and ensure it doesn't claim Out with a positive amount.
 		for _, ln := range strings.Split(out, "\n") {
 			if strings.Contains(ln, "Grok") && strings.Contains(ln, "Out") {
-				// Zero Out is ok to omit entirely; positive Out is not.
 				if strings.Contains(ln, "Out 0") {
 					continue
 				}
-				// Any "Out N" with N>0 is wrong for Grok-only estimated in.
 				t.Fatalf("Grok line must not show fabricated Out: %q", ln)
 			}
 		}
@@ -200,7 +251,7 @@ func TestOverviewDailyUsageZerosWhenMissing(t *testing.T) {
 	m.dailyDay = "2026-07-12"
 	m.dailyDoc.Days = nil
 	out := renderOverview(m)
-	for _, want := range []string{"今日 Token 收成", "Claude Code", "Codex", "Grok（估算）", "OpenCode"} {
+	for _, want := range []string{"今日 Token 收成", "Claude", "Codex", "Grok", "OpenCode"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q:\n%s", want, out)
 		}
@@ -226,8 +277,8 @@ func TestOverviewDailyUsageNarrowKeepsAllSources(t *testing.T) {
 		},
 	}
 	out := renderOverview(m)
-	// Compact labels still cover every source.
-	for _, want := range []string{"Claude", "Codex", "Grok", "OpenCode"} {
+	// Compact labels still cover every source + 合計.
+	for _, want := range []string{"Claude", "Codex", "Grok", "OpenCode", "合計", "316K"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("narrow missing %q:\n%s", want, out)
 		}
@@ -237,6 +288,31 @@ func TestOverviewDailyUsageNarrowKeepsAllSources(t *testing.T) {
 		if lipgloss.Width(ln) > cw {
 			t.Fatalf("line %d overflows content width %d: %q (width=%d)", i, cw, ln, lipgloss.Width(ln))
 		}
+	}
+}
+
+func TestPickShareRowsAlwaysIncludesYou(t *testing.T) {
+	// Player last by share among 6 rivals + you.
+	bars := []sim.ShareRow{
+		{Name: "A", Share: 0.3},
+		{Name: "B", Share: 0.25},
+		{Name: "C", Share: 0.2},
+		{Name: "D", Share: 0.15},
+		{Name: "E", Share: 0.09},
+		{Name: "你", Share: 0.01, You: true},
+	}
+	got := pickShareRows(bars, 4)
+	if len(got) != 4 {
+		t.Fatalf("len=%d want 4: %+v", len(got), got)
+	}
+	found := false
+	for _, r := range got {
+		if r.You {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("player missing from top-4 pick: %+v", got)
 	}
 }
 

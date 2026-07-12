@@ -80,7 +80,7 @@ func TestRivalIntelFullVsPartialDisclosure(t *testing.T) {
 	partial := renderRivalIntelBlock("主要宿敵", sim.RivalIntelView{
 		Company: "OpenAI", ConfirmedActionID: "openai-flagship",
 		RumoredActionID: "openai-platform", CyclesUntilAction: 1, IntelFull: false,
-	}, cfg, false)
+	}, cfg, false, 120)
 	if !strings.Contains(partial, "方向") || !strings.Contains(partial, "消費者") {
 		t.Fatalf("partial intel must show direction+segment:\n%s", partial)
 	}
@@ -94,7 +94,7 @@ func TestRivalIntelFullVsPartialDisclosure(t *testing.T) {
 	full := renderRivalIntelBlock("主要宿敵", sim.RivalIntelView{
 		Company: "OpenAI", ConfirmedActionID: "openai-flagship",
 		RumoredActionID: "openai-platform", CyclesUntilAction: 1, IntelFull: true,
-	}, cfg, false)
+	}, cfg, false, 120)
 	for _, want := range []string{"能力追趕", "價格×", "前置"} {
 		if !strings.Contains(full, want) {
 			t.Fatalf("full intel must disclose %q:\n%s", want, full)

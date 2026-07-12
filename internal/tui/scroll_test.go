@@ -138,7 +138,7 @@ func TestPageBodyFitsViewportWidth(t *testing.T) {
 		{Online: true, Gen: 2, Name: "LiveModel", Segment: model.SegConsumer, Users: 12345, Price: 12},
 	}
 	// Representative pages: overview + tech (review report), plus team (long star blurbs).
-	pages := []Page{PageOverview, PageTech, PageTeam, PageModels, PageMarket, PageCompute}
+	pages := []Page{PageOverview, PageWarRoom, PageTech, PageTeam, PageModels, PageMarket, PageCompute, PageAchievements}
 	for _, page := range pages {
 		m.page = page
 		body := m.contentBody()

@@ -109,9 +109,13 @@ func directiveLabel(d model.DirectiveKind) string {
 
 // renderCampaignStatusCard is the CEO war-room status card (doctrine / stage / gate).
 func renderCampaignStatusCard(m Model, w int) string {
+	return CardInFrom(campaignStatusContent(m, w))
+}
+
+func campaignStatusContent(m Model, w int) cardContent {
 	status := sim.CampaignStatus(m.state, m.cfg)
 	if !status.Active {
-		return CardIn(CardAccent, w, "公司戰略", "第一個模型上線後可選公司戰略")
+		return cardContent{kind: CardAccent, w: w, title: "公司戰略", body: "第一個模型上線後可選公司戰略"}
 	}
 	camp := m.state.Campaign
 	var lines []string
@@ -164,28 +168,37 @@ func renderCampaignStatusCard(m Model, w int) string {
 	if status.Victory || camp.Victory != model.DoctrineNone {
 		lines = append(lines, styleAccent.Render("✓ 路線勝利 — 按 P 結算"))
 	}
-	return CardIn(kind, w, "公司戰略", VStack(lines...))
+	return cardContent{kind: kind, w: w, title: "公司戰略", body: VStack(lines...)}
 }
 
 // renderRivalRoadmapCard shows primary + wildcard confirmed/rumored actions.
 func renderRivalRoadmapCard(m Model, w int) string {
-	var blocks []string
-	if primary, ok := sim.CampaignRivalIntel(m.state, m.cfg, true); ok {
-		blocks = append(blocks, renderRivalIntelBlock("主要宿敵", primary, m.cfg, m.blink))
-	} else {
-		blocks = append(blocks, styleMuted.Render("主要宿敵：尚無情報"))
-	}
-	if wildcard, ok := sim.CampaignRivalIntel(m.state, m.cfg, false); ok {
-		blocks = append(blocks, renderRivalIntelBlock("攪局者", wildcard, m.cfg, m.blink))
-	} else {
-		blocks = append(blocks, styleMuted.Render("攪局者：尚無情報"))
-	}
-	return CardIn(CardThreat, w, "宿敵路線", VStack(blocks...))
+	return CardInFrom(rivalRoadmapContent(m, w))
 }
 
-func renderRivalIntelBlock(role string, intel sim.RivalIntelView, cfg balance.Config, blink bool) string {
+func rivalRoadmapContent(m Model, w int) cardContent {
+	// Text area inside bordered card: borders (~2) + horizontal padding (~2).
+	innerW := w - 4
+	if innerW < 8 {
+		innerW = 8
+	}
+	var blocks []string
+	if primary, ok := sim.CampaignRivalIntel(m.state, m.cfg, true); ok {
+		blocks = append(blocks, renderRivalIntelBlock("主要宿敵", primary, m.cfg, m.blink, innerW))
+	} else {
+		blocks = append(blocks, TruncateWidth(styleMuted.Render("主要宿敵：尚無情報"), innerW))
+	}
+	if wildcard, ok := sim.CampaignRivalIntel(m.state, m.cfg, false); ok {
+		blocks = append(blocks, renderRivalIntelBlock("攪局者", wildcard, m.cfg, m.blink, innerW))
+	} else {
+		blocks = append(blocks, TruncateWidth(styleMuted.Render("攪局者：尚無情報"), innerW))
+	}
+	return cardContent{kind: CardThreat, w: w, title: "宿敵路線", body: VStack(blocks...)}
+}
+
+func renderRivalIntelBlock(role string, intel sim.RivalIntelView, cfg balance.Config, blink bool, maxW int) string {
 	var lines []string
-	lines = append(lines, fmt.Sprintf("%s %s", role, intel.Company))
+	lines = append(lines, TruncateWidth(fmt.Sprintf("%s %s", role, intel.Company), maxW))
 	if intel.ConfirmedActionID != "" {
 		line := fmt.Sprintf("  已確認 %s · %d 週期後",
 			rivalActionLabel(intel.ConfirmedActionID), intel.CyclesUntilAction)
@@ -196,14 +209,17 @@ func renderRivalIntelBlock(role string, intel sim.RivalIntelView, cfg balance.Co
 			}
 			line = st.Render(line + " ⚠")
 		}
-		lines = append(lines, line)
-		lines = append(lines, formatActionIntelDetail(intel.ConfirmedActionID, intel.IntelFull, cfg, "  "))
+		lines = append(lines, TruncateWidth(line, maxW))
+		lines = append(lines, TruncateWidth(
+			formatActionIntelDetail(intel.ConfirmedActionID, intel.IntelFull, cfg, "  "), maxW))
 	}
 	if intel.RumoredActionID != "" {
-		lines = append(lines, fmt.Sprintf("  下一步 %s", rivalActionLabel(intel.RumoredActionID)))
-		lines = append(lines, formatActionIntelDetail(intel.RumoredActionID, intel.IntelFull, cfg, "  "))
+		lines = append(lines, TruncateWidth(
+			fmt.Sprintf("  下一步 %s", rivalActionLabel(intel.RumoredActionID)), maxW))
+		lines = append(lines, TruncateWidth(
+			formatActionIntelDetail(intel.RumoredActionID, intel.IntelFull, cfg, "  "), maxW))
 	} else {
-		lines = append(lines, "  下一步 —")
+		lines = append(lines, TruncateWidth("  下一步 —", maxW))
 	}
 	return VStack(lines...)
 }
@@ -249,6 +265,12 @@ func formatActionIntelDetail(actionID string, full bool, cfg balance.Config, ind
 
 // renderBoardReportCard shows the latest board report (newest four entries).
 func renderBoardReportCard(m Model, w int) string {
+	return renderBoardReportCardMax(m, w, 4)
+}
+
+// renderBoardReportCardMax shows the latest board report, keeping at most
+// maxEntries of the newest entries.
+func renderBoardReportCardMax(m Model, w int, maxEntries int) string {
 	reports := m.state.Campaign.Reports
 	if len(reports) == 0 {
 		return CardIn(CardDefault, w, "董事會報告", styleMuted.Render("尚無董事會報告"))
@@ -258,10 +280,10 @@ func renderBoardReportCard(m Model, w int) string {
 	if len(entries) == 0 {
 		return CardIn(CardDefault, w, "董事會報告", styleMuted.Render(fmt.Sprintf("第 %d 週期：無事項", latest.Cycle)))
 	}
-	// Newest four: take from the end.
+	// Newest maxEntries: take from the end.
 	start := 0
-	if len(entries) > 4 {
-		start = len(entries) - 4
+	if maxEntries > 0 && len(entries) > maxEntries {
+		start = len(entries) - maxEntries
 	}
 	var lines []string
 	lines = append(lines, fmt.Sprintf("第 %d 週期", latest.Cycle))

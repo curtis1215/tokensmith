@@ -128,3 +128,126 @@ func TestGridStacksWhenNarrow(t *testing.T) {
 		}
 	}
 }
+
+func TestPadBodyLines(t *testing.T) {
+	got := padBodyLines("a\nb", 4)
+	if lipgloss.Height(got) != 4 {
+		t.Fatalf("height=%d want 4 (%q)", lipgloss.Height(got), got)
+	}
+	short := padBodyLines("a\nb\nc\nd\ne", 2)
+	if lipgloss.Height(short) != 2 || !strings.Contains(short, "a") {
+		t.Fatalf("truncate failed: %q", short)
+	}
+}
+
+func TestEqualHeight(t *testing.T) {
+	a := "1\n2\n3"
+	b := "x"
+	out := EqualHeight(a, b)
+	if lipgloss.Height(out[0]) != lipgloss.Height(out[1]) {
+		t.Fatalf("heights %d vs %d", lipgloss.Height(out[0]), lipgloss.Height(out[1]))
+	}
+	if lipgloss.Height(out[0]) != 3 {
+		t.Fatalf("want height 3, got %d", lipgloss.Height(out[0]))
+	}
+}
+
+func TestHRowEqual(t *testing.T) {
+	left := CardIn(CardDefault, 40, "L", "a\nb\nc")
+	right := CardIn(CardDefault, 40, "R", "x")
+	// Finished-card EqualHeight only pads below the border.
+	row := HRowEqual(2, left, right)
+	if lipgloss.Height(row) < lipgloss.Height(left) {
+		t.Fatalf("row shorter than tallest card")
+	}
+}
+
+func TestHRowEqualCardsBordersMatch(t *testing.T) {
+	row := HRowEqualCards(2,
+		cardContent{kind: CardDefault, w: 40, title: "L", body: "a\nb\nc"},
+		cardContent{kind: CardDefault, w: 40, title: "R", body: "x"},
+	)
+	// Reconstruct the two equalized cards and compare heights.
+	left := cardContent{kind: CardDefault, w: 40, title: "L", body: "a\nb\nc"}
+	right := cardContent{kind: CardDefault, w: 40, title: "R", body: "x"}
+	maxH := lipgloss.Height(CardIn(left.kind, left.w, left.title, left.body))
+	if h := lipgloss.Height(CardIn(right.kind, right.w, right.title, right.body)); h > maxH {
+		maxH = h
+	}
+	lb, rb := left.body, right.body
+	for lipgloss.Height(CardIn(left.kind, left.w, left.title, lb)) < maxH {
+		lb += "\n"
+	}
+	for lipgloss.Height(CardIn(right.kind, right.w, right.title, rb)) < maxH {
+		rb += "\n"
+	}
+	a := CardIn(left.kind, left.w, left.title, lb)
+	b := CardIn(right.kind, right.w, right.title, rb)
+	if lipgloss.Height(a) != lipgloss.Height(b) {
+		t.Fatalf("equalized cards heights %d vs %d", lipgloss.Height(a), lipgloss.Height(b))
+	}
+	if lipgloss.Height(row) != lipgloss.Height(a) {
+		t.Fatalf("row height %d want %d", lipgloss.Height(row), lipgloss.Height(a))
+	}
+	if !strings.Contains(row, "L") || !strings.Contains(row, "R") {
+		t.Fatalf("row missing cards: %q", row)
+	}
+}
+
+func TestHRowEqualCardsAccountsForWidthWrap(t *testing.T) {
+	// Narrow cards force long single-line body to wrap into many visual lines.
+	long := strings.Repeat("word ", 40) // will wrap inside w=30
+	row := HRowEqualCards(2,
+		cardContent{kind: CardDefault, w: 30, title: "短", body: "x"},
+		cardContent{kind: CardDefault, w: 30, title: "長", body: long},
+	)
+	// Extract by re-equalizing the same contents and comparing component heights.
+	shortC := cardContent{kind: CardDefault, w: 30, title: "短", body: "x"}
+	longC := cardContent{kind: CardDefault, w: 30, title: "長", body: long}
+	maxH := 0
+	for _, c := range []cardContent{shortC, longC} {
+		if h := lipgloss.Height(CardIn(c.kind, c.w, c.title, c.body)); h > maxH {
+			maxH = h
+		}
+	}
+	sb, lb := shortC.body, longC.body
+	for lipgloss.Height(CardIn(shortC.kind, shortC.w, shortC.title, sb)) < maxH {
+		sb += "\n"
+	}
+	for lipgloss.Height(CardIn(longC.kind, longC.w, longC.title, lb)) < maxH {
+		lb += "\n"
+	}
+	sh := lipgloss.Height(CardIn(shortC.kind, shortC.w, shortC.title, sb))
+	lh := lipgloss.Height(CardIn(longC.kind, longC.w, longC.title, lb))
+	if sh != lh {
+		t.Fatalf("wrap-aware equal heights %d vs %d (maxH=%d)", sh, lh, maxH)
+	}
+	if maxH < 5 {
+		t.Fatalf("expected long body to wrap to >5 lines, got maxH=%d", maxH)
+	}
+	if lipgloss.Height(row) != sh {
+		t.Fatalf("row height %d want %d", lipgloss.Height(row), sh)
+	}
+}
+
+func TestGridNThreeColumns(t *testing.T) {
+	cell := func(label string) func(int) string {
+		return func(w int) string { return CardIn(CardDefault, w, label, "x") }
+	}
+	got := GridN(102, 2, 3, cell("A"), cell("B"), cell("C"))
+	// First visual row should be ~102 wide (3 cols + 2 gaps).
+	first := strings.Split(got, "\n")[0]
+	if lipgloss.Width(first) != 102 {
+		t.Fatalf("row width=%d want 102", lipgloss.Width(first))
+	}
+}
+
+func TestGridNStacksWhenNarrow(t *testing.T) {
+	cell := func(w int) string { return CardIn(CardDefault, w, "T", "B") }
+	got := GridN(60, 2, 3, cell, cell, cell)
+	for _, ln := range strings.Split(got, "\n") {
+		if lipgloss.Width(ln) > 60 {
+			t.Fatalf("overflow %d > 60", lipgloss.Width(ln))
+		}
+	}
+}

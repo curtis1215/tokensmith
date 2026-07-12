@@ -60,6 +60,7 @@ type Page int
 
 const (
 	PageOverview Page = iota
+	PageWarRoom
 	PageModels
 	PageMarket
 	PageCompute
@@ -69,7 +70,7 @@ const (
 	numPages
 )
 
-var pageNames = [numPages]string{"總覽", "模型", "市場", "算力", "團隊", "科技", "成就"}
+var pageNames = [numPages]string{"總覽", "戰情室", "模型", "市場", "算力", "團隊", "科技", "成就"}
 
 // Model is the Bubble Tea root model.
 type Model struct {
@@ -697,7 +698,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			m.page = (m.page + numPages - 1) % numPages
 			m.vp.GotoTop()
 			return m, nil
-		case "1", "2", "3", "4", "5", "6", "7":
+		case "1", "2", "3", "4", "5", "6", "7", "8":
 			m.page = Page(msg.String()[0] - '1')
 			m.vp.GotoTop()
 			return m, nil
@@ -797,7 +798,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return m, nil
 		case "P":
-			if m.page == PageOverview || m.page == PageTech {
+			if m.page == PageOverview || m.page == PageWarRoom || m.page == PageTech {
 				if d, ok := newCampaignEndDialog(m, campaignEndVictory); ok {
 					m.campaignEnd = &d
 					m.campaignError = ""
@@ -808,7 +809,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return m, nil
 		case "E":
-			if m.page == PageOverview {
+			if m.page == PageOverview || m.page == PageWarRoom {
 				if d, ok := newCampaignEndDialog(m, campaignEndExit); ok {
 					m.campaignEnd = &d
 					m.campaignError = ""
@@ -818,7 +819,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return m, nil
 		case "c":
-			if m.page == PageOverview {
+			if m.page == PageOverview || m.page == PageWarRoom {
 				if d, ok := newDoctrineDialog(m, false); ok {
 					m.doctrineDialog = &d
 					m.campaignError = ""
@@ -828,7 +829,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return m, nil
 		case "C":
-			if m.page == PageOverview {
+			if m.page == PageOverview || m.page == PageWarRoom {
 				if d, ok := newDoctrineDialog(m, true); ok {
 					m.doctrineDialog = &d
 					m.campaignError = ""
@@ -841,7 +842,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return m, nil
 		case "d":
-			if m.page == PageOverview {
+			if m.page == PageOverview || m.page == PageWarRoom {
 				if d, ok := newDirectiveDialog(m); ok {
 					m.directiveDialog = &d
 					m.campaignError = ""
@@ -875,7 +876,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return m, nil
 		case "e":
-			if m.page == PageOverview {
+			if m.page == PageOverview || m.page == PageWarRoom {
 				if d, ok := newEventDialog(m); ok {
 					m.event = &d
 				} else {
@@ -1240,6 +1241,18 @@ func pageKeys(m Model) string {
 		return "" // dialogs embed their own help
 	}
 	switch m.page {
+	case PageWarRoom:
+		hint := "[1]總覽"
+		if len(m.state.Events.Pending) > 0 {
+			hint = "[e]決策 " + hint
+		}
+		if m.state.Campaign.PerkTierPending > 0 {
+			hint += " [c]能力"
+		}
+		if m.state.Campaign.Victory != model.DoctrineNone {
+			hint += " [P]結算"
+		}
+		return hint
 	case PageModels:
 		if len(m.state.Models) == 0 {
 			return "[t]訓練"
@@ -1422,7 +1435,7 @@ func sourceLabel(src string) string {
 // latestEventName names the most recently fired event for the notice line.
 func latestEventName(s model.GameState) string {
 	if n := len(s.Events.Pending); n > 0 {
-		return eventLabel(s.Events.Pending[n-1].EventID).Name + "（總覽頁按 e 決策）"
+		return eventLabel(s.Events.Pending[n-1].EventID).Name + "（按 e 決策）"
 	}
 	if n := len(s.Events.Log); n > 0 {
 		return eventLabel(s.Events.Log[n-1].EventID).Name
@@ -1430,8 +1443,13 @@ func latestEventName(s model.GameState) string {
 	return ""
 }
 
-// pressures returns ⚠ attention items surfaced on the overview page.
+// pressures returns all ⚠ attention items (operational + campaign).
 func pressures(m Model) []string {
+	return append(operationalPressures(m), campaignPressures(m)...)
+}
+
+// operationalPressures are business/ops warnings for the overview 注意 card.
+func operationalPressures(m Model) []string {
 	s := m.state
 	var out []string
 	if cap := sim.EffectiveInference(s, m.cfg); cap > 0 && s.Compute.InferenceLoad/cap >= 0.9 {
@@ -1463,16 +1481,29 @@ func pressures(m Model) []string {
 	if draftN > 0 {
 		out = append(out, fmt.Sprintf("待發佈模型 %d 個 — 模型頁按 p", draftN))
 	}
-	// Campaign pressures (append only; keep existing warnings above).
+	return out
+}
+
+// campaignPressures are war-room warnings (strategy / perk / distress).
+func campaignPressures(m Model) []string {
+	s := m.state
+	var out []string
+	hasOnline := false
+	for _, md := range s.Models {
+		if md.Online {
+			hasOnline = true
+			break
+		}
+	}
 	if c := s.Campaign.FinancialDistressCycles; c >= 1 {
 		out = append(out, styleLoss.Bold(true).Render(
 			fmt.Sprintf("🩸 財務危機 第 %d 週期——連續 2 週期可策略退出 [E]", c)))
 	}
 	if s.Campaign.Doctrine == model.DoctrineNone && hasOnline {
-		out = append(out, "⚠ 尚未選擇公司戰略——總覽頁按 c")
+		out = append(out, "⚠ 尚未選擇公司戰略——按 c 選擇")
 	}
 	if s.Campaign.PerkTierPending > 0 {
-		out = append(out, fmt.Sprintf("⚠ 可選第 %d 階路線能力——總覽頁按 c", s.Campaign.PerkTierPending))
+		out = append(out, fmt.Sprintf("⚠ 可選第 %d 階路線能力——按 c 選擇", s.Campaign.PerkTierPending))
 	}
 	return out
 }
@@ -1492,6 +1523,8 @@ func renderTabBar(p Page) string {
 
 func (m Model) renderPage() string {
 	switch m.page {
+	case PageWarRoom:
+		return renderWarRoom(m)
 	case PageModels:
 		return renderModels(m)
 	case PageMarket:
