@@ -21,12 +21,12 @@ func TestAchievementsPageRenders(t *testing.T) {
 	}
 }
 
-func TestAchievementsPageReachableByKey7(t *testing.T) {
+func TestAchievementsPageReachableByKey8(t *testing.T) {
 	m := newAt(filepath.Join(t.TempDir(), "save.json"))
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'7'}})
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'8'}})
 	m = mm.(Model)
 	if m.page != PageAchievements {
-		t.Fatalf("key 7 should open achievements page, got %v", m.page)
+		t.Fatalf("key 8 should open achievements page, got %v", m.page)
 	}
 	if !strings.Contains(m.View(), "成就進度") {
 		t.Fatal("View should render achievements page")

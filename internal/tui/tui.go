@@ -60,6 +60,7 @@ type Page int
 
 const (
 	PageOverview Page = iota
+	PageWarRoom
 	PageModels
 	PageMarket
 	PageCompute
@@ -69,7 +70,7 @@ const (
 	numPages
 )
 
-var pageNames = [numPages]string{"總覽", "模型", "市場", "算力", "團隊", "科技", "成就"}
+var pageNames = [numPages]string{"總覽", "戰情室", "模型", "市場", "算力", "團隊", "科技", "成就"}
 
 // Model is the Bubble Tea root model.
 type Model struct {
@@ -697,7 +698,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			m.page = (m.page + numPages - 1) % numPages
 			m.vp.GotoTop()
 			return m, nil
-		case "1", "2", "3", "4", "5", "6", "7":
+		case "1", "2", "3", "4", "5", "6", "7", "8":
 			m.page = Page(msg.String()[0] - '1')
 			m.vp.GotoTop()
 			return m, nil
@@ -1240,6 +1241,18 @@ func pageKeys(m Model) string {
 		return "" // dialogs embed their own help
 	}
 	switch m.page {
+	case PageWarRoom:
+		hint := "[1]總覽"
+		if len(m.state.Events.Pending) > 0 {
+			hint = "[e]決策 " + hint
+		}
+		if m.state.Campaign.PerkTierPending > 0 {
+			hint += " [c]能力"
+		}
+		if m.state.Campaign.Victory != model.DoctrineNone {
+			hint += " [P]結算"
+		}
+		return hint
 	case PageModels:
 		if len(m.state.Models) == 0 {
 			return "[t]訓練"
@@ -1492,6 +1505,8 @@ func renderTabBar(p Page) string {
 
 func (m Model) renderPage() string {
 	switch m.page {
+	case PageWarRoom:
+		return "戰情室" // replaced in Task 3
 	case PageModels:
 		return renderModels(m)
 	case PageMarket:
