@@ -67,7 +67,9 @@ type Config struct {
 	ElectricityPerKWSec float64 // cash per kW per second
 	PowerCostPerKW      float64 // datacenter power-capacity expansion cost per kW
 	SlotCost            float64 // datacenter rack-slot expansion cost per slot
-	// Aggregate staff (plan-08).
+	// Aggregate staff (plan-08) — legacy hire/salary rates; being replaced by
+	// individual employees (employee-office refactor). Kept for remaining
+	// callers until sim migration (Task 7+) removes them.
 	ResearcherHireCost     [model.NumTiers]float64
 	ResearcherSalaryPerSec [model.NumTiers]float64
 	EngineerHireCost       float64
@@ -109,7 +111,46 @@ type Config struct {
 	// BankruptcyDebtRatio: the run auto-restarts once cash falls below
 	// -(BankruptcyDebtRatio * StartingCash).
 	BankruptcyDebtRatio float64
-	Stars               []model.Star // star-employee roster (plan-12)
+	// Employee / office / talent market (employee-office refactor).
+	// SecondsPerMonth converts MonthlySalary → cash/sec for ticks.
+	SecondsPerMonth float64
+	MaxOfficeLevel  int
+	// OfficeSeats[level] seat cap; index 0 unused, levels 1..MaxOfficeLevel.
+	OfficeSeats [9]int
+	// OfficeUpgradeCost[level] cash to go from level → level+1; index = current.
+	OfficeUpgradeCost [9]float64
+	// OfficeNames Chinese stage labels aligned with ASCII HQ.
+	OfficeNames [9]string
+	// Talent market pool + free refresh + paid reroll geometric cost.
+	MarketPoolSize     int
+	MarketRefreshSec   float64
+	MarketRerollBase   float64
+	MarketRerollGrowth float64
+	// RankWeights[officeLevel-1][rank] relative weights (normalize when rolling).
+	RankWeights [8][model.NumRanks]float64
+	// MultiSpecWeights single/dual/tri/quad base weights.
+	MultiSpecWeights [4]float64
+	// Stat generation bands by rank: high dims, normal dims, floor.
+	RankStatHigh  [model.NumRanks][2]int
+	RankStatNorm  [model.NumRanks][2]int
+	RankStatFloor [model.NumRanks]int
+	// RankBaseMonth monthly base salary by rank.
+	RankBaseMonth [model.NumRanks]float64
+	// Salary formula knobs (spec §4.2).
+	SalaryStatFactor    float64
+	SalarySkillFactor   float64
+	MultiSpecSalaryMult [4]float64 // index = highCount-1 (0 → single)
+	HireMonths          float64
+	SeveranceMonths     float64
+	// Role power: primary vs secondary contribution weights.
+	PrimaryWeight   float64
+	SecondaryWeight float64
+	// StaffPower* diminishing curve for engineer/ops/marketing mults.
+	StaffPowerCap float64
+	StaffPowerK   float64
+	StaffPowerRef float64
+	// RnDPerPower R&D/sec per unit research RolePower before EfficiencyMult.
+	RnDPerPower float64
 	// Industry events (industry-events plan).
 	Events           []EventSpec
 	EventCheckSec    float64 // mean game-seconds between trigger rolls
@@ -201,7 +242,8 @@ func Default() Config {
 	c.StartingResearchersT1 = 2
 	c.BankruptcyDebtRatio = 1.0 // game over at cash < -100000 (1× starting cash)
 	c.PrestigeNodes = DefaultPrestigeNodes()
-	c.Stars = DefaultStars()
+	// Stars catalog removed (model.Star deleted in employee-office refactor).
+	applyEmployeeDefaults(&c)
 	c.Processes = DefaultProcesses()
 	c.TrainRentMult = 1.667
 	c.RevenueMult = 2
@@ -341,46 +383,5 @@ func DefaultPrestigeNodes() []model.PrestigeNode {
 		{ID: "start-rnd-1", Cost: 1, Effects: startRnD},
 		{ID: "rnd-mult-1", Cost: 2, Effects: rndMult},
 		{ID: "cash-mult-1", Cost: 2, Effects: cashMult},
-	}
-}
-
-// star builds a Star starting from neutral effects, applying set().
-func star(id, name string, signing, salaryPerSec float64, set func(e *model.StarEffects)) model.Star {
-	e := model.NeutralStarEffects()
-	set(&e)
-	return model.Star{ID: id, Name: name, SigningCost: signing, SalaryPerSec: salaryPerSec, Effects: e}
-}
-
-// DefaultStars returns the v0 star roster (spec §17.5, numeric bonuses).
-func DefaultStars() []model.Star {
-	return []model.Star{
-		star("aria-chen", "Dr. Aria Chen", 600000, 0.02, func(e *model.StarEffects) {
-			e.QualityMult[model.DimCapability] = 1.22
-			e.RnDPerSec = 300 / RealSecCompression
-		}),
-		star("nova", "Nova", 1000000, 0.03, func(e *model.StarEffects) {
-			for d := range e.QualityMult {
-				e.QualityMult[d] = 1.10
-			}
-			e.RnDPerSec = 400 / RealSecCompression
-		}),
-		star("sofia-reyes", "Dr. Sofia Reyes", 450000, 0.018, func(e *model.StarEffects) {
-			e.QualityMult[model.DimSafety] = 1.25
-		}),
-		star("wei-zhang", "Dr. Wei Zhang", 380000, 0.016, func(e *model.StarEffects) {
-			e.QualityMult[model.DimEfficiency] = 1.25
-		}),
-		star("kenji-tanaka", "Kenji Tanaka", 420000, 0.017, func(e *model.StarEffects) {
-			e.InfraMult = 1.12
-		}),
-		star("elena-volkov", "Elena Volkov", 420000, 0.017, func(e *model.StarEffects) {
-			e.InfraMult = 1.10
-		}),
-		star("marcus-cole", "Marcus Cole", 350000, 0.015, func(e *model.StarEffects) {
-			e.UserGrowthMult = 1.30
-		}),
-		star("james-okafor", "James Okafor", 400000, 0.017, func(e *model.StarEffects) {
-			e.UserGrowthMult = 1.25
-		}),
 	}
 }

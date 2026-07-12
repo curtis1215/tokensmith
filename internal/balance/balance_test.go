@@ -250,27 +250,6 @@ func TestDefaultPrestige(t *testing.T) {
 	}
 }
 
-func TestDefaultStars(t *testing.T) {
-	c := Default()
-	if len(c.Stars) < 6 {
-		t.Fatalf("stars = %d, want >= 6", len(c.Stars))
-	}
-	byID := map[string]model.Star{}
-	for _, s := range c.Stars {
-		byID[s.ID] = s
-	}
-	if s, ok := byID["aria-chen"]; !ok || s.Effects.QualityMult[model.DimCapability] != 1.22 || s.Effects.RnDPerSec != 300/RealSecCompression {
-		t.Errorf("aria-chen wrong: %+v ok=%v", s, ok)
-	}
-	if s, ok := byID["marcus-cole"]; !ok || s.Effects.UserGrowthMult != 1.30 {
-		t.Errorf("marcus-cole wrong: %+v", s)
-	}
-	// unrelated fields neutral
-	if byID["aria-chen"].Effects.InfraMult != 1 {
-		t.Errorf("aria-chen InfraMult should be neutral 1")
-	}
-}
-
 func TestDefaultProcesses(t *testing.T) {
 	c := Default()
 	if len(c.Processes) != 4 {
