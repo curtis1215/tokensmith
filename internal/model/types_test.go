@@ -19,7 +19,7 @@ func TestResearchIndexedByTier(t *testing.T) {
 
 func TestGameStateZeroValue(t *testing.T) {
 	var s GameState
-	if s.GameTime != 0 || s.Resources.RnD != 0 || s.WindowRnD != 0 {
+	if s.GameTime != 0 || s.Resources.RnD != 0 {
 		t.Fatalf("zero GameState not zero: %+v", s)
 	}
 }
