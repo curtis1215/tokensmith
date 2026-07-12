@@ -35,11 +35,12 @@ func RivalFrontierView(s model.GameState, index int, b balance.Config) RivalFron
 		return RivalFrontier{}
 	}
 	c := s.Competitors[index]
+	eq := EffectiveRivalQuality(s, c, b)
 	gf := GlobalFrontier(s, b)
 	v := RivalFrontier{
 		Active:          true,
 		Name:            c.Name,
-		AbsoluteQuality: c.Quality,
+		AbsoluteQuality: eq,
 		GlobalFrontier:  gf,
 		MomentumPct:     c.MomentumPct,
 		MomentumCycles:  c.MomentumCycles,
@@ -47,7 +48,7 @@ func RivalFrontierView(s model.GameState, index int, b balance.Config) RivalFron
 	}
 	for d := range model.NumQualityDims {
 		if gf[d] > simEpsilon {
-			v.FrontierDeltaPct[d] = c.Quality[d]/gf[d] - 1
+			v.FrontierDeltaPct[d] = eq[d]/gf[d] - 1
 		}
 	}
 	best := 0
@@ -149,7 +150,7 @@ func MarketRank(ns model.GameState, b balance.Config, seg model.Segment) (rank, 
 	}
 	rank = 1
 	for _, c := range ns.Competitors {
-		if appealOf(c.Quality, w) > best {
+		if appealOf(EffectiveRivalQuality(ns, c, b), w) > best {
 			rank++
 		}
 	}
@@ -201,7 +202,7 @@ func EstimateUserTarget(s model.GameState, modelIndex int, price float64, b bala
 	appeal := appealOf(m.Quality, w)
 	rivalAppeal := 0.0
 	for _, c := range s.Competitors {
-		rivalAppeal += appealOf(c.Quality, w)
+		rivalAppeal += appealOf(EffectiveRivalQuality(s, c, b), w)
 	}
 	share := 1.0
 	if appeal+rivalAppeal > 0 {
@@ -264,7 +265,7 @@ func SegmentShareBars(ns model.GameState, b balance.Config, seg model.Segment) [
 	for _, c := range ns.Competitors {
 		rivals = append(rivals, rivalRow{
 			name:   c.Name,
-			appeal: appealOf(c.Quality, w),
+			appeal: appealOf(EffectiveRivalQuality(ns, c, b), w),
 		})
 	}
 
@@ -315,7 +316,7 @@ func SegmentShareBars(ns model.GameState, b balance.Config, seg model.Segment) [
 // ThreatLevel: 0 low, 1 mid, 2 high — rival appeal vs player's best in seg.
 func ThreatLevel(ns model.GameState, b balance.Config, seg model.Segment, rival model.Competitor) int {
 	w := b.SegmentWeights[seg]
-	rivalAppeal := appealOf(rival.Quality, w)
+	rivalAppeal := appealOf(EffectiveRivalQuality(ns, rival, b), w)
 
 	playerBestAppeal := 0.0
 	for _, m := range ns.Models {

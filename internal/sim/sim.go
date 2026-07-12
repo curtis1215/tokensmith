@@ -260,7 +260,7 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 		appeal := appealOf(m.Quality, w)
 		rivalAppeal := 0.0
 		for _, c := range ns.Competitors {
-			rivalAppeal += appealOf(c.Quality, w)
+			rivalAppeal += appealOf(EffectiveRivalQuality(ns, c, b), w)
 		}
 		te := techEffects(ns, b)
 		refPrice := EffectiveRefPrice(ns, m.Segment, b)
