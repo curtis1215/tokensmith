@@ -118,6 +118,13 @@ type Config struct {
 	EventLogCap      int     // history entries kept in EventsState.Log
 	// Strategic campaign (phase A).
 	Campaign CampaignConfig
+	// Train cash boosts (train-cash-boost plan): consumable catalog + pricing knobs.
+	TrainBoosts            []TrainBoost
+	TrainBoostBeta         float64
+	TrainBoostPainMult     float64
+	TrainBoostFloorMonthly float64
+	TrainBoostSlotMult     [model.NumQualityDims]float64
+	TrainBoostRivalPicks   int
 }
 
 // Default returns the v0 calibration (spec §12).
@@ -184,6 +191,12 @@ func Default() Config {
 	c.PrestigeUnlockValuation = 1e9
 	c.PatentK = 1e8
 	c.StartingCash = 100000
+	c.TrainBoosts = DefaultTrainBoosts()
+	c.TrainBoostBeta = 0.15
+	c.TrainBoostPainMult = 1.0
+	c.TrainBoostFloorMonthly = c.StartingCash / 12
+	c.TrainBoostSlotMult = [model.NumQualityDims]float64{1, 1, 1.8, 2.5}
+	c.TrainBoostRivalPicks = 2
 	c.StartingRnD = 50000
 	c.StartingResearchersT1 = 2
 	c.BankruptcyDebtRatio = 1.0 // game over at cash < -100000 (1× starting cash)
