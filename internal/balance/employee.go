@@ -146,6 +146,6 @@ func applyEmployeeDefaults(c *Config) {
 	// rate before RealSecCompression; fine-tune in economy pass.
 	c.RnDPerPower = 0.0002
 
-	// Flat fallback when a mid-run save has no probeable Engineers/stars.
+	// Flat fallback when a mid-run save has no probeable legacy headcount.
 	c.RestructuringGrant = 25_000
 }

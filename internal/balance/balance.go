@@ -14,7 +14,7 @@ const EntryProcessID = "N7"
 // RealSecCompression is how many simulated seconds the TUI advances per real
 // second: tickDT(3600) × 4 ticks/sec at a 250ms tick interval
 // (internal/tui/tui.go). Balance numbers meant to represent "per real second"
-// production (researcher and star R&D rates) divide by this so they aren't
+// production (e.g. RnDPerPower employee R&D) divide by this so they aren't
 // silently inflated by the sim-time compression. internal/tui has a test
 // (TestRealSecCompressionMatchesTickRate) asserting this constant tracks
 // tui's own tickDT/tickInterval derivation.
@@ -28,15 +28,12 @@ func GenUnlockNodeID(gen int) string {
 
 // Config is the full set of balance knobs (plan-01 subset).
 type Config struct {
-	// ResearcherRnDPerSec is R&D produced per second per researcher, by tier.
-	ResearcherRnDPerSec [model.NumTiers]float64
-
 	// Token → R&D: (input*InputWeight + output*OutputWeight) / Divisor.
 	TokenInputWeight  float64
 	TokenOutputWeight float64
 	TokenDivisor      float64
 
-	// StreakMult multiplies token-sourced R&D only (never staff/star R&D). Set
+	// StreakMult multiplies token-sourced R&D only (never employee R&D). Set
 	// per tick by the TUI from the real-world coding-streak bonus; Default()
 	// seeds it to 1.0 (neutral) so every caller that never touches it keeps
 	// today's behavior unchanged.
@@ -63,26 +60,12 @@ type Config struct {
 	ServiceChurnRate       float64 // extra churn per second at full deficit
 	// Self-build compute (plan-07; plan-13 repoints self-build onto the
 	// Processes catalog below — one process-chip built per BuildServer call).
-	ChassisCost         float64
-	ElectricityPerKWSec float64 // cash per kW per second
-	PowerCostPerKW      float64 // datacenter power-capacity expansion cost per kW
-	SlotCost            float64 // datacenter rack-slot expansion cost per slot
-	// Aggregate staff (plan-08) — legacy hire/salary rates; being replaced by
-	// individual employees (employee-office refactor). Kept for remaining
-	// callers until sim migration (Task 7+) removes them.
-	ResearcherHireCost     [model.NumTiers]float64
-	ResearcherSalaryPerSec [model.NumTiers]float64
-	EngineerHireCost       float64
-	OpsHireCost            float64
-	MarketingHireCost      float64
-	EngineerSalaryPerSec   float64
-	OpsSalaryPerSec        float64
-	MarketingSalaryPerSec  float64
-	EngineerInfraBonus     float64 // per engineer: compute efficiency
-	OpsChurnReduction      float64 // per ops: service-churn mitigation
-	MarketingBonus         float64 // per marketing: user-target boost
-	CompetitorBaseQuality  float64 // quality floor rivals track before the player has a model
-	CompetitorCatchupRate  float64 // per-second rubber-band rate toward Skill×frontier
+	ChassisCost           float64
+	ElectricityPerKWSec   float64 // cash per kW per second
+	PowerCostPerKW        float64 // datacenter power-capacity expansion cost per kW
+	SlotCost              float64 // datacenter rack-slot expansion cost per slot
+	CompetitorBaseQuality float64 // quality floor rivals track before the player has a model
+	CompetitorCatchupRate float64 // per-second rubber-band rate toward Skill×frontier
 	// CompetitorMaxLead caps how far a rival may target above the player's
 	// frontier once the player has a model (e.g. 1.08 = +8%). Prevents
 	// Skill>1 names (OpenAI 1.2×) from reading as "already Gen2" during the
@@ -103,11 +86,11 @@ type Config struct {
 	TrainRentMult float64 // training rent multiplier applied over inference rent
 	RevenueMult   float64 // global revenue multiplier
 	// New-run baseline, shared by game.NewGame and prestige freshRun so a
-	// reset reseeds the same starting researchers/R&D. Compute starts empty
+	// reset reseeds the same starting cash/R&D. Compute starts empty
 	// (nil maps) — the player rents on demand, no seeded capacity.
-	StartingCash          float64
-	StartingRnD           float64
-	StartingResearchersT1 int
+	// Starting researchers come from seedStartingEmployees (office market).
+	StartingCash float64
+	StartingRnD  float64
 	// BankruptcyDebtRatio: the run auto-restarts once cash falls below
 	// -(BankruptcyDebtRatio * StartingCash).
 	BankruptcyDebtRatio float64
@@ -176,12 +159,6 @@ type Config struct {
 // Default returns the v0 calibration (spec §12).
 func Default() Config {
 	var c Config
-	// R&D per researcher-second. Kept low so the tech tree is a real time-gate
-	// (not trivially affordable) and real coding (token R&D) stays impactful.
-	c.ResearcherRnDPerSec[model.Tier1] = 0.005 / RealSecCompression
-	c.ResearcherRnDPerSec[model.Tier2] = 0.015 / RealSecCompression
-	c.ResearcherRnDPerSec[model.Tier3] = 0.04 / RealSecCompression
-
 	c.TokenInputWeight = 1
 	c.TokenOutputWeight = 2
 	c.TokenDivisor = 1
@@ -212,17 +189,6 @@ func Default() Config {
 	c.ElectricityPerKWSec = 0.0002
 	c.PowerCostPerKW = 400
 	c.SlotCost = 4000
-	c.ResearcherHireCost = [model.NumTiers]float64{0, 5000, 15000, 40000}
-	c.ResearcherSalaryPerSec = [model.NumTiers]float64{0, 0.001, 0.002, 0.005}
-	c.EngineerHireCost = 8000
-	c.OpsHireCost = 6000
-	c.MarketingHireCost = 6000
-	c.EngineerSalaryPerSec = 0.002
-	c.OpsSalaryPerSec = 0.0015
-	c.MarketingSalaryPerSec = 0.0015
-	c.EngineerInfraBonus = 0.02
-	c.OpsChurnReduction = 0.1
-	c.MarketingBonus = 0.03
 	c.CompetitorBaseQuality = 8
 	// ~0.69% of remaining gap per real day. Old 5e-7 (~4.3%/day) let top rivals
 	// climb Gen1→~Gen1-cap within ~2 weeks — faster than the player can farm
@@ -244,10 +210,8 @@ func Default() Config {
 	c.TrainBoostSlotMult = [model.NumQualityDims]float64{1, 1, 1.8, 2.5}
 	c.TrainBoostRivalPicks = 2
 	c.StartingRnD = 50000
-	c.StartingResearchersT1 = 2
 	c.BankruptcyDebtRatio = 1.0 // game over at cash < -100000 (1× starting cash)
 	c.PrestigeNodes = DefaultPrestigeNodes()
-	// Stars catalog removed (model.Star deleted in employee-office refactor).
 	applyEmployeeDefaults(&c)
 	c.Skills = DefaultSkills()
 	c.Processes = DefaultProcesses()

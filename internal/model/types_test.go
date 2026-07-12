@@ -10,9 +10,6 @@ func TestResearchEfficiencyMult(t *testing.T) {
 	if r.EfficiencyMult != 1.0 {
 		t.Fatalf("EfficiencyMult = %v, want 1.0", r.EfficiencyMult)
 	}
-	if NumTiers != 4 {
-		t.Fatalf("NumTiers = %d, want 4", NumTiers)
-	}
 }
 
 func TestGameStateZeroValue(t *testing.T) {

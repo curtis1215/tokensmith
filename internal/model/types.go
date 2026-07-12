@@ -4,17 +4,6 @@ package model
 
 import "time"
 
-// StaffTier is a researcher skill tier. Values double as array indices.
-type StaffTier int
-
-const (
-	TierNone StaffTier = iota // 0 — unused slot / no staff
-	Tier1                     // 1
-	Tier2                     // 2
-	Tier3                     // 3
-	NumTiers = 4              // size of tier-indexed arrays
-)
-
 // Resources are the fungible currencies the player accumulates.
 type Resources struct {
 	RnD  float64
