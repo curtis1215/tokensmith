@@ -1,7 +1,7 @@
 # Train Cash Boosts — Design
 
 - **Date:** 2026-07-12
-- **Status:** Revised (post design review) — ready for re-approval
+- **Status:** Approved for implementation
 - **Scope:** Per-training cash consumables that add quality on top of R&D allocation; non-exploitable revenue-anchored pricing; rival target-side investment (no unlock cliff)
 - **Related:** `docs/superpowers/specs/2026-07-07-tokensmith-design.md` (train/quality); model publish flow; long-term progression (`QualityScale`, `GlobalFrontier`, rival catch-up)
 
