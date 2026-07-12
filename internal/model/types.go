@@ -110,6 +110,9 @@ type TrainingJob struct {
 	Alloc         [NumQualityDims]float64 // budget fraction per dim; sums to ~1
 	Price         float64
 	WorkRemaining float64 // GPU-seconds of training work left
+	Boosts        [NumQualityDims]bool
+	CashBonus     [NumQualityDims]float64
+	BoostCashPaid float64
 }
 
 // Compute holds per-process rented compute counts (plan-13: process nodes).
@@ -128,6 +131,7 @@ type StartTraining struct {
 	Segment Segment
 	Alloc   [NumQualityDims]float64
 	Price   float64
+	Boosts  [NumQualityDims]bool
 }
 
 func (StartTraining) commandMarker() {}
