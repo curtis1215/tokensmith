@@ -1506,7 +1506,7 @@ func renderTabBar(p Page) string {
 func (m Model) renderPage() string {
 	switch m.page {
 	case PageWarRoom:
-		return "戰情室" // replaced in Task 3
+		return renderWarRoom(m)
 	case PageModels:
 		return renderModels(m)
 	case PageMarket:

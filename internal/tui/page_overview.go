@@ -323,9 +323,14 @@ func powerMilestoneCard(m Model, w int) string {
 	return CardIn(CardDefault, w, "里程碑 & 算力", body)
 }
 
-// renderEventsCard is the 產業動態 card: pending decisions first (highlighted
-// with their remaining decision window), then recent history, max 4 lines.
+// renderEventsCard is the 產業動態 card with the overview default of 4 body lines.
 func renderEventsCard(m Model, w int) string {
+	return renderEventsCardMax(m, w, 4)
+}
+
+// renderEventsCardMax is the 產業動態 card: pending decisions first (highlighted
+// with their remaining decision window), then recent history, capped at maxLines.
+func renderEventsCardMax(m Model, w int, maxLines int) string {
 	ev := m.state.Events
 	var lines []string
 	for _, p := range ev.Pending {
@@ -337,7 +342,7 @@ func renderEventsCard(m Model, w int) string {
 		lines = append(lines, styleWarn.Render(
 			fmt.Sprintf("⏳ %s — [e]決策（剩 %.0f 天）", meta.Name, days)))
 	}
-	for i := len(ev.Log) - 1; i >= 0 && len(lines) < 4; i-- {
+	for i := len(ev.Log) - 1; i >= 0 && len(lines) < maxLines; i-- {
 		rec := ev.Log[i]
 		meta := eventLabel(rec.EventID)
 		result := ""

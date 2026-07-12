@@ -249,6 +249,12 @@ func formatActionIntelDetail(actionID string, full bool, cfg balance.Config, ind
 
 // renderBoardReportCard shows the latest board report (newest four entries).
 func renderBoardReportCard(m Model, w int) string {
+	return renderBoardReportCardMax(m, w, 4)
+}
+
+// renderBoardReportCardMax shows the latest board report, keeping at most
+// maxEntries of the newest entries.
+func renderBoardReportCardMax(m Model, w int, maxEntries int) string {
 	reports := m.state.Campaign.Reports
 	if len(reports) == 0 {
 		return CardIn(CardDefault, w, "董事會報告", styleMuted.Render("尚無董事會報告"))
@@ -258,10 +264,10 @@ func renderBoardReportCard(m Model, w int) string {
 	if len(entries) == 0 {
 		return CardIn(CardDefault, w, "董事會報告", styleMuted.Render(fmt.Sprintf("第 %d 週期：無事項", latest.Cycle)))
 	}
-	// Newest four: take from the end.
+	// Newest maxEntries: take from the end.
 	start := 0
-	if len(entries) > 4 {
-		start = len(entries) - 4
+	if maxEntries > 0 && len(entries) > maxEntries {
+		start = len(entries) - maxEntries
 	}
 	var lines []string
 	lines = append(lines, fmt.Sprintf("第 %d 週期", latest.Cycle))
