@@ -1,7 +1,7 @@
 package model
 
 // EventEffects are an industry event's sustained multiplicative modifiers;
-// neutral value is 1.0 (same convention as TechEffects / StarEffects).
+// neutral value is 1.0 (same convention as TechEffects).
 // TechCostMult only applies to the tech branch in ActiveModifier.Target.
 type EventEffects struct {
 	BuildCostMult      float64 // self-build capex (BuildServer)
