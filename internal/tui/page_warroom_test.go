@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"tokensmith/internal/model"
 )
 
@@ -39,5 +41,34 @@ func TestWarRoomPendingEventHighlighted(t *testing.T) {
 	v := renderWarRoom(m)
 	if !strings.Contains(v, "決策") {
 		t.Fatalf("expected pending decision highlight:\n%s", v)
+	}
+}
+
+func TestWarRoomEKeyOpensEventDialog(t *testing.T) {
+	m := pendingChipShortage(testModel(t))
+	m.page = PageWarRoom
+	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	if nm.(Model).event == nil {
+		t.Fatal("e on war room must open the event dialog")
+	}
+}
+
+func TestWarRoomCKeyOpensDoctrineDialog(t *testing.T) {
+	m := onlineCampaignModel(t)
+	m.page = PageWarRoom
+	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	if nm.(Model).doctrineDialog == nil {
+		t.Fatal("c on war room with online model + no doctrine must open doctrine dialog")
+	}
+}
+
+func TestWarRoomPKeyOpensVictoryDialog(t *testing.T) {
+	m := testModel(t)
+	m.page = PageWarRoom
+	m.state.Campaign.Victory = model.DoctrineConsumer
+	m.state.Campaign.Doctrine = model.DoctrineConsumer
+	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P")})
+	if nm.(Model).campaignEnd == nil {
+		t.Fatal("P on war room after victory must open campaign end dialog")
 	}
 }

@@ -53,7 +53,7 @@ func reportMoment(e model.CampaignReportEntry) (Moment, bool) {
 	case model.ReportShowdown:
 		return Moment{Level: LevelMajor, Text: "⚔ 決勝開始！頂住主要宿敵 2 次攻勢即可奪下路線"}, true
 	case model.ReportVictory:
-		return Moment{Level: LevelEpic, Text: "🏆 路線勝利：" + doctrineLabel(model.Doctrine(e.SubjectID)) + "！總覽頁按 P 結算"}, true
+		return Moment{Level: LevelEpic, Text: "🏆 路線勝利：" + doctrineLabel(model.Doctrine(e.SubjectID)) + "！按 P 結算"}, true
 	case model.ReportRivalAction:
 		if e.Countered {
 			return Moment{Level: LevelMajor, Text: "🛡 反制奏效：" + rivalActionLabel(e.DetailID) + " 衝擊減半！"}, true

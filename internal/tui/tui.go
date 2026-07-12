@@ -798,7 +798,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return m, nil
 		case "P":
-			if m.page == PageOverview || m.page == PageTech {
+			if m.page == PageOverview || m.page == PageWarRoom || m.page == PageTech {
 				if d, ok := newCampaignEndDialog(m, campaignEndVictory); ok {
 					m.campaignEnd = &d
 					m.campaignError = ""
@@ -809,7 +809,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return m, nil
 		case "E":
-			if m.page == PageOverview {
+			if m.page == PageOverview || m.page == PageWarRoom {
 				if d, ok := newCampaignEndDialog(m, campaignEndExit); ok {
 					m.campaignEnd = &d
 					m.campaignError = ""
@@ -819,7 +819,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return m, nil
 		case "c":
-			if m.page == PageOverview {
+			if m.page == PageOverview || m.page == PageWarRoom {
 				if d, ok := newDoctrineDialog(m, false); ok {
 					m.doctrineDialog = &d
 					m.campaignError = ""
@@ -829,7 +829,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return m, nil
 		case "C":
-			if m.page == PageOverview {
+			if m.page == PageOverview || m.page == PageWarRoom {
 				if d, ok := newDoctrineDialog(m, true); ok {
 					m.doctrineDialog = &d
 					m.campaignError = ""
@@ -842,7 +842,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return m, nil
 		case "d":
-			if m.page == PageOverview {
+			if m.page == PageOverview || m.page == PageWarRoom {
 				if d, ok := newDirectiveDialog(m); ok {
 					m.directiveDialog = &d
 					m.campaignError = ""
@@ -876,7 +876,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			}
 			return m, nil
 		case "e":
-			if m.page == PageOverview {
+			if m.page == PageOverview || m.page == PageWarRoom {
 				if d, ok := newEventDialog(m); ok {
 					m.event = &d
 				} else {
@@ -1435,7 +1435,7 @@ func sourceLabel(src string) string {
 // latestEventName names the most recently fired event for the notice line.
 func latestEventName(s model.GameState) string {
 	if n := len(s.Events.Pending); n > 0 {
-		return eventLabel(s.Events.Pending[n-1].EventID).Name + "（總覽頁按 e 決策）"
+		return eventLabel(s.Events.Pending[n-1].EventID).Name + "（按 e 決策）"
 	}
 	if n := len(s.Events.Log); n > 0 {
 		return eventLabel(s.Events.Log[n-1].EventID).Name
@@ -1482,10 +1482,10 @@ func pressures(m Model) []string {
 			fmt.Sprintf("🩸 財務危機 第 %d 週期——連續 2 週期可策略退出 [E]", c)))
 	}
 	if s.Campaign.Doctrine == model.DoctrineNone && hasOnline {
-		out = append(out, "⚠ 尚未選擇公司戰略——總覽頁按 c")
+		out = append(out, "⚠ 尚未選擇公司戰略——按 c 選擇")
 	}
 	if s.Campaign.PerkTierPending > 0 {
-		out = append(out, fmt.Sprintf("⚠ 可選第 %d 階路線能力——總覽頁按 c", s.Campaign.PerkTierPending))
+		out = append(out, fmt.Sprintf("⚠ 可選第 %d 階路線能力——按 c 選擇", s.Campaign.PerkTierPending))
 	}
 	return out
 }
