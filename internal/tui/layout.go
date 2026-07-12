@@ -77,8 +77,9 @@ func bodyLineCount(body string) int {
 	return lipgloss.Height(body)
 }
 
-// HRowEqualCards pads each card body to the tallest body, then CardIn + HRow.
-// Resulting cards share the same lipgloss.Height (borders align).
+// HRowEqualCards renders cards with equal visual height after width wrapping.
+// It measures each CardIn height (so wrapped lines count), then pads shorter
+// bodies with trailing newlines until all cards share the same lipgloss.Height.
 func HRowEqualCards(gap int, cards ...cardContent) string {
 	if len(cards) == 0 {
 		return ""
@@ -87,15 +88,20 @@ func HRowEqualCards(gap int, cards ...cardContent) string {
 		c := cards[0]
 		return CardIn(c.kind, c.w, c.title, c.body)
 	}
-	maxBody := 0
+	maxH := 0
 	for _, c := range cards {
-		if n := bodyLineCount(c.body); n > maxBody {
-			maxBody = n
+		if h := lipgloss.Height(CardIn(c.kind, c.w, c.title, c.body)); h > maxH {
+			maxH = h
 		}
 	}
 	parts := make([]string, len(cards))
 	for i, c := range cards {
-		parts[i] = CardIn(c.kind, c.w, c.title, padBodyLines(c.body, maxBody))
+		body := c.body
+		// Pad by actual rendered height so wrap-induced lines are accounted for.
+		for tries := 0; lipgloss.Height(CardIn(c.kind, c.w, c.title, body)) < maxH && tries < 256; tries++ {
+			body += "\n"
+		}
+		parts[i] = CardIn(c.kind, c.w, c.title, body)
 	}
 	return HRow(gap, parts...)
 }
