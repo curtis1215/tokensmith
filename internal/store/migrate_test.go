@@ -222,6 +222,112 @@ func TestMigrateV0ActiveTrainingRaisesMaxGen(t *testing.T) {
 	}
 }
 
+func TestValidateTrainingNegativeCashBonusRejected(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{
+		Progression: model.ProgressionState{MaxUnlockedGen: 1},
+		HasTraining: true,
+		Training: model.TrainingJob{
+			Gen: 1, WorkRemaining: 10,
+			CashBonus: [model.NumQualityDims]float64{-1, 0, 0, 0},
+		},
+	}
+	if err := validateState(&s, b); err == nil {
+		t.Fatal("expected error for negative CashBonus")
+	}
+}
+
+func TestValidateTrainingNegativeBoostCashPaidRejected(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{
+		Progression: model.ProgressionState{MaxUnlockedGen: 1},
+		HasTraining: true,
+		Training: model.TrainingJob{
+			Gen: 1, WorkRemaining: 10,
+			BoostCashPaid: -50,
+		},
+	}
+	if err := validateState(&s, b); err == nil {
+		t.Fatal("expected error for negative BoostCashPaid")
+	}
+}
+
+func TestValidateTrainingNonFiniteBoostFieldsRejected(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{
+		Progression: model.ProgressionState{MaxUnlockedGen: 1},
+		HasTraining: true,
+		Training: model.TrainingJob{
+			Gen: 1, WorkRemaining: 10,
+			CashBonus: [model.NumQualityDims]float64{math.NaN(), 0, 0, 0},
+		},
+	}
+	if err := validateState(&s, b); err == nil {
+		t.Fatal("expected error for NaN CashBonus")
+	}
+	s.Training.CashBonus = [model.NumQualityDims]float64{}
+	s.Training.BoostCashPaid = math.Inf(1)
+	if err := validateState(&s, b); err == nil {
+		t.Fatal("expected error for Inf BoostCashPaid")
+	}
+}
+
+func TestValidateTrainingRepairsOrphanCashBonus(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{
+		Progression: model.ProgressionState{MaxUnlockedGen: 1},
+		HasTraining: true,
+		Training: model.TrainingJob{
+			Gen: 1, WorkRemaining: 10,
+			Boosts:        [model.NumQualityDims]bool{false, true, false, false},
+			CashBonus:     [model.NumQualityDims]float64{5, 3.75, 2, 0},
+			BoostCashPaid: 999, // historical charge; must not be recomputed
+		},
+	}
+	if err := validateState(&s, b); err != nil {
+		t.Fatal(err)
+	}
+	// !Boosts[d] → CashBonus[d] forced to 0; Boosts[d] keeps bonus.
+	if s.Training.CashBonus[0] != 0 || s.Training.CashBonus[2] != 0 {
+		t.Fatalf("orphan CashBonus not repaired: %v", s.Training.CashBonus)
+	}
+	if s.Training.CashBonus[1] != 3.75 {
+		t.Fatalf("boosted dim CashBonus mutated: %v", s.Training.CashBonus)
+	}
+	if s.Training.BoostCashPaid != 999 {
+		t.Fatalf("BoostCashPaid recomputed: got %v want 999", s.Training.BoostCashPaid)
+	}
+}
+
+func TestLoadRepairsOrphanTrainingCashBonus(t *testing.T) {
+	b := balance.Default()
+	path := filepath.Join(t.TempDir(), "boost-repair.json")
+	s := model.GameState{
+		Resources:   model.Resources{Cash: 100, RnD: 100},
+		Progression: model.ProgressionState{MaxUnlockedGen: 1},
+		HasTraining: true,
+		Training: model.TrainingJob{
+			Gen: 1, WorkRemaining: 50,
+			Boosts:        [model.NumQualityDims]bool{false, false, false, false},
+			CashBonus:     [model.NumQualityDims]float64{1.5, 0, 0, 0},
+			BoostCashPaid: 42,
+		},
+	}
+	if err := Save(path, s); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := LoadWithConfig(path, b)
+	if err != nil || !ok {
+		t.Fatalf("load: ok=%v err=%v", ok, err)
+	}
+	if got.Training.CashBonus[0] != 0 {
+		t.Fatalf("CashBonus not repaired on load: %v", got.Training.CashBonus)
+	}
+	if got.Training.BoostCashPaid != 42 {
+		t.Fatalf("BoostCashPaid = %v, want 42", got.Training.BoostCashPaid)
+	}
+}
+
 func q(a, b, c, d float64) [model.NumQualityDims]float64 {
 	return [model.NumQualityDims]float64{a, b, c, d}
 }

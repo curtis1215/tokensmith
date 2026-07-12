@@ -78,7 +78,7 @@ func LoadWithConfig(path string, b balance.Config) (model.GameState, bool, error
 		if s.Progression.MaxUnlockedGen < 1 {
 			s.Progression.MaxUnlockedGen = 1
 		}
-		if err := validateState(s, b); err != nil {
+		if err := validateState(&s, b); err != nil {
 			return model.GameState{}, false, err
 		}
 		return s, true, nil
@@ -91,7 +91,7 @@ func LoadWithConfig(path string, b balance.Config) (model.GameState, bool, error
 	if err != nil {
 		return model.GameState{}, false, err
 	}
-	if err := validateState(migrated, b); err != nil {
+	if err := validateState(&migrated, b); err != nil {
 		return model.GameState{}, false, err
 	}
 	if err := Save(path, migrated); err != nil {

@@ -142,7 +142,7 @@ func campaignQualityRank(s model.GameState, b balance.Config, seg model.Segment)
 	w := b.SegmentWeights[seg]
 	rank := 1
 	for _, c := range s.Competitors {
-		if appealOf(c.Quality, w) > playerAppeal {
+		if appealOf(EffectiveRivalQuality(s, c, b), w) > playerAppeal {
 			rank++
 		}
 	}
@@ -156,8 +156,9 @@ func enterpriseSafetyOK(s model.GameState, b balance.Config) bool {
 	}
 	threshold := 15.0
 	for _, c := range s.Competitors {
-		if c.Name == s.Campaign.Primary.Company && c.Quality[model.DimSafety]*0.9 > threshold {
-			threshold = c.Quality[model.DimSafety] * 0.9
+		eq := EffectiveRivalQuality(s, c, b)
+		if c.Name == s.Campaign.Primary.Company && eq[model.DimSafety]*0.9 > threshold {
+			threshold = eq[model.DimSafety] * 0.9
 		}
 	}
 	return m.Quality[model.DimSafety] >= threshold
@@ -175,7 +176,7 @@ func playerSegmentShare(s model.GameState, b balance.Config, seg model.Segment) 
 	}
 	total := playerAppeal
 	for _, c := range s.Competitors {
-		total += appealOf(c.Quality, w)
+		total += appealOf(EffectiveRivalQuality(s, c, b), w)
 	}
 	if total <= 0 {
 		return 0

@@ -118,6 +118,7 @@ func TestRoadmapNeverCompoundsBeyondFrontier(t *testing.T) {
 
 func TestExecuteRivalActionClosesGapNotMultiplies(t *testing.T) {
 	b := balance.Default()
+	b.TrainBoostRivalPicks = 0 // isolate gap-close formula without investment boost
 	pm := onlineModel(100, b.RefPrice)
 	// Start inside the band [85,115] so clamp does not mask the formula.
 	c := model.Competitor{Name: "OpenAI", Skill: q(1.0, 1.0, 1.0, 1.0)}
@@ -145,6 +146,7 @@ func TestExecuteRivalActionClosesGapNotMultiplies(t *testing.T) {
 
 func TestExecuteRivalActionCounterHalvesProgress(t *testing.T) {
 	b := balance.Default()
+	b.TrainBoostRivalPicks = 0 // isolate counter impact without investment boost
 	pm := onlineModel(100, b.RefPrice)
 	c := model.Competitor{Name: "OpenAI", Skill: q(1.0, 1.0, 1.0, 1.0)}
 	c.Quality[model.DimCapability] = 90

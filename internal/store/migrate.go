@@ -229,7 +229,9 @@ func clampMigratedRivals(s model.GameState, b balance.Config) model.GameState {
 }
 
 // validateState rejects non-finite or illegal progression/resource values.
-func validateState(s model.GameState, _ balance.Config) error {
+// When HasTraining, repairs CashBonus[d]=0 if !Boosts[d] (in place); does not
+// recompute BoostCashPaid (historical charge).
+func validateState(s *model.GameState, _ balance.Config) error {
 	check := func(name string, v float64, allowNeg bool) error {
 		if math.IsNaN(v) || math.IsInf(v, 0) {
 			return errors.New("store: invalid " + name)
@@ -260,6 +262,18 @@ func validateState(s model.GameState, _ balance.Config) error {
 		}
 		if s.Training.Gen < 1 {
 			return errors.New("store: invalid training gen")
+		}
+		if err := check("Training.BoostCashPaid", s.Training.BoostCashPaid, false); err != nil {
+			return err
+		}
+		for d := range model.NumQualityDims {
+			if err := check("Training.CashBonus", s.Training.CashBonus[d], false); err != nil {
+				return err
+			}
+			// Trust Boosts for bonus presence: orphan bonus is soft-repaired.
+			if !s.Training.Boosts[d] {
+				s.Training.CashBonus[d] = 0
+			}
 		}
 	}
 	for i, m := range s.Models {

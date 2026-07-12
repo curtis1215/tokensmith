@@ -210,7 +210,7 @@ func advanceTraining(ns model.GameState, dt, allocated float64, b balance.Config
 		Name:    "",
 	}
 	for d := range model.NumQualityDims {
-		m.Quality[d] = job.Alloc[d] * qualityScale * te.QualityMult[d] * se.QualityMult[d]
+		m.Quality[d] = (job.Alloc[d]*qualityScale + job.CashBonus[d]) * te.QualityMult[d] * se.QualityMult[d]
 	}
 	cloned := append([]model.Model(nil), ns.Models...)
 	ns.Models = append(cloned, m)
@@ -260,7 +260,7 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 		appeal := appealOf(m.Quality, w)
 		rivalAppeal := 0.0
 		for _, c := range ns.Competitors {
-			rivalAppeal += appealOf(c.Quality, w)
+			rivalAppeal += appealOf(EffectiveRivalQuality(ns, c, b), w)
 		}
 		te := techEffects(ns, b)
 		refPrice := EffectiveRefPrice(ns, m.Segment, b)

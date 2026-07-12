@@ -233,6 +233,7 @@ func TestIntelDirectiveSetsIntelFull(t *testing.T) {
 
 func TestMatchingCounterHalvesImpactAndConsumes(t *testing.T) {
 	b := balance.Default()
+	b.TrainBoostRivalPicks = 0 // isolate counter impact without investment boost
 	// Counter halves FrontierProgress impact (gap-close), then consumes the pin.
 	pm := onlineModel(100, b.RefPrice)
 	c := model.Competitor{Name: "OpenAI", Skill: [model.NumQualityDims]float64{1, 1, 1, 1}}

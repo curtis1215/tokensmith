@@ -128,7 +128,7 @@ func executeRivalAction(s model.GameState, roadmap model.RivalRoadmap, b balance
 		if comps[i].Name != roadmap.Company {
 			continue
 		}
-		target := rivalTarget(ns, comps[i], gf)
+		target := rivalTarget(ns, comps[i], gf, b)
 		for d := range model.NumQualityDims {
 			progress := action.FrontierProgress[d]
 			if progress != 0 {

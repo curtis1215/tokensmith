@@ -71,7 +71,7 @@ func renderMarket(m Model) string {
 	rivalLines = append(rivalLines, styleMuted.Render("品質相對前沿；排名仍依訴求計算"))
 	for i, c := range s.Competitors {
 		rv := sim.RivalFrontierView(s, i, m.cfg)
-		capVal := c.Quality[model.DimCapability]
+		capVal := rv.AbsoluteQuality[model.DimCapability]
 		// Bar relative to global frontier (not a hard 100 scale).
 		capFrac := 0.0
 		if rv.GlobalFrontier[model.DimCapability] > 0 {

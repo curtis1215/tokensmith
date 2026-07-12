@@ -2,6 +2,7 @@ package sim
 
 import (
 	"errors"
+	"math"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -174,8 +175,25 @@ func applyStartTraining(s model.GameState, c model.StartTraining, b balance.Conf
 	if s.Resources.RnD < cost {
 		return s, ErrInsufficientRnD
 	}
+	cashCost, err := QuoteTrainBoostCost(s, c.Gen, c.Boosts, b)
+	if err != nil {
+		return s, err
+	}
+	// Fail closed: never debit NaN/negative (invalid knobs must not mint cash).
+	if math.IsNaN(cashCost) || math.IsInf(cashCost, 0) || cashCost < 0 {
+		return s, balance.ErrInvalidTrainBoostConfig
+	}
+	// Zero-boost starts must not fail when Cash is already negative from rent.
+	if cashCost > 0 && s.Resources.Cash < cashCost {
+		return s, ErrInsufficientCash
+	}
+	bonus, err := balance.TrainBoostCashBonus(c.Gen, c.Boosts, b)
+	if err != nil {
+		return s, err
+	}
 	ns := s
 	ns.Resources.RnD -= cost
+	ns.Resources.Cash -= cashCost
 	ns.HasTraining = true
 	ns.Training = model.TrainingJob{
 		Gen:           c.Gen,
@@ -183,6 +201,9 @@ func applyStartTraining(s model.GameState, c model.StartTraining, b balance.Conf
 		Alloc:         c.Alloc,
 		Price:         c.Price,
 		WorkRemaining: spec.TrainWork * te.TrainWorkMult,
+		Boosts:        c.Boosts,
+		CashBonus:     bonus,
+		BoostCashPaid: cashCost,
 	}
 	return ns, nil
 }

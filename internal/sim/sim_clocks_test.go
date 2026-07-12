@@ -59,6 +59,7 @@ func TestTickWithClocksSplitsEconomyAndIndustry(t *testing.T) {
 func TestTickWithClocksRivalUsesIndustryDT(t *testing.T) {
 	b := balance.Default()
 	b.CompetitorCatchupRate = 1 // full catch-up per second of industry dt
+	b.TrainBoostRivalPicks = 0  // isolate skill×frontier target (no investment boost)
 	c := model.Competitor{Name: "Rival", Skill: q(1, 1, 1, 1)}
 	c.Quality[model.DimCapability] = 90 // already inside band around GF=100
 	pm := onlineModel(100, b.RefPrice)
