@@ -82,7 +82,7 @@ func freshRun(p model.Prestige, b balance.Config) model.GameState {
 	// Seed talent market so the hire pool is ready before the first Tick.
 	// RandState 0 is advanced by nextRand; use 1 so a brand-new pool is non-degenerate.
 	ns.Market = model.TalentMarket{RandState: 1}
-	ns = refreshMarket(ns, b)
+	ns = RefreshMarket(ns, b)
 	// Compute starts empty (nil maps → 0), same as a brand-new run.
 	ns.Resources.Cash = b.StartingCash + pe.StartCash
 	ns.Resources.RnD = b.StartingRnD + pe.StartRnD

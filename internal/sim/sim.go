@@ -78,7 +78,7 @@ func tickWithClocks(s model.GameState, economyDT, industryDT float64, events []m
 	// Free talent-market refresh when the scheduled timer elapses.
 	// NextRefreshAt==0 means "not scheduled" (freshRun seeds the market).
 	if ns.Market.NextRefreshAt > 0 && ns.GameTime >= ns.Market.NextRefreshAt {
-		ns = refreshMarket(ns, b)
+		ns = RefreshMarket(ns, b)
 	}
 	// Events age with the economy clock (same as historical offline settle).
 	ns = advanceEvents(ns, b)

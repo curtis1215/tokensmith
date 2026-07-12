@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
 	"math"
 	"os"
@@ -10,6 +11,120 @@ import (
 	"tokensmith/internal/model"
 	"tokensmith/internal/sim"
 )
+
+// Cash compensation for retired aggregate staff / fixed stars (design §8).
+const (
+	restructuringPerHead = 2000.0
+	restructuringPerStar = 50000.0
+)
+
+// legacyStaffFields are probe-only fields removed from model.GameState in schema 2.
+type legacyStaffFields struct {
+	Engineers   int
+	Ops         int
+	Marketing   int
+	Researchers [4]int
+	HiredStars  []string
+}
+
+func (leg legacyStaffFields) headCount() int {
+	n := leg.Engineers + leg.Ops + leg.Marketing
+	for _, r := range leg.Researchers {
+		n += r
+	}
+	return n
+}
+
+func (leg legacyStaffFields) compensation() float64 {
+	return restructuringPerHead*float64(leg.headCount()) +
+		restructuringPerStar*float64(len(leg.HiredStars))
+}
+
+// probeLegacyStaff extracts retired staff/star counters from raw save JSON
+// (envelope or bare GameState). Missing fields stay zero.
+func probeLegacyStaff(data []byte) legacyStaffFields {
+	type staffDTO struct {
+		Engineers  int      `json:"Engineers"`
+		Ops        int      `json:"Ops"`
+		Marketing  int      `json:"Marketing"`
+		HiredStars []string `json:"HiredStars"`
+		Research   struct {
+			Researchers [4]int `json:"Researchers"`
+		} `json:"Research"`
+	}
+	// Envelope shape first.
+	var env struct {
+		State staffDTO `json:"state"`
+	}
+	if err := json.Unmarshal(data, &env); err == nil {
+		// Prefer envelope state when any legacy signal is present, or when the
+		// document has a top-level "state" object (schema ≥1).
+		if hasSchemaVersion(data) || env.State.Engineers != 0 || env.State.Ops != 0 ||
+			env.State.Marketing != 0 || len(env.State.HiredStars) > 0 ||
+			env.State.Research.Researchers != [4]int{} {
+			return legacyStaffFields{
+				Engineers:   env.State.Engineers,
+				Ops:         env.State.Ops,
+				Marketing:   env.State.Marketing,
+				Researchers: env.State.Research.Researchers,
+				HiredStars:  env.State.HiredStars,
+			}
+		}
+	}
+	// Bare GameState (schema 0).
+	var bare staffDTO
+	if err := json.Unmarshal(data, &bare); err != nil {
+		return legacyStaffFields{}
+	}
+	return legacyStaffFields{
+		Engineers:   bare.Engineers,
+		Ops:         bare.Ops,
+		Marketing:   bare.Marketing,
+		Researchers: bare.Research.Researchers,
+		HiredStars:  bare.HiredStars,
+	}
+}
+
+// migrateToEmployeeOffice upgrades pre-employee-system saves: Office Lv1,
+// empty roster defaults, cash compensation, and a seeded talent market.
+// Compensation prefers probeable legacy headcount/stars; otherwise a mid-run
+// empty roster gets balance.RestructuringGrant once (caller ensures schema < 2).
+func migrateToEmployeeOffice(s model.GameState, b balance.Config, leg legacyStaffFields) model.GameState {
+	s.Office.Level = 1
+	if s.Employees == nil {
+		s.Employees = []model.Employee{}
+	}
+	if comp := leg.compensation(); comp > 0 {
+		s.Resources.Cash += comp
+	} else if s.GameTime > 0 && len(s.Employees) == 0 {
+		s.Resources.Cash += b.RestructuringGrant
+	}
+	if len(s.Market.Candidates) == 0 {
+		if s.Market.RandState == 0 {
+			s.Market.RandState = 1
+		}
+		s = sim.RefreshMarket(s, b)
+	}
+	return s
+}
+
+// ensureEmployeeOfficeDefaults soft-repairs schema-2 (or post-migrate) state
+// without cash grants — Office floor, nil employees, empty market seed.
+func ensureEmployeeOfficeDefaults(s model.GameState, b balance.Config) model.GameState {
+	if s.Office.Level < 1 {
+		s.Office.Level = 1
+	}
+	if s.Employees == nil {
+		s.Employees = []model.Employee{}
+	}
+	if len(s.Market.Candidates) == 0 {
+		if s.Market.RandState == 0 {
+			s.Market.RandState = 1
+		}
+		s = sim.RefreshMarket(s, b)
+	}
+	return s
+}
 
 // rivalRankPct maps a 0-based rank among up to 7 rivals onto the approved
 // relative-frontier ladder (lowest → highest).

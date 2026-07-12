@@ -151,6 +151,9 @@ type Config struct {
 	StaffPowerRef float64
 	// RnDPerPower R&D/sec per unit research RolePower before EfficiencyMult.
 	RnDPerPower float64
+	// RestructuringGrant is flat cash when migrating mid-run saves that had
+	// aggregate staff but no probeable legacy headcount (schema < 2).
+	RestructuringGrant float64
 	// Skills passive catalog (design §5); ~57 manager/director/god/signature.
 	Skills []SkillDef
 	// Industry events (industry-events plan).

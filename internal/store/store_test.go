@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"tokensmith/internal/balance"
 	"tokensmith/internal/model"
 )
 
@@ -18,7 +19,8 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	s.Resources.RnD = 6789
 	s.Models = []model.Model{{Gen: 2, Online: true, Users: 1000, Price: 12}}
 	s.Prestige.Patents = 3
-	s.HiredStars = []string{"aria-chen"}
+	s.Office.Level = 1
+	s.Employees = []model.Employee{{ID: "e1", Name: "Ada", MonthlySalary: 2500}}
 	s.Campaign = model.CampaignState{
 		RandState: 7, Cycle: 4, Doctrine: model.DoctrineConsumer,
 		Stage: model.CampaignStageExpand, Perks: []string{"consumer-premium"},
@@ -49,8 +51,9 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if len(got.Models) != 1 || got.Models[0].Users != 1000 {
 		t.Errorf("models not restored: %+v", got.Models)
 	}
-	if got.Prestige.Patents != 3 || len(got.HiredStars) != 1 {
-		t.Errorf("prestige/stars not restored: %+v %+v", got.Prestige, got.HiredStars)
+	if got.Prestige.Patents != 3 || got.Office.Level != 1 || len(got.Employees) != 1 || got.Employees[0].ID != "e1" {
+		t.Errorf("prestige/office/employees not restored: prestige=%+v office=%+v employees=%+v",
+			got.Prestige, got.Office, got.Employees)
 	}
 	if got.Campaign.Cycle != 4 || got.Campaign.Doctrine != model.DoctrineConsumer {
 		t.Fatalf("campaign not restored: %+v", got.Campaign)
@@ -178,8 +181,13 @@ func TestLoadLegacyShape(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("load: ok=%v err=%v", ok, err)
 	}
-	if got.Resources.Cash != 111 || got.Resources.RnD != 222 || got.GameTime != 3600 {
-		t.Fatalf("legacy not restored: %+v", got)
+	// Mid-run bare save: flat RestructuringGrant (no probeable staff).
+	wantCash := 111 + balance.Default().RestructuringGrant
+	if got.Resources.Cash != wantCash || got.Resources.RnD != 222 || got.GameTime != 3600 {
+		t.Fatalf("legacy not restored: %+v wantCash=%v", got, wantCash)
+	}
+	if got.Office.Level != 1 || len(got.Market.Candidates) == 0 {
+		t.Fatalf("employee office not seeded: office=%+v market=%d", got.Office, len(got.Market.Candidates))
 	}
 	// Migration rewrites to the versioned envelope; original bytes are in .v0.bak.
 	onDisk, err := os.ReadFile(path)
@@ -190,7 +198,7 @@ func TestLoadLegacyShape(t *testing.T) {
 	if err := json.Unmarshal(onDisk, &env); err != nil {
 		t.Fatalf("expected envelope after migrate: %v raw=%s", err, onDisk)
 	}
-	if env.SchemaVersion != CurrentSchemaVersion || env.State.Resources.Cash != 111 {
+	if env.SchemaVersion != CurrentSchemaVersion || env.State.Resources.Cash != wantCash {
 		t.Fatalf("envelope wrong: %+v", env)
 	}
 	bak, err := os.ReadFile(path + ".v0.bak")

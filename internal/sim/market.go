@@ -196,9 +196,10 @@ func regenerateCandidatesOnly(ns model.GameState, b balance.Config) model.GameSt
 	return ns
 }
 
-// refreshMarket regenerates the candidate pool, resets RerollCount, and
+// RefreshMarket regenerates the candidate pool, resets RerollCount, and
 // schedules the next free refresh at GameTime+MarketRefreshSec.
-func refreshMarket(ns model.GameState, b balance.Config) model.GameState {
+// Exported for store migration (schema v2 employee office seed).
+func RefreshMarket(ns model.GameState, b balance.Config) model.GameState {
 	ns = regenerateCandidatesOnly(ns, b)
 	ns.Market.NextRefreshAt = ns.GameTime + b.MarketRefreshSec
 	ns.Market.RerollCount = 0
@@ -208,7 +209,7 @@ func refreshMarket(ns model.GameState, b balance.Config) model.GameState {
 // ensureMarket refreshes when the pool is empty or the free timer has expired.
 func ensureMarket(ns model.GameState, b balance.Config) model.GameState {
 	if len(ns.Market.Candidates) == 0 || ns.GameTime >= ns.Market.NextRefreshAt {
-		return refreshMarket(ns, b)
+		return RefreshMarket(ns, b)
 	}
 	return ns
 }

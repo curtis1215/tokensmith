@@ -145,4 +145,7 @@ func applyEmployeeDefaults(c *Config) {
 	// Tuned so a staff primary ≈40 yields order-of-magnitude old T1 researcher
 	// rate before RealSecCompression; fine-tune in economy pass.
 	c.RnDPerPower = 0.0002
+
+	// Flat fallback when a mid-run save has no probeable Engineers/stars.
+	c.RestructuringGrant = 25_000
 }

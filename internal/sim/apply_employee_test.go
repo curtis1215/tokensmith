@@ -49,7 +49,7 @@ func TestApplyUpgradeOfficeInsufficientCash(t *testing.T) {
 func TestApplyHireAndFire(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{
-		Office: model.Office{Level: 1},
+		Office:    model.Office{Level: 1},
 		Resources: model.Resources{Cash: 1e9},
 		Market: model.TalentMarket{
 			Candidates: []model.Employee{{
@@ -120,7 +120,7 @@ func TestApplyRerollEscalates(t *testing.T) {
 		Office: model.Office{Level: 1}, Resources: model.Resources{Cash: 1e9},
 		Market: model.TalentMarket{RandState: 3, NextRefreshAt: 999},
 	}
-	s = refreshMarket(s, b)
+	s = RefreshMarket(s, b)
 	// free timer is independent of paid reroll; pin and assert preservation
 	s.Market.NextRefreshAt = 999
 	beforeCash := s.Resources.Cash

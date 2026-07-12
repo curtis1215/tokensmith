@@ -58,7 +58,7 @@ func TestManagerSkillsNoGod(t *testing.T) {
 func TestRefreshMarketPoolSize(t *testing.T) {
 	b := balance.Default()
 	ns := model.GameState{Office: model.Office{Level: 1}, GameTime: 10, Market: model.TalentMarket{RandState: 9}}
-	ns = refreshMarket(ns, b)
+	ns = RefreshMarket(ns, b)
 	if len(ns.Market.Candidates) != b.MarketPoolSize {
 		t.Fatal(len(ns.Market.Candidates))
 	}
