@@ -525,60 +525,8 @@ func TestApplyBuildServerIntoInferencePool(t *testing.T) {
 	}
 }
 
-func TestApplyHireStaff(t *testing.T) {
-	b := balance.Default()
-	s := model.GameState{}
-	s.Resources.Cash = 100000
-	// hire 2 T2 researchers
-	ns, err := Apply(s, model.HireStaff{Role: model.RoleResearcher, Tier: model.Tier2, Count: 2}, b)
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if ns.Research.Researchers[model.Tier2] != 2 {
-		t.Errorf("researchers = %d, want 2", ns.Research.Researchers[model.Tier2])
-	}
-	if !approx(ns.Resources.Cash, 100000-2*b.ResearcherHireCost[model.Tier2]) {
-		t.Errorf("cash wrong: %v", ns.Resources.Cash)
-	}
-	// hire 3 engineers
-	ns2, _ := Apply(ns, model.HireStaff{Role: model.RoleEngineer, Count: 3}, b)
-	if ns2.Engineers != 3 {
-		t.Errorf("engineers = %d, want 3", ns2.Engineers)
-	}
-	// purity
-	if s.Research.Researchers[model.Tier2] != 0 {
-		t.Errorf("Apply mutated input")
-	}
-}
-
-func TestApplyHireStaffErrors(t *testing.T) {
-	b := balance.Default()
-	rich := model.GameState{}
-	rich.Resources.Cash = 1e9
-	if _, err := Apply(rich, model.HireStaff{Role: model.RoleResearcher, Tier: model.Tier2, Count: 0}, b); err != ErrInvalidCount {
-		t.Errorf("count: err = %v, want ErrInvalidCount", err)
-	}
-	if _, err := Apply(rich, model.HireStaff{Role: model.RoleResearcher, Tier: model.TierNone, Count: 1}, b); err != ErrInvalidTier {
-		t.Errorf("tier: err = %v, want ErrInvalidTier", err)
-	}
-	poor := model.GameState{}
-	poor.Resources.Cash = 10
-	if _, err := Apply(poor, model.HireStaff{Role: model.RoleEngineer, Count: 1}, b); err != ErrInsufficientCash {
-		t.Errorf("cash: err = %v, want ErrInsufficientCash", err)
-	}
-}
-
-func TestApplyFireStaffFloorsAtZero(t *testing.T) {
-	b := balance.Default()
-	s := model.GameState{Engineers: 2}
-	ns, err := Apply(s, model.FireStaff{Role: model.RoleEngineer, Count: 5}, b)
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if ns.Engineers != 0 {
-		t.Fatalf("engineers = %d, want 0", ns.Engineers)
-	}
-}
+// HireStaff / FireStaff / SignStar removed (employee-office refactor).
+// New hire/fire/market command tests land in later tasks.
 
 func TestApplyUnlockTech(t *testing.T) {
 	b := balance.Default()
@@ -670,7 +618,7 @@ func TestApplyPrestigeReset(t *testing.T) {
 	s.Resources.Cash = 5e6
 	s.Resources.RnD = 1e6
 	s.Models = []model.Model{{Online: true}}
-	s.Engineers = 5
+	s.Employees = []model.Employee{{ID: "x", MonthlySalary: 1000}}
 	s.Prestige.Patents = 1
 	ns, err := Apply(s, model.PrestigeReset{}, b)
 	if err != nil {
@@ -679,7 +627,7 @@ func TestApplyPrestigeReset(t *testing.T) {
 	if ns.Prestige.Patents != 4 { // 1 existing + 3 gained
 		t.Errorf("patents = %v, want 4", ns.Prestige.Patents)
 	}
-	if len(ns.Models) != 0 || ns.Engineers != 0 || ns.PeakValuation != 0 {
+	if len(ns.Models) != 0 || len(ns.Employees) != 0 || ns.PeakValuation != 0 {
 		t.Errorf("run state not reset: %+v", ns)
 	}
 	if !approx(ns.Resources.Cash, b.StartingCash) {
@@ -695,44 +643,6 @@ func TestApplyPrestigeLocked(t *testing.T) {
 	s := model.GameState{} // peak 0 < 1e9
 	if _, err := Apply(s, model.PrestigeReset{}, b); err != ErrPrestigeLocked {
 		t.Fatalf("err = %v, want ErrPrestigeLocked", err)
-	}
-}
-
-func TestApplySignStar(t *testing.T) {
-	b := balance.Default()
-	s := model.GameState{}
-	s.Resources.Cash = 1_000_000
-	ns, err := Apply(s, model.SignStar{StarID: "aria-chen"}, b) // signing 600000
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	if !approx(ns.Resources.Cash, 400000) {
-		t.Errorf("cash = %v, want 400000", ns.Resources.Cash)
-	}
-	if len(ns.HiredStars) != 1 || ns.HiredStars[0] != "aria-chen" {
-		t.Errorf("not hired: %+v", ns.HiredStars)
-	}
-	if len(s.HiredStars) != 0 {
-		t.Errorf("Apply mutated input")
-	}
-}
-
-func TestApplySignStarErrors(t *testing.T) {
-	b := balance.Default()
-	rich := model.GameState{}
-	rich.Resources.Cash = 1e9
-	if _, err := Apply(rich, model.SignStar{StarID: "nope"}, b); err != ErrInvalidStar {
-		t.Errorf("invalid: err = %v, want ErrInvalidStar", err)
-	}
-	already := model.GameState{HiredStars: []string{"aria-chen"}}
-	already.Resources.Cash = 1e9
-	if _, err := Apply(already, model.SignStar{StarID: "aria-chen"}, b); err != ErrAlreadyHired {
-		t.Errorf("already: err = %v, want ErrAlreadyHired", err)
-	}
-	poor := model.GameState{}
-	poor.Resources.Cash = 100
-	if _, err := Apply(poor, model.SignStar{StarID: "aria-chen"}, b); err != ErrInsufficientCash {
-		t.Errorf("cash: err = %v, want ErrInsufficientCash", err)
 	}
 }
 

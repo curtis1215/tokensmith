@@ -505,10 +505,8 @@ func eventWeight(ns model.GameState, spec balance.EventSpec, b balance.Config) f
 		}
 		return spec.Weight * f * techEffects(ns, b).IncidentMult * eventEffects(ns, b).IncidentChanceMult
 	case balance.EvPaper:
-		n := 0
-		for tier := model.Tier1; tier <= model.Tier3; tier++ {
-			n += ns.Research.Researchers[tier]
-		}
+		// Weight paper events by roster size (research staff was per-tier counts).
+		n := len(ns.Employees)
 		m := 1 + float64(n)*0.1
 		if m > 3 {
 			m = 3

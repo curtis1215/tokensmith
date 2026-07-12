@@ -77,7 +77,8 @@ func freshRun(p model.Prestige, b balance.Config) model.GameState {
 	ns.Prestige = p
 	ns.Competitors = balance.DefaultCompetitors()
 	ns.Research.EfficiencyMult = 1
-	ns.Research.Researchers[model.Tier1] = b.StartingResearchersT1
+	ns.Office.Level = 1
+	// Employees / market seeded in later tasks; empty roster is valid start.
 	// Compute starts empty (nil maps → 0), same as a brand-new run.
 	ns.Resources.Cash = b.StartingCash + pe.StartCash
 	ns.Resources.RnD = b.StartingRnD + pe.StartRnD

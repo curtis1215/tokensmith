@@ -10,41 +10,25 @@ import (
 
 func approx(a, b float64) bool { return math.Abs(a-b) < 1e-6 }
 
-func TestStaffRnDPerSec(t *testing.T) {
+func TestStaffRnDPerSecStub(t *testing.T) {
+	// Aggregate researchers removed; staffRnDPerSec is a 0 stub until Task 7.
 	b := balance.Default()
 	r := model.Research{EfficiencyMult: 1.0}
-	r.Researchers[model.Tier1] = 2 // 2*0.005 = 0.01 (pre-compression-fix units)
-	r.Researchers[model.Tier2] = 1 // 1*0.015 = 0.015
-	got := staffRnDPerSec(r, b)    // 0.025/s, scaled by RealSecCompression
-	want := 0.025 / balance.RealSecCompression
-	if !approx(got, want) {
-		t.Fatalf("staffRnDPerSec = %v, want %v", got, want)
+	if got := staffRnDPerSec(r, b); got != 0 {
+		t.Fatalf("staffRnDPerSec stub = %v, want 0", got)
 	}
 }
 
-func TestStaffRnDEfficiencyMult(t *testing.T) {
-	b := balance.Default()
-	r := model.Research{EfficiencyMult: 2.0}
-	r.Researchers[model.Tier2] = 1 // 0.015 * 2.0 = 0.03, scaled by RealSecCompression
-	want := 0.03 / balance.RealSecCompression
-	if got := staffRnDPerSec(r, b); !approx(got, want) {
-		t.Fatalf("staffRnDPerSec with mult = %v, want %v", got, want)
-	}
-}
-
-func TestTickAddsStaffRnDAndAdvancesTime(t *testing.T) {
+func TestTickAdvancesTimeWithoutStaffRnD(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{Research: model.Research{EfficiencyMult: 1.0}}
-	s.Research.Researchers[model.Tier2] = 4 // 0.06/s pre-compression-fix
-	ns := Tick(s, 10, nil, b)               // 0.06/s * 10s = 0.6, scaled by RealSecCompression
-	want := 0.6 / balance.RealSecCompression
-	if !approx(ns.Resources.RnD, want) {
-		t.Fatalf("RnD = %v, want %v", ns.Resources.RnD, want)
+	ns := Tick(s, 10, nil, b)
+	if !approx(ns.Resources.RnD, 0) {
+		t.Fatalf("RnD = %v, want 0 (no employee R&D wired into Tick yet)", ns.Resources.RnD)
 	}
 	if !approx(ns.GameTime, 10) {
 		t.Fatalf("GameTime = %v, want 10", ns.GameTime)
 	}
-	// Tick must not mutate the input state.
 	if s.Resources.RnD != 0 || s.GameTime != 0 {
 		t.Fatalf("Tick mutated input: %+v", s)
 	}
@@ -81,14 +65,7 @@ func TestTickAddsTokenRnD(t *testing.T) {
 func TestTickStreakMultOnlyAffectsTokenRnD(t *testing.T) {
 	b := balance.Default()
 	b.StreakMult = 2.0
-	staffOnly := model.GameState{Research: model.Research{EfficiencyMult: 1.0}}
-	staffOnly.Research.Researchers[model.Tier2] = 4
 	base := balance.Default() // StreakMult = 1.0 (neutral)
-	nsStreak := Tick(staffOnly, 10, nil, b)
-	nsBase := Tick(staffOnly, 10, nil, base)
-	if !approx(nsStreak.Resources.RnD, nsBase.Resources.RnD) {
-		t.Fatalf("StreakMult must not affect staff-only R&D: streak=%v base=%v", nsStreak.Resources.RnD, nsBase.Resources.RnD)
-	}
 
 	tokenOnly := model.GameState{}
 	events := []model.TokenEvent{{OutputTokens: 1000}} // raw 2000
@@ -99,12 +76,9 @@ func TestTickStreakMultOnlyAffectsTokenRnD(t *testing.T) {
 	}
 }
 
-
-func TestOfflineFastForwardEquivalenceStaffOnly(t *testing.T) {
+func TestOfflineFastForwardEquivalenceEmptyStaff(t *testing.T) {
 	b := balance.Default()
 	base := model.GameState{Research: model.Research{EfficiencyMult: 1.5}}
-	base.Research.Researchers[model.Tier1] = 3
-	base.Research.Researchers[model.Tier3] = 2
 
 	// One big tick of 100s, no token events.
 	oneShot := Tick(base, 100, nil, b)
@@ -564,58 +538,20 @@ func TestTickDeductsElectricity(t *testing.T) {
 	}
 }
 
-func TestTickDeductsSalary(t *testing.T) {
+func TestTickDeductsEmployeeSalary(t *testing.T) {
 	b := balance.Default()
-	s := model.GameState{}
-	s.Research.Researchers[model.Tier2] = 3
-	s.Engineers = 2
+	s := model.GameState{
+		Employees: []model.Employee{{MonthlySalary: 6000}}, // 10/s
+	}
 	s.Resources.Cash = 100
 	ns := Tick(s, 10, nil, b)
-	want := 100 - (3*b.ResearcherSalaryPerSec[model.Tier2]+2*b.EngineerSalaryPerSec)*10
+	want := 100.0 - 10*10
 	if !approx(ns.Resources.Cash, want) {
 		t.Fatalf("Cash = %v, want %v", ns.Resources.Cash, want)
 	}
 }
 
-func TestEngineersSpeedTraining(t *testing.T) {
-	b := balance.Default()
-	base := model.GameState{HasTraining: true}
-	base.Compute.RentedTraining = map[string]int{"N7": 10}
-	base.Training = model.TrainingJob{Gen: 1, WorkRemaining: 1e9}
-	withEng := base
-	withEng.Engineers = 5 // infra mult 1.1
-	nb := Tick(base, 1, nil, b)
-	ne := Tick(withEng, 1, nil, b)
-	if ne.Training.WorkRemaining >= nb.Training.WorkRemaining {
-		t.Fatalf("engineers should speed training: %v vs %v", ne.Training.WorkRemaining, nb.Training.WorkRemaining)
-	}
-}
-
-func TestMarketingBoostsUsers(t *testing.T) {
-	b := balance.Default()
-	base := model.GameState{Models: []model.Model{onlineModel(50, b.RefPrice)}}
-	withMkt := model.GameState{Models: []model.Model{onlineModel(50, b.RefPrice)}, Marketing: 10}
-	nb := Tick(base, 1, nil, b)
-	nm := Tick(withMkt, 1, nil, b)
-	if nm.Models[0].Users <= nb.Models[0].Users {
-		t.Fatalf("marketing should boost users: %v vs %v", nm.Models[0].Users, nb.Models[0].Users)
-	}
-}
-
-func TestOpsReducesServiceChurn(t *testing.T) {
-	b := balance.Default()
-	m := onlineModel(50, b.RefPrice)
-	m.Users = 100000
-	base := model.GameState{Models: []model.Model{m}}
-	base.Compute.RentedInference = map[string]int{"N7": 1} // overloaded
-	withOps := base
-	withOps.Ops = 20
-	nb := Tick(base, 1, nil, b)
-	no := Tick(withOps, 1, nil, b)
-	if no.Models[0].Users <= nb.Models[0].Users {
-		t.Fatalf("ops should reduce churn: %v vs %v", no.Models[0].Users, nb.Models[0].Users)
-	}
-}
+// Engineer/marketing/ops aggregate headcount tests removed; employee mults wire in Task 7.
 
 // Large TUI ticks (dt=3600) must not thrash users 0↔market-target when inference
 // is overloaded. After an hour-scale tick, users should settle near the count
@@ -746,12 +682,13 @@ func TestPeakValuationIsMonotonic(t *testing.T) {
 
 func TestPrestigeRnDMult(t *testing.T) {
 	b := balance.Default()
+	// Token R&D path still multiplies by prestige RnD mult.
 	base := model.GameState{Research: model.Research{EfficiencyMult: 1}}
-	base.Research.Researchers[model.Tier2] = 10 // 150 R&D/s
 	withP := base
 	withP.Prestige.UnlockedPrestige = []string{"rnd-mult-1"} // R&D ×1.1
-	nb := Tick(base, 1, nil, b)
-	np := Tick(withP, 1, nil, b)
+	events := []model.TokenEvent{{OutputTokens: 1000}}
+	nb := Tick(base, 1, events, b)
+	np := Tick(withP, 1, events, b)
 	if np.Resources.RnD <= nb.Resources.RnD {
 		t.Fatalf("prestige RnD mult should boost R&D: %v vs %v", np.Resources.RnD, nb.Resources.RnD)
 	}
@@ -771,63 +708,7 @@ func TestPrestigeCashMult(t *testing.T) {
 	}
 }
 
-func TestTickStarSalary(t *testing.T) {
-	b := balance.Default()
-	s := model.GameState{HiredStars: []string{"aria-chen"}} // salary 0.02/s
-	s.Resources.Cash = 100
-	ns := Tick(s, 10, nil, b)
-	// aria salary 0.02*10 = 0.2 (aria also adds R&D but not cash)
-	if !approx(ns.Resources.Cash, 100-0.02*10) {
-		t.Fatalf("Cash = %v, want %v", ns.Resources.Cash, 100-0.02*10)
-	}
-}
-
-func TestTickStarRnDBonus(t *testing.T) {
-	b := balance.Default()
-	base := model.GameState{}
-	withStar := model.GameState{HiredStars: []string{"aria-chen"}} // +300 R&D/s
-	nb := Tick(base, 1, nil, b)
-	nw := Tick(withStar, 1, nil, b)
-	if nw.Resources.RnD <= nb.Resources.RnD {
-		t.Fatalf("star should add R&D: %v vs %v", nw.Resources.RnD, nb.Resources.RnD)
-	}
-}
-
-func TestStarQualityMult(t *testing.T) {
-	b := balance.Default()
-	s := model.GameState{HasTraining: true, HiredStars: []string{"aria-chen"}} // cap ×1.22
-	s.Compute.RentedTraining = map[string]int{"N7": 1000}
-	s.Training = model.TrainingJob{Gen: 2, Alloc: [model.NumQualityDims]float64{0.4, 0.2, 0.2, 0.2}, WorkRemaining: 1}
-	ns := Tick(s, 1, nil, b)
-	if !approx(ns.Models[0].Quality[model.DimCapability], 0.4*45*1.22) { // 21.96
-		t.Fatalf("capability = %v, want %v", ns.Models[0].Quality[model.DimCapability], 0.4*45*1.22)
-	}
-}
-
-func TestStarInfraSpeedsTraining(t *testing.T) {
-	b := balance.Default()
-	base := model.GameState{HasTraining: true}
-	base.Compute.RentedTraining = map[string]int{"N7": 10}
-	base.Training = model.TrainingJob{Gen: 1, WorkRemaining: 1e9}
-	withStar := base
-	withStar.HiredStars = []string{"kenji-tanaka"} // InfraMult 1.12
-	nb := Tick(base, 1, nil, b)
-	nw := Tick(withStar, 1, nil, b)
-	if nw.Training.WorkRemaining >= nb.Training.WorkRemaining {
-		t.Fatalf("star infra should speed training: %v vs %v", nw.Training.WorkRemaining, nb.Training.WorkRemaining)
-	}
-}
-
-func TestStarGrowthBoostsUsers(t *testing.T) {
-	b := balance.Default()
-	base := model.GameState{Models: []model.Model{onlineModel(50, b.RefPrice)}}
-	withStar := model.GameState{Models: []model.Model{onlineModel(50, b.RefPrice)}, HiredStars: []string{"marcus-cole"}} // 1.30
-	nb := Tick(base, 1, nil, b)
-	nw := Tick(withStar, 1, nil, b)
-	if nw.Models[0].Users <= nb.Models[0].Users {
-		t.Fatalf("star growth should boost users: %v vs %v", nw.Models[0].Users, nb.Models[0].Users)
-	}
-}
+// Star-system integration tests removed with HiredStars; skill effects replace them later.
 
 func TestUserGrowthClampedAtLargeDt(t *testing.T) {
 	b := balance.Default()

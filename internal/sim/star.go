@@ -5,28 +5,23 @@ import (
 	"tokensmith/internal/model"
 )
 
-func isStarHired(ns model.GameState, id string) bool {
-	for _, h := range ns.HiredStars {
-		if h == id {
-			return true
-		}
-	}
-	return false
+// starBonus is the legacy star-effects aggregate shape retained so training,
+// users, and view keep compiling. Stars catalog was removed; effects are neutral
+// until Task 6–7 rewires callers onto employee/skill helpers.
+type starBonus struct {
+	QualityMult    [model.NumQualityDims]float64
+	RnDPerSec      float64
+	InfraMult      float64
+	UserGrowthMult float64
 }
 
-// starEffects aggregates the bonuses of all hired stars (neutral when none).
-func starEffects(ns model.GameState, b balance.Config) model.StarEffects {
-	agg := model.NeutralStarEffects()
-	for _, st := range b.Stars {
-		if !isStarHired(ns, st.ID) {
-			continue
-		}
-		for d := range agg.QualityMult {
-			agg.QualityMult[d] *= st.Effects.QualityMult[d]
-		}
-		agg.RnDPerSec += st.Effects.RnDPerSec
-		agg.InfraMult *= st.Effects.InfraMult
-		agg.UserGrowthMult *= st.Effects.UserGrowthMult
+// starEffects returns neutral multipliers (no stars). Temporary stub.
+func starEffects(_ model.GameState, _ balance.Config) starBonus {
+	var se starBonus
+	for i := range se.QualityMult {
+		se.QualityMult[i] = 1
 	}
-	return agg
+	se.InfraMult = 1
+	se.UserGrowthMult = 1
+	return se
 }

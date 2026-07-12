@@ -25,7 +25,7 @@ func campaignGateMet(s model.GameState, b balance.Config, status CampaignStatusV
 		case model.DoctrineConsumer:
 			return status.QualityRank == 1 && status.Share >= b.Campaign.ConsumerWinShare && campaignCapacityOK(s, b, 1.0)
 		case model.DoctrineEnterprise:
-			return enterpriseSafetyOK(s, b) && status.Share >= b.Campaign.EnterpriseWinShare && status.PriceOK && s.Ops >= 1 && campaignCapacityOK(s, b, 0.80)
+			return enterpriseSafetyOK(s, b) && status.Share >= b.Campaign.EnterpriseWinShare && status.PriceOK && totalRolePower(s, b)[model.RoleOps] > 0 && campaignCapacityOK(s, b, 0.80)
 		case model.DoctrineDeveloper:
 			return status.QualityRank == 1 && status.Share >= b.Campaign.DeveloperWinShare && status.PriceOK && status.CashflowOK && campaignCapacityOK(s, b, 0.80)
 		}

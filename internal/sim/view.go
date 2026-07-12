@@ -210,7 +210,8 @@ func EstimateUserTarget(s model.GameState, modelIndex int, price float64, b bala
 	}
 	refPrice := EffectiveRefPrice(s, m.Segment, b)
 	demandMult := math.Pow(refPrice/price, b.PriceElasticity)
-	marketingMult := 1 + float64(s.Marketing)*b.MarketingBonus
+	// Marketing headcount removed; employee mult lands in Task 7.
+	marketingMult := 1.0
 	target := appeal * b.SegmentTargetScale[m.Segment] * demandMult * share *
 		marketingMult * te.UserGrowthMult * se.UserGrowthMult *
 		ee.UserGrowthMult * ee.TAMMult

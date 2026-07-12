@@ -11,14 +11,11 @@ import (
 	"tokensmith/internal/model"
 )
 
-// staffRnDPerSec returns R&D produced per second by the research workforce,
-// before multiplying by dt.
-func staffRnDPerSec(r model.Research, b balance.Config) float64 {
-	var perSec float64
-	for tier := model.Tier1; tier <= model.Tier3; tier++ {
-		perSec += float64(r.Researchers[tier]) * b.ResearcherRnDPerSec[tier]
-	}
-	return perSec * r.EfficiencyMult
+// staffRnDPerSec is a temporary stub (aggregate researchers removed).
+// Employee R&D is staffRnDPerSecFromEmployees; Task 7 rewires Tick callers.
+func staffRnDPerSec(r model.Research, _ balance.Config) float64 {
+	_ = r
+	return 0
 }
 
 // TokenRawRnD returns the raw R&D produced by a batch of token events, before
@@ -34,26 +31,14 @@ func TokenRawRnD(events []model.TokenEvent, b balance.Config) float64 {
 }
 
 // totalSalaryPerSec is the aggregate staff salary per second.
+// Temporary: employee path until Tick fully rewires in Task 7.
 func totalSalaryPerSec(ns model.GameState, b balance.Config) float64 {
-	var s float64
-	for tier := model.Tier1; tier <= model.Tier3; tier++ {
-		s += float64(ns.Research.Researchers[tier]) * b.ResearcherSalaryPerSec[tier]
-	}
-	s += float64(ns.Engineers) * b.EngineerSalaryPerSec
-	s += float64(ns.Ops) * b.OpsSalaryPerSec
-	s += float64(ns.Marketing) * b.MarketingSalaryPerSec
-	return s
+	return totalSalaryPerSecFromEmployees(ns, b)
 }
 
-// starSalaryPerSec is the aggregate salary of all hired stars.
-func starSalaryPerSec(ns model.GameState, b balance.Config) float64 {
-	var s float64
-	for _, st := range b.Stars {
-		if isStarHired(ns, st.ID) {
-			s += st.SalaryPerSec
-		}
-	}
-	return s
+// starSalaryPerSec is a neutral stub (stars removed).
+func starSalaryPerSec(_ model.GameState, _ balance.Config) float64 {
+	return 0
 }
 
 // Valuation is the company's estimated worth (spec §7.0).
@@ -154,9 +139,10 @@ func tickWithClocks(s model.GameState, economyDT, industryDT float64, events []m
 	return ns
 }
 
-// infraEfficiency scales compute effectiveness with engineers.
-func infraEfficiency(ns model.GameState, b balance.Config) float64 {
-	return 1 + float64(ns.Engineers)*b.EngineerInfraBonus
+// infraEfficiency scales compute effectiveness. Temporary neutral stub;
+// Task 7 wires employeeInfraMult (and skill InfraMult) into this path.
+func infraEfficiency(_ model.GameState, _ balance.Config) float64 {
+	return 1
 }
 
 // effectiveTraining is rented plus self-built training compute, scaled by engineer efficiency.
@@ -272,7 +258,8 @@ func advanceUsers(ns model.GameState, dt float64, b balance.Config) model.GameSt
 		if appeal+rivalAppeal > 0 {
 			share = appeal / (appeal + rivalAppeal)
 		}
-		marketingMult := 1 + float64(ns.Marketing)*b.MarketingBonus
+		// Marketing headcount removed; employee mult lands in Task 7.
+		marketingMult := 1.0
 		target := appeal * b.SegmentTargetScale[m.Segment] * demandMult * share *
 			marketingMult * te.UserGrowthMult * se.UserGrowthMult *
 			ee.UserGrowthMult * ee.TAMMult
@@ -342,7 +329,8 @@ func advanceServing(ns model.GameState, dt float64, b balance.Config) model.Game
 	if capacity <= 0 || load <= capacity {
 		return ns
 	}
-	opsFactor := 1.0 / (1 + float64(ns.Ops)*b.OpsChurnReduction)
+	// Ops headcount removed; employeeOpsChurnFactor lands in Task 7.
+	opsFactor := 1.0
 	// Continuous approach of total load toward capacity.
 	newLoad := capacity + (load-capacity)*math.Exp(-b.ServiceChurnRate*ce.ServiceChurnMult*dt*opsFactor)
 	if newLoad < 0 {

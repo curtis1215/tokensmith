@@ -85,10 +85,6 @@ func Apply(s model.GameState, cmd model.Command, b balance.Config) (model.GameSt
 		return applyExpandDatacenter(s, c, b)
 	case model.BuildServer:
 		return applyBuildServer(s, c, b)
-	case model.HireStaff:
-		return applyHireStaff(s, c, b)
-	case model.FireStaff:
-		return applyFireStaff(s, c)
 	case model.UnlockTech:
 		return applyUnlockTech(s, c, b)
 	case model.UnlockEraBreakthrough:
@@ -101,8 +97,6 @@ func Apply(s model.GameState, cmd model.Command, b balance.Config) (model.GameSt
 		return applyBuyPrestigeNode(s, c, b)
 	case model.PrestigeReset:
 		return applyPrestigeReset(s, b)
-	case model.SignStar:
-		return applySignStar(s, c, b)
 	case model.PublishModel:
 		return applyPublishModel(s, c)
 	case model.ResolveEvent:
@@ -277,70 +271,6 @@ func applyBuildServer(s model.GameState, c model.BuildServer, b balance.Config) 
 	return ns, nil
 }
 
-func applyHireStaff(s model.GameState, c model.HireStaff, b balance.Config) (model.GameState, error) {
-	if c.Count <= 0 {
-		return s, ErrInvalidCount
-	}
-	n := float64(c.Count)
-	ns := s
-	switch c.Role {
-	case model.RoleResearcher:
-		if c.Tier < model.Tier1 || c.Tier > model.Tier3 {
-			return s, ErrInvalidTier
-		}
-		cost := n * b.ResearcherHireCost[c.Tier]
-		if s.Resources.Cash < cost {
-			return s, ErrInsufficientCash
-		}
-		ns.Resources.Cash -= cost
-		ns.Research.Researchers[c.Tier] += c.Count
-	case model.RoleEngineer:
-		if s.Resources.Cash < n*b.EngineerHireCost {
-			return s, ErrInsufficientCash
-		}
-		ns.Resources.Cash -= n * b.EngineerHireCost
-		ns.Engineers += c.Count
-	case model.RoleOps:
-		if s.Resources.Cash < n*b.OpsHireCost {
-			return s, ErrInsufficientCash
-		}
-		ns.Resources.Cash -= n * b.OpsHireCost
-		ns.Ops += c.Count
-	case model.RoleMarketing:
-		if s.Resources.Cash < n*b.MarketingHireCost {
-			return s, ErrInsufficientCash
-		}
-		ns.Resources.Cash -= n * b.MarketingHireCost
-		ns.Marketing += c.Count
-	default:
-		return s, ErrInvalidRole
-	}
-	return ns, nil
-}
-
-func applyFireStaff(s model.GameState, c model.FireStaff) (model.GameState, error) {
-	if c.Count <= 0 {
-		return s, ErrInvalidCount
-	}
-	ns := s
-	switch c.Role {
-	case model.RoleResearcher:
-		if c.Tier < model.Tier1 || c.Tier > model.Tier3 {
-			return s, ErrInvalidTier
-		}
-		ns.Research.Researchers[c.Tier] = max0(ns.Research.Researchers[c.Tier] - c.Count)
-	case model.RoleEngineer:
-		ns.Engineers = max0(ns.Engineers - c.Count)
-	case model.RoleOps:
-		ns.Ops = max0(ns.Ops - c.Count)
-	case model.RoleMarketing:
-		ns.Marketing = max0(ns.Marketing - c.Count)
-	default:
-		return s, ErrInvalidRole
-	}
-	return ns, nil
-}
-
 func max0(n int) int {
 	if n < 0 {
 		return 0
@@ -436,32 +366,6 @@ func applyPrestigeReset(s model.GameState, b balance.Config) (model.GameState, e
 	p.Patents += patentsFor(s.PeakValuation, b)
 	ns := freshRun(p, b)
 	ns.Events.RandState = s.Events.RandState
-	return ns, nil
-}
-
-func findStar(stars []model.Star, id string) (model.Star, bool) {
-	for _, st := range stars {
-		if st.ID == id {
-			return st, true
-		}
-	}
-	return model.Star{}, false
-}
-
-func applySignStar(s model.GameState, c model.SignStar, b balance.Config) (model.GameState, error) {
-	st, ok := findStar(b.Stars, c.StarID)
-	if !ok {
-		return s, ErrInvalidStar
-	}
-	if isStarHired(s, st.ID) {
-		return s, ErrAlreadyHired
-	}
-	if s.Resources.Cash < st.SigningCost {
-		return s, ErrInsufficientCash
-	}
-	ns := s
-	ns.Resources.Cash -= st.SigningCost
-	ns.HiredStars = append(append([]string(nil), s.HiredStars...), st.ID)
 	return ns, nil
 }
 

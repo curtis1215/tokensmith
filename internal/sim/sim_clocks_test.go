@@ -11,7 +11,6 @@ func TestTickWithClocksOnlineSameDelta(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{}
 	s.Research.EfficiencyMult = 1
-	s.Research.Researchers[model.Tier1] = 2
 	s.Competitors = []model.Competitor{{
 		Name: "Rival", Skill: q(1, 1, 1, 1), Quality: q(8, 8, 8, 8),
 	}}
@@ -35,7 +34,6 @@ func TestTickWithClocksSplitsEconomyAndIndustry(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{}
 	s.Research.EfficiencyMult = 1
-	s.Research.Researchers[model.Tier1] = 1
 	s.Progression.IndustryTime = 100
 	s.Competitors = []model.Competitor{{
 		Name: "Rival", Skill: q(1, 1, 1, 1), Quality: q(8, 8, 8, 8),
