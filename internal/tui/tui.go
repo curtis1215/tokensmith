@@ -884,31 +884,14 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 				}
 			} else if m.page == PageCompute {
 				m.applyNotice(model.ExpandDatacenter{PowerDelta: 100, SlotDelta: 5}, "🏗 機房擴建完成")
-			} else if m.page == PageTeam {
-				m.applyNotice(model.HireStaff{Role: model.RoleEngineer, Count: 1}, "🤝 已雇用工程師")
 			}
+			// PageTeam hire keys are rewired in Task 11 (employee market).
 			return m, nil
-		case "h":
-			if m.page == PageTeam {
-				m.applyNotice(model.HireStaff{Role: model.RoleResearcher, Tier: model.Tier1, Count: 1}, "🤝 已雇用研究員")
-			}
-			return m, nil
-		case "o":
-			if m.page == PageTeam {
-				m.applyNotice(model.HireStaff{Role: model.RoleOps, Count: 1}, "🤝 已雇用營運")
-			}
+		case "h", "o", "s":
+			// Placeholder: old HireStaff/SignStar removed; Task 11 binds employee hire/fire.
 			return m, nil
 		case "k":
-			if m.page == PageTeam {
-				m.applyNotice(model.HireStaff{Role: model.RoleMarketing, Count: 1}, "🤝 已雇用行銷")
-			}
-			return m, nil
-		case "s":
-			if m.page == PageTeam {
-				if id := firstUnhiredStar(m); id != "" {
-					m.applyNotice(model.SignStar{StarID: id}, "🌟 已簽下明星員工")
-				}
-			}
+			// Team still reserves `k` (no scroll); hire rebind in Task 11.
 			return m, nil
 		}
 	}

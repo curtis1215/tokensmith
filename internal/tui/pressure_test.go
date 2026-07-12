@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"tokensmith/internal/model"
+	"tokensmith/internal/sim"
 )
 
 func TestInferencePressureShown(t *testing.T) {
@@ -135,14 +137,17 @@ func TestOverviewHelpShowsCampaignKeys(t *testing.T) {
 }
 
 func TestResourceBarShowsPerRealSecondRnDRate(t *testing.T) {
-	m := testModel(t) // fresh game seeds 2 T1 researchers
+	m := testModel(t)
+	// Employee-office: seed a researcher so R&D rate is non-zero.
+	m.state.Employees = []model.Employee{{
+		PrimaryRole: model.RoleResearcher,
+		Stats:       [model.NumRoles]int{50, 0, 0, 0},
+	}}
+	m.state.Research.EfficiencyMult = 1
 	bar := renderResourceBar(m)
-	// 2 × (0.005/14400 game-sec) × 14400 game-sec/real-sec = 0.01/real-sec exactly —
-	// small on purpose (root-cause fix: passive income no longer secretly
-	// inherits the 14400x sim-time compression). human() shows sub-1 values to
-	// 2dp so this doesn't misleadingly render as "+0/s".
-	if !strings.Contains(bar, "+0.01/s") {
-		t.Fatalf("expected the un-inflated per-real-second R&D rate:\n%s", bar)
+	want := human(sim.RnDRatePerSec(m.state, m.cfg) * gameSecPerRealSec)
+	if !strings.Contains(bar, fmt.Sprintf("+%s/s", want)) {
+		t.Fatalf("expected per-real-second R&D rate +%s/s:\n%s", want, bar)
 	}
 }
 
