@@ -176,9 +176,9 @@ func generateEmployee(
 	return e, randState
 }
 
-// refreshMarket regenerates the candidate pool, resets RerollCount, and
-// schedules the next free refresh at GameTime+MarketRefreshSec.
-func refreshMarket(ns model.GameState, b balance.Config) model.GameState {
+// regenerateCandidatesOnly rolls a fresh candidate pool and advances RandState
+// without touching NextRefreshAt or RerollCount (used by paid reroll).
+func regenerateCandidatesOnly(ns model.GameState, b balance.Config) model.GameState {
 	level := effectiveOfficeLevel(ns)
 	st := ns.Market.RandState
 	n := b.MarketPoolSize
@@ -193,6 +193,13 @@ func refreshMarket(ns model.GameState, b balance.Config) model.GameState {
 	}
 	ns.Market.Candidates = cands
 	ns.Market.RandState = st
+	return ns
+}
+
+// refreshMarket regenerates the candidate pool, resets RerollCount, and
+// schedules the next free refresh at GameTime+MarketRefreshSec.
+func refreshMarket(ns model.GameState, b balance.Config) model.GameState {
+	ns = regenerateCandidatesOnly(ns, b)
 	ns.Market.NextRefreshAt = ns.GameTime + b.MarketRefreshSec
 	ns.Market.RerollCount = 0
 	return ns

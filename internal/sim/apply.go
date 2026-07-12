@@ -69,6 +69,11 @@ var (
 	ErrInvalidFrontierTarget     = errors.New("sim: invalid frontier target generation")
 	ErrNoFrontierProject         = errors.New("sim: no active frontier project")
 	ErrInvalidFrontierAllocation = errors.New("sim: frontier allocation must be 0–100")
+
+	ErrOfficeMaxed      = errors.New("sim: office already max level")
+	ErrNoSeats          = errors.New("sim: no free office seats")
+	ErrUnknownEmployee  = errors.New("sim: unknown employee id")
+	ErrUnknownCandidate = errors.New("sim: unknown market candidate")
 )
 
 // Apply validates and applies a single player command, returning the new
@@ -117,9 +122,168 @@ func Apply(s model.GameState, cmd model.Command, b balance.Config) (model.GameSt
 		return applyCampaignContinue(s)
 	case model.CampaignExit:
 		return applyCampaignExit(s, b)
+	case model.UpgradeOffice:
+		return applyUpgradeOffice(s, b)
+	case model.HireEmployee:
+		return applyHireEmployee(s, c, b)
+	case model.FireEmployee:
+		return applyFireEmployee(s, c, b)
+	case model.RerollMarket:
+		return applyRerollMarket(s, b)
 	default:
 		return s, ErrUnknownCommand
 	}
+}
+
+func applyUpgradeOffice(s model.GameState, b balance.Config) (model.GameState, error) {
+	level := effectiveOfficeLevel(s)
+	cost, ok := balance.OfficeUpgradeCostAt(level, b)
+	if !ok {
+		return s, ErrOfficeMaxed
+	}
+	if s.Resources.Cash < cost {
+		return s, ErrInsufficientCash
+	}
+	ns := s
+	ns.Resources.Cash -= cost
+	ns.Office.Level = level + 1
+	return ns, nil
+}
+
+func applyHireEmployee(s model.GameState, c model.HireEmployee, b balance.Config) (model.GameState, error) {
+	idx := -1
+	var cand model.Employee
+	for i, e := range s.Market.Candidates {
+		if e.ID == c.CandidateID {
+			idx = i
+			cand = e
+			break
+		}
+	}
+	if idx < 0 {
+		return s, ErrUnknownCandidate
+	}
+	if rosterFull(s, b) {
+		return s, ErrNoSeats
+	}
+	cost := cand.HireCost * companyHireCostMult(s, b)
+	if s.Resources.Cash < cost {
+		return s, ErrInsufficientCash
+	}
+	ns := s
+	ns.Resources.Cash -= cost
+	// Remove candidate (clone pool).
+	cands := make([]model.Employee, 0, len(s.Market.Candidates)-1)
+	cands = append(cands, s.Market.Candidates[:idx]...)
+	cands = append(cands, s.Market.Candidates[idx+1:]...)
+	ns.Market.Candidates = cands
+	// Append to roster (clone).
+	ns.Employees = append(append([]model.Employee(nil), s.Employees...), cand)
+	return ns, nil
+}
+
+func applyFireEmployee(s model.GameState, c model.FireEmployee, b balance.Config) (model.GameState, error) {
+	idx := -1
+	var emp model.Employee
+	for i, e := range s.Employees {
+		if e.ID == c.EmployeeID {
+			idx = i
+			emp = e
+			break
+		}
+	}
+	if idx < 0 {
+		return s, ErrUnknownEmployee
+	}
+	sev := emp.MonthlySalary * b.SeveranceMonths *
+		employeeSelfSeveranceMult(emp, b) * companySeveranceMult(s, b)
+	if s.Resources.Cash < sev {
+		return s, ErrInsufficientCash
+	}
+	ns := s
+	ns.Resources.Cash -= sev
+	emps := make([]model.Employee, 0, len(s.Employees)-1)
+	emps = append(emps, s.Employees[:idx]...)
+	emps = append(emps, s.Employees[idx+1:]...)
+	ns.Employees = emps
+	return ns, nil
+}
+
+func applyRerollMarket(s model.GameState, b balance.Config) (model.GameState, error) {
+	cost := balance.RerollCost(s.Market.RerollCount, b) * companyRerollBaseMult(s, b)
+	if s.Resources.Cash < cost {
+		return s, ErrInsufficientCash
+	}
+	keepRefresh := s.Market.NextRefreshAt
+	keepN := s.Market.RerollCount
+	ns := s
+	ns.Resources.Cash -= cost
+	ns = regenerateCandidatesOnly(ns, b)
+	ns.Market.NextRefreshAt = keepRefresh
+	ns.Market.RerollCount = keepN + 1
+	return ns, nil
+}
+
+// companyHireCostMult is the product of HireCostMult hooks across the roster.
+func companyHireCostMult(ns model.GameState, b balance.Config) float64 {
+	m := 1.0
+	for _, e := range ns.Employees {
+		for _, id := range e.SkillIDs {
+			sk, ok := balance.SkillByID(b, id)
+			if !ok || sk.HireCostMult <= 0 {
+				continue
+			}
+			m *= sk.HireCostMult
+		}
+	}
+	return m
+}
+
+// companyRerollBaseMult multiplies paid-reroll cost (e.g. gs-war-chest).
+func companyRerollBaseMult(ns model.GameState, b balance.Config) float64 {
+	m := 1.0
+	for _, e := range ns.Employees {
+		for _, id := range e.SkillIDs {
+			sk, ok := balance.SkillByID(b, id)
+			if !ok || sk.RerollBaseMult <= 0 {
+				continue
+			}
+			m *= sk.RerollBaseMult
+		}
+	}
+	return m
+}
+
+// employeeSelfSeveranceMult multiplies severance for the fired employee
+// (skills with Family != "severance_company").
+func employeeSelfSeveranceMult(e model.Employee, b balance.Config) float64 {
+	m := 1.0
+	for _, id := range e.SkillIDs {
+		sk, ok := balance.SkillByID(b, id)
+		if !ok || sk.SeveranceMult <= 0 {
+			continue
+		}
+		if sk.Family == "severance_company" {
+			continue
+		}
+		m *= sk.SeveranceMult
+	}
+	return m
+}
+
+// companySeveranceMult multiplies all severance via Family "severance_company".
+func companySeveranceMult(ns model.GameState, b balance.Config) float64 {
+	m := 1.0
+	for _, e := range ns.Employees {
+		for _, id := range e.SkillIDs {
+			sk, ok := balance.SkillByID(b, id)
+			if !ok || sk.SeveranceMult <= 0 || sk.Family != "severance_company" {
+				continue
+			}
+			m *= sk.SeveranceMult
+		}
+	}
+	return m
 }
 
 func applyRentCompute(s model.GameState, c model.RentCompute, b balance.Config) (model.GameState, error) {
