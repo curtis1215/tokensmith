@@ -2,6 +2,7 @@ package sim
 
 import (
 	"errors"
+	"math"
 	"strings"
 	"testing"
 
@@ -96,6 +97,79 @@ func TestApplyStartTrainingErrors(t *testing.T) {
 	poor.Resources.RnD = 100
 	if _, err := Apply(poor, model.StartTraining{Gen: 1, Alloc: validAlloc(), Price: 12}, b); err != ErrInsufficientRnD {
 		t.Errorf("poor: err = %v, want ErrInsufficientRnD", err)
+	}
+}
+
+func TestApplyStartTrainingWithBoostsChargesCashAndFreezesBonus(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Resources.RnD = 50_000
+	s.Resources.Cash = 1e9
+	var boosts [model.NumQualityDims]bool
+	boosts[model.DimSafety] = true
+	cost, err := QuoteTrainBoostCost(s, 1, boosts, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ns, err := Apply(s, model.StartTraining{
+		Gen: 1, Alloc: validAlloc(), Price: 12, Boosts: boosts,
+	}, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(ns.Resources.Cash-(1e9-cost)) > 1e-6 {
+		t.Fatalf("cash = %v, want %v", ns.Resources.Cash, 1e9-cost)
+	}
+	if !ns.Training.Boosts[model.DimSafety] {
+		t.Fatal("boost not frozen on job")
+	}
+	wantBonus := b.TrainBoostBeta * 25 // Gen1 scale
+	if math.Abs(ns.Training.CashBonus[model.DimSafety]-wantBonus) > 1e-9 {
+		t.Fatalf("CashBonus = %v", ns.Training.CashBonus)
+	}
+	if math.Abs(ns.Training.BoostCashPaid-cost) > 1e-6 {
+		t.Fatalf("BoostCashPaid = %v, want %v", ns.Training.BoostCashPaid, cost)
+	}
+}
+
+func TestApplyStartTrainingInsufficientCashForBoost(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Resources.RnD = 50_000
+	s.Resources.Cash = 1 // too low for any boost at floor
+	var boosts [model.NumQualityDims]bool
+	boosts[0] = true
+	out, err := Apply(s, model.StartTraining{Gen: 1, Alloc: validAlloc(), Price: 12, Boosts: boosts}, b)
+	if err != ErrInsufficientCash {
+		t.Fatalf("err = %v, want ErrInsufficientCash", err)
+	}
+	if out.HasTraining || out.Resources.RnD != 50_000 || out.Resources.Cash != 1 {
+		t.Fatalf("state mutated on failure: %+v", out.Resources)
+	}
+}
+
+func TestAdvanceTrainingAppliesFrozenCashBonus(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.HasTraining = true
+	s.Training = model.TrainingJob{
+		Gen: 1, Alloc: validAlloc(), Price: 12, WorkRemaining: 1,
+		Boosts:    [model.NumQualityDims]bool{false, false, true, false},
+		CashBonus: [model.NumQualityDims]float64{0, 0, 3.75, 0},
+	}
+	s.Compute.RentedTraining = map[string]int{"N7": 100}
+	ns := advanceTraining(s, 1e12, 1e6, b)
+	if len(ns.Models) == 0 {
+		t.Fatal("no draft model")
+	}
+	m := ns.Models[len(ns.Models)-1]
+	// safety = 0.2*25 + 3.75 = 8.75 (no tech/star)
+	if math.Abs(m.Quality[model.DimSafety]-8.75) > 1e-6 {
+		t.Fatalf("safety = %v, want 8.75", m.Quality[model.DimSafety])
+	}
+	// capability unchanged path: 0.4*25 = 10
+	if math.Abs(m.Quality[model.DimCapability]-10) > 1e-6 {
+		t.Fatalf("cap = %v, want 10", m.Quality[model.DimCapability])
 	}
 }
 

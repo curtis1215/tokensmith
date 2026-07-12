@@ -210,7 +210,7 @@ func advanceTraining(ns model.GameState, dt, allocated float64, b balance.Config
 		Name:    "",
 	}
 	for d := range model.NumQualityDims {
-		m.Quality[d] = job.Alloc[d] * qualityScale * te.QualityMult[d] * se.QualityMult[d]
+		m.Quality[d] = (job.Alloc[d]*qualityScale + job.CashBonus[d]) * te.QualityMult[d] * se.QualityMult[d]
 	}
 	cloned := append([]model.Model(nil), ns.Models...)
 	ns.Models = append(cloned, m)
