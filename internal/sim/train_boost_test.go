@@ -78,3 +78,37 @@ func TestPredictedTrainQualityMonotonicInBoosts(t *testing.T) {
 		t.Fatalf("full pack reduced safety bonus")
 	}
 }
+
+// TestTrainBoostAllMasksMonotonicAppeal checks that for every segment and every
+// boost mask, flipping any off→on bit never decreases segment appeal (A ⊂ B
+// componentwise ⇒ appeal non-decreasing). Exhaustive over 16 masks × 4 bits.
+func TestTrainBoostAllMasksMonotonicAppeal(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	alloc := [model.NumQualityDims]float64{0.4, 0.2, 0.2, 0.2}
+	type mask int
+	appeal := func(m mask, seg model.Segment) float64 {
+		var boosts [model.NumQualityDims]bool
+		for d := 0; d < 4; d++ {
+			boosts[d] = m&(1<<d) != 0
+		}
+		q, err := PredictedTrainQuality(s, 1, alloc, boosts, b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return appealOf(q, b.SegmentWeights[seg])
+	}
+	for seg := model.Segment(0); seg < model.NumSegments; seg++ {
+		for m := mask(0); m < 16; m++ {
+			for bit := 0; bit < 4; bit++ {
+				if m&(1<<bit) != 0 {
+					continue
+				}
+				m2 := m | (1 << bit)
+				if appeal(m2, seg) < appeal(m, seg)-1e-9 {
+					t.Fatalf("seg %v mask %b → %b lowered appeal", seg, m, m2)
+				}
+			}
+		}
+	}
+}
