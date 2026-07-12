@@ -59,6 +59,41 @@ func TestViewHasChrome(t *testing.T) {
 	}
 }
 
+func TestTabBarListsWarRoom(t *testing.T) {
+	m := testModel(t)
+	v := m.View()
+	if !strings.Contains(v, "戰情室") {
+		t.Fatalf("tab bar missing 戰情室:\n%s", v)
+	}
+}
+
+func TestWarRoomPageKeys(t *testing.T) {
+	m := testModel(t)
+	m.page = PageWarRoom
+	if keys := pageKeys(m); !strings.Contains(keys, "[1]總覽") {
+		t.Fatalf("war room keys missing [1]總覽: %q", keys)
+	}
+	m = pendingChipShortage(m)
+	m.page = PageWarRoom
+	if keys := pageKeys(m); !strings.Contains(keys, "[e]") {
+		t.Fatalf("war room pending should show [e]: %q", keys)
+	}
+}
+
+func TestOverviewPageKeysPending(t *testing.T) {
+	m := pendingChipShortage(testModel(t))
+	m.page = PageOverview
+	keys := pageKeys(m)
+	if !strings.Contains(keys, "[e]") {
+		t.Fatalf("overview pending should show [e]: %q", keys)
+	}
+	for _, want := range []string{"[c]公司策略", "[t]訓練"} {
+		if !strings.Contains(keys, want) {
+			t.Fatalf("overview help missing %q: %q", want, keys)
+		}
+	}
+}
+
 func TestProgressBar(t *testing.T) {
 	got := Bar(0.5, 10)
 	full := strings.Count(got, "█")

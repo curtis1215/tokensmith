@@ -135,7 +135,7 @@ Requires `goreleaser` (`brew install goreleaser`) and a clean tree on the tag. G
 | `internal/ledger` / `internal/store` | persistence (ledger; save + meta) |
 | `internal/daemon` | harvest loop + single-instance lock |
 | `internal/game` | new-run seeding |
-| `internal/tui` | Bubble Tea UI (six pages: 總覽/模型/市場/算力/團隊/科技) |
+| `internal/tui` | Bubble Tea UI (eight pages: 總覽/戰情室/模型/市場/算力/團隊/科技/成就) |
 | `docs/superpowers/specs` · `plans` | design specs + implementation plans |
 
 ## Verify / CI gate
