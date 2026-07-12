@@ -1443,8 +1443,13 @@ func latestEventName(s model.GameState) string {
 	return ""
 }
 
-// pressures returns ⚠ attention items surfaced on the overview page.
+// pressures returns all ⚠ attention items (operational + campaign).
 func pressures(m Model) []string {
+	return append(operationalPressures(m), campaignPressures(m)...)
+}
+
+// operationalPressures are business/ops warnings for the overview 注意 card.
+func operationalPressures(m Model) []string {
 	s := m.state
 	var out []string
 	if cap := sim.EffectiveInference(s, m.cfg); cap > 0 && s.Compute.InferenceLoad/cap >= 0.9 {
@@ -1476,7 +1481,20 @@ func pressures(m Model) []string {
 	if draftN > 0 {
 		out = append(out, fmt.Sprintf("待發佈模型 %d 個 — 模型頁按 p", draftN))
 	}
-	// Campaign pressures (append only; keep existing warnings above).
+	return out
+}
+
+// campaignPressures are war-room warnings (strategy / perk / distress).
+func campaignPressures(m Model) []string {
+	s := m.state
+	var out []string
+	hasOnline := false
+	for _, md := range s.Models {
+		if md.Online {
+			hasOnline = true
+			break
+		}
+	}
 	if c := s.Campaign.FinancialDistressCycles; c >= 1 {
 		out = append(out, styleLoss.Bold(true).Render(
 			fmt.Sprintf("🩸 財務危機 第 %d 週期——連續 2 週期可策略退出 [E]", c)))

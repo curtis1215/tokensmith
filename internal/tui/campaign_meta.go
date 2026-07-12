@@ -109,9 +109,13 @@ func directiveLabel(d model.DirectiveKind) string {
 
 // renderCampaignStatusCard is the CEO war-room status card (doctrine / stage / gate).
 func renderCampaignStatusCard(m Model, w int) string {
+	return CardInFrom(campaignStatusContent(m, w))
+}
+
+func campaignStatusContent(m Model, w int) cardContent {
 	status := sim.CampaignStatus(m.state, m.cfg)
 	if !status.Active {
-		return CardIn(CardAccent, w, "公司戰略", "第一個模型上線後可選公司戰略")
+		return cardContent{kind: CardAccent, w: w, title: "公司戰略", body: "第一個模型上線後可選公司戰略"}
 	}
 	camp := m.state.Campaign
 	var lines []string
@@ -164,11 +168,15 @@ func renderCampaignStatusCard(m Model, w int) string {
 	if status.Victory || camp.Victory != model.DoctrineNone {
 		lines = append(lines, styleAccent.Render("✓ 路線勝利 — 按 P 結算"))
 	}
-	return CardIn(kind, w, "公司戰略", VStack(lines...))
+	return cardContent{kind: kind, w: w, title: "公司戰略", body: VStack(lines...)}
 }
 
 // renderRivalRoadmapCard shows primary + wildcard confirmed/rumored actions.
 func renderRivalRoadmapCard(m Model, w int) string {
+	return CardInFrom(rivalRoadmapContent(m, w))
+}
+
+func rivalRoadmapContent(m Model, w int) cardContent {
 	var blocks []string
 	if primary, ok := sim.CampaignRivalIntel(m.state, m.cfg, true); ok {
 		blocks = append(blocks, renderRivalIntelBlock("主要宿敵", primary, m.cfg, m.blink))
@@ -180,7 +188,7 @@ func renderRivalRoadmapCard(m Model, w int) string {
 	} else {
 		blocks = append(blocks, styleMuted.Render("攪局者：尚無情報"))
 	}
-	return CardIn(CardThreat, w, "宿敵路線", VStack(blocks...))
+	return cardContent{kind: CardThreat, w: w, title: "宿敵路線", body: VStack(blocks...)}
 }
 
 func renderRivalIntelBlock(role string, intel sim.RivalIntelView, cfg balance.Config, blink bool) string {

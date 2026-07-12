@@ -8,20 +8,25 @@ func renderWarRoom(m Model) string {
 	var top string
 	if cw < minDashWidth {
 		top = VStack(
-			renderCampaignStatusCard(m, cw),
-			renderRivalRoadmapCard(m, cw),
+			CardInFrom(campaignStatusContent(m, cw)),
+			CardInFrom(rivalRoadmapContent(m, cw)),
 		)
 	} else {
 		colW := (cw - gap) / 2
-		top = HRowEqual(gap,
-			renderCampaignStatusCard(m, colW),
-			renderRivalRoadmapCard(m, colW),
+		top = HRowEqualCards(gap,
+			campaignStatusContent(m, colW),
+			rivalRoadmapContent(m, colW),
 		)
 	}
 
-	return VStack(
+	rows := []string{
 		top,
 		renderEventsCardMax(m, cw, 6),
 		renderBoardReportCardMax(m, cw, 6),
-	)
+	}
+	// Campaign-facing pressures (doctrine/perk/distress) live here, not on overview.
+	if warns := campaignPressures(m); len(warns) > 0 {
+		rows = append(rows, CardIn(CardThreat, cw, "注意", VStack(warns...)))
+	}
+	return VStack(rows...)
 }

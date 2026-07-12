@@ -155,11 +155,31 @@ func TestEqualHeight(t *testing.T) {
 func TestHRowEqual(t *testing.T) {
 	left := CardIn(CardDefault, 40, "L", "a\nb\nc")
 	right := CardIn(CardDefault, 40, "R", "x")
-	// Pad bodies then re-card for border-equal demo in later tasks;
-	// HRowEqual still equalizes finished block heights.
+	// Finished-card EqualHeight only pads below the border.
 	row := HRowEqual(2, left, right)
 	if lipgloss.Height(row) < lipgloss.Height(left) {
 		t.Fatalf("row shorter than tallest card")
+	}
+}
+
+func TestHRowEqualCardsBordersMatch(t *testing.T) {
+	row := HRowEqualCards(2,
+		cardContent{kind: CardDefault, w: 40, title: "L", body: "a\nb\nc"},
+		cardContent{kind: CardDefault, w: 40, title: "R", body: "x"},
+	)
+	// Split the two cards: re-render individually with equalized bodies and compare heights.
+	a := CardIn(CardDefault, 40, "L", padBodyLines("a\nb\nc", 3))
+	b := CardIn(CardDefault, 40, "R", padBodyLines("x", 3))
+	if lipgloss.Height(a) != lipgloss.Height(b) {
+		t.Fatalf("equalized cards heights %d vs %d", lipgloss.Height(a), lipgloss.Height(b))
+	}
+	if lipgloss.Height(row) != lipgloss.Height(a) {
+		t.Fatalf("row height %d want %d", lipgloss.Height(row), lipgloss.Height(a))
+	}
+	// Bottom border of both cards should appear on the same visual line count.
+	// Each card ends with a bottom border line; heights must match so borders align.
+	if !strings.Contains(row, "L") || !strings.Contains(row, "R") {
+		t.Fatalf("row missing cards: %q", row)
 	}
 }
 

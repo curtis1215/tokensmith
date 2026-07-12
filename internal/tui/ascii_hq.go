@@ -75,11 +75,19 @@ func hqArt(stage int, lit bool) string {
 	return strings.ReplaceAll(hqArts[hqStage(stage)], "◇", lamp)
 }
 
-// renderHQ is the overview headquarters card; narrow terminals collapse to
-// a single icon progression row.
+// renderHQ is the headquarters card. Width < 100 → compact icon strip (legacy
+// standalone threshold). Prefer hqContent with an explicit compact flag when the
+// page breakpoint should decide art mode independently of column width.
 func renderHQ(m Model, w int) string {
+	c := hqContent(m, w, w < 100)
+	return CardIn(c.kind, c.w, c.title, c.body)
+}
+
+// hqContent builds HQ card pieces. compact=true uses the single-line stage strip;
+// compact=false always uses full ASCII art (art width ≤ 30 cells) regardless of w.
+func hqContent(m Model, w int, compact bool) cardContent {
 	stage := hqStage(m.state.MilestonesReached)
-	if w < 100 {
+	if compact {
 		var icons []string
 		for i, ic := range hqStageIcons {
 			if i == stage {
@@ -88,7 +96,12 @@ func renderHQ(m Model, w int) string {
 				icons = append(icons, styleMuted.Render(ic))
 			}
 		}
-		return CardIn(CardDefault, w, "總部", strings.Join(icons, styleMuted.Render("→")))
+		return cardContent{
+			kind:  CardDefault,
+			w:     w,
+			title: "總部",
+			body:  strings.Join(icons, styleMuted.Render("→")),
+		}
 	}
 	lit := m.state.HasTraining && m.blink
 	art := styleCyan.Render(hqArt(stage, lit))
@@ -96,6 +109,10 @@ func renderHQ(m Model, w int) string {
 	if m.state.HasTraining {
 		status = styleAmber.Render("  訓練機房運轉中…")
 	}
-	title := fmt.Sprintf("總部 — %s %s", hqStageIcons[stage], hqStageNames[stage])
-	return CardIn(CardDefault, w, title, art+status)
+	return cardContent{
+		kind:  CardDefault,
+		w:     w,
+		title: fmt.Sprintf("總部 — %s %s", hqStageIcons[stage], hqStageNames[stage]),
+		body:  art + status,
+	}
 }

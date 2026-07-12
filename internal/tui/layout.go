@@ -38,7 +38,8 @@ func padBodyLines(body string, n int) string {
 }
 
 // EqualHeight pads each part with trailing "\n" so lipgloss.Height matches the tallest.
-// Prefer padding *card bodies* via padBodyLines before CardIn when equal borders are required.
+// Note: padding finished bordered cards only extends the block below the border.
+// For equal *card borders*, use HRowEqualCards (pad body before CardIn).
 func EqualHeight(parts ...string) []string {
 	maxH := 0
 	for _, p := range parts {
@@ -56,9 +57,47 @@ func EqualHeight(parts ...string) []string {
 	return out
 }
 
-// HRowEqual runs EqualHeight then HRow(gap, ...).
+// HRowEqual runs EqualHeight then HRow(gap, ...). Prefer HRowEqualCards for bordered cards.
 func HRowEqual(gap int, parts ...string) string {
 	return HRow(gap, EqualHeight(parts...)...)
+}
+
+// cardContent is the pre-border pieces of a card so bodies can be height-equalized.
+type cardContent struct {
+	kind  CardKind
+	w     int
+	title string
+	body  string
+}
+
+func bodyLineCount(body string) int {
+	if body == "" {
+		return 1
+	}
+	return lipgloss.Height(body)
+}
+
+// HRowEqualCards pads each card body to the tallest body, then CardIn + HRow.
+// Resulting cards share the same lipgloss.Height (borders align).
+func HRowEqualCards(gap int, cards ...cardContent) string {
+	if len(cards) == 0 {
+		return ""
+	}
+	if len(cards) == 1 {
+		c := cards[0]
+		return CardIn(c.kind, c.w, c.title, c.body)
+	}
+	maxBody := 0
+	for _, c := range cards {
+		if n := bodyLineCount(c.body); n > maxBody {
+			maxBody = n
+		}
+	}
+	parts := make([]string, len(cards))
+	for i, c := range cards {
+		parts[i] = CardIn(c.kind, c.w, c.title, padBodyLines(c.body, maxBody))
+	}
+	return HRow(gap, parts...)
 }
 
 // gridColWidths splits cw across n columns with (n-1)*gap gutters.
@@ -122,6 +161,7 @@ func GridN(cw, gap, cols int, cells ...func(w int) string) string {
 			for j, c := range chunk {
 				parts[j] = c(widths[j])
 			}
+			// Finished-card EqualHeight: borders may still differ; prefer GridNCards.
 			rows = append(rows, HRowEqual(gap, parts...))
 			continue
 		}
@@ -131,6 +171,53 @@ func GridN(cw, gap, cols int, cells ...func(w int) string) string {
 			parts[j] = c(widths[j])
 		}
 		rows = append(rows, HRowEqual(gap, parts...))
+	}
+	return VStack(rows...)
+}
+
+// GridNCards is GridN for cardContent cells so equal rows get true border-equal height.
+func GridNCards(cw, gap, cols int, cells ...func(w int) cardContent) string {
+	if len(cells) == 0 {
+		return ""
+	}
+	if cols < 1 {
+		cols = 1
+	}
+	if cw < minDashWidth || cols == 1 {
+		parts := make([]string, len(cells))
+		for i, c := range cells {
+			cc := c(cw)
+			parts[i] = CardIn(cc.kind, cc.w, cc.title, cc.body)
+		}
+		return VStack(parts...)
+	}
+	var rows []string
+	for i := 0; i < len(cells); i += cols {
+		end := i + cols
+		if end > len(cells) {
+			end = len(cells)
+		}
+		chunk := cells[i:end]
+		if len(chunk) < cols {
+			if len(chunk) == 1 {
+				cc := chunk[0](cw)
+				rows = append(rows, CardIn(cc.kind, cc.w, cc.title, cc.body))
+				continue
+			}
+			widths := gridColWidths(cw, gap, len(chunk))
+			contents := make([]cardContent, len(chunk))
+			for j, c := range chunk {
+				contents[j] = c(widths[j])
+			}
+			rows = append(rows, HRowEqualCards(gap, contents...))
+			continue
+		}
+		widths := gridColWidths(cw, gap, cols)
+		contents := make([]cardContent, cols)
+		for j, c := range chunk {
+			contents[j] = c(widths[j])
+		}
+		rows = append(rows, HRowEqualCards(gap, contents...))
 	}
 	return VStack(rows...)
 }
@@ -234,5 +321,3 @@ func TruncateWidth(s string, max int) string {
 	}
 	return ""
 }
-
-

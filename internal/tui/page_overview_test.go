@@ -10,6 +10,7 @@ import (
 
 	"tokensmith/internal/dailyusage"
 	"tokensmith/internal/model"
+	"tokensmith/internal/sim"
 )
 
 func TestOverviewHasNoCampaignCards(t *testing.T) {
@@ -46,9 +47,61 @@ func TestOverviewShowsHQ(t *testing.T) {
 	m := newAt(filepath.Join(t.TempDir(), "save.json"))
 	mm, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 42})
 	m = mm.(Model)
-	if out := renderOverview(m); !strings.Contains(out, "總部") {
+	out := renderOverview(m)
+	if !strings.Contains(out, "總部") {
 		t.Fatal("overview should show HQ card")
 	}
+	// ≥100 content width must use full ASCII art (not icon-only strip).
+	// Art contains underscores from stage buildings.
+	if !strings.Contains(out, "___") && !strings.Contains(out, "---") {
+		t.Fatalf("overview at wide width should show HQ ASCII art:\n%s", out)
+	}
+}
+
+func TestOverviewOmitsCampaignPressures(t *testing.T) {
+	m := testModel(t)
+	m.state.Models = []model.Model{{Online: true, Users: 10, Price: 12}}
+	m.state.Campaign = model.CampaignState{} // DoctrineNone
+	v := renderOverview(m)
+	for _, ban := range []string{"尚未選擇公司戰略", "可選第", "財務危機"} {
+		if strings.Contains(v, ban) {
+			t.Fatalf("overview must not show campaign pressure %q:\n%s", ban, v)
+		}
+	}
+	// Same fixture still produces campaign pressure for war room / pressures().
+	if !strings.Contains(strings.Join(campaignPressures(m), "\n"), "尚未選擇公司戰略") {
+		t.Fatal("campaignPressures should still flag no-doctrine")
+	}
+}
+
+func TestOverviewRow1CardHeightsMatch(t *testing.T) {
+	m := testModel(t)
+	mm, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 42})
+	m = mm.(Model)
+	cw := m.contentWidth()
+	gap := 2
+	colW := (cw - gap) / 2
+	left := CardInFrom(hqContent(m, colW, cw < 100))
+	right := CardInFrom(companyContent(m, colW))
+	// After HRowEqualCards, both sides use padBodyLines to same body height.
+	row := HRowEqualCards(gap, hqContent(m, colW, cw < 100), companyContent(m, colW))
+	// Equalized individual cards should match height.
+	bodyMax := bodyLineCount(hqContent(m, colW, cw < 100).body)
+	if n := bodyLineCount(companyContent(m, colW).body); n > bodyMax {
+		bodyMax = n
+	}
+	leftEq := CardIn(CardDefault, colW, hqContent(m, colW, cw < 100).title, padBodyLines(hqContent(m, colW, cw < 100).body, bodyMax))
+	// Use same kind/title from content
+	hc := hqContent(m, colW, cw < 100)
+	cc := companyContent(m, colW)
+	leftEq = CardIn(hc.kind, colW, hc.title, padBodyLines(hc.body, bodyMax))
+	rightEq := CardIn(cc.kind, colW, cc.title, padBodyLines(cc.body, bodyMax))
+	if lipgloss.Height(leftEq) != lipgloss.Height(rightEq) {
+		t.Fatalf("equalized HQ/company heights %d vs %d", lipgloss.Height(leftEq), lipgloss.Height(rightEq))
+	}
+	_ = left
+	_ = right
+	_ = row
 }
 
 func TestOverviewShowsKPIsAndTraining(t *testing.T) {
@@ -171,8 +224,8 @@ func TestOverviewShowsDailyUsageBySource(t *testing.T) {
 		},
 	}
 	out := renderOverview(m)
-	// Thin layout: source totals; labels may be narrowLabel or shortened wideLabel.
-	for _, want := range []string{"今日 Token 收成", "Claude", "Codex", "Grok", "OpenCode", "316K"} {
+	// Thin layout: source totals + 合計.
+	for _, want := range []string{"今日 Token 收成", "Claude", "Codex", "Grok", "OpenCode", "合計", "316K"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q:\n%s", want, out)
 		}
@@ -224,8 +277,8 @@ func TestOverviewDailyUsageNarrowKeepsAllSources(t *testing.T) {
 		},
 	}
 	out := renderOverview(m)
-	// Compact labels still cover every source.
-	for _, want := range []string{"Claude", "Codex", "Grok", "OpenCode"} {
+	// Compact labels still cover every source + 合計.
+	for _, want := range []string{"Claude", "Codex", "Grok", "OpenCode", "合計", "316K"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("narrow missing %q:\n%s", want, out)
 		}
@@ -235,6 +288,31 @@ func TestOverviewDailyUsageNarrowKeepsAllSources(t *testing.T) {
 		if lipgloss.Width(ln) > cw {
 			t.Fatalf("line %d overflows content width %d: %q (width=%d)", i, cw, ln, lipgloss.Width(ln))
 		}
+	}
+}
+
+func TestPickShareRowsAlwaysIncludesYou(t *testing.T) {
+	// Player last by share among 6 rivals + you.
+	bars := []sim.ShareRow{
+		{Name: "A", Share: 0.3},
+		{Name: "B", Share: 0.25},
+		{Name: "C", Share: 0.2},
+		{Name: "D", Share: 0.15},
+		{Name: "E", Share: 0.09},
+		{Name: "你", Share: 0.01, You: true},
+	}
+	got := pickShareRows(bars, 4)
+	if len(got) != 4 {
+		t.Fatalf("len=%d want 4: %+v", len(got), got)
+	}
+	found := false
+	for _, r := range got {
+		if r.You {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("player missing from top-4 pick: %+v", got)
 	}
 }
 

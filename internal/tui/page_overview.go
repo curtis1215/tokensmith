@@ -18,12 +18,19 @@ func renderOverview(m Model) string {
 	gap := 2
 	rows := []string{}
 
-	// Row1: HQ | 公司
+	// Row1: HQ | 公司 — page width decides full ASCII vs compact (not column width).
+	hqCompact := cw < 100
 	if cw < minDashWidth {
-		rows = append(rows, renderHQ(m, cw), companyCard(m, cw))
+		rows = append(rows,
+			CardInFrom(hqContent(m, cw, true)),
+			CardInFrom(companyContent(m, cw)),
+		)
 	} else {
 		colW := (cw - gap) / 2
-		rows = append(rows, HRowEqual(gap, renderHQ(m, colW), companyCard(m, colW)))
+		rows = append(rows, HRowEqualCards(gap,
+			hqContent(m, colW, hqCompact),
+			companyContent(m, colW),
+		))
 	}
 
 	// Row2: thin daily harvest full width
@@ -37,8 +44,8 @@ func renderOverview(m Model) string {
 		rows = append(rows, strip)
 	}
 
-	// Operational pressures (non-campaign)
-	if warns := pressures(m); len(warns) > 0 {
+	// Operational pressures only (campaign prompts live on 戰情室).
+	if warns := operationalPressures(m); len(warns) > 0 {
 		rows = append(rows, CardIn(CardThreat, cw, "注意", VStack(warns...)))
 	}
 	return VStack(rows...)
@@ -46,19 +53,28 @@ func renderOverview(m Model) string {
 
 func renderOverviewStatusRow(m Model, cw, gap int) string {
 	if cw < minDashWidth {
-		return VStack(trainCard(m, cw), shareCard(m, cw), powerMilestoneCard(m, cw))
+		return VStack(
+			CardInFrom(trainContent(m, cw)),
+			CardInFrom(shareContent(m, cw)),
+			CardInFrom(powerMilestoneContent(m, cw)),
+		)
 	}
 	if cw < 100 {
 		// 2+1
 		colW := (cw - gap) / 2
-		top := HRowEqual(gap, trainCard(m, colW), shareCard(m, colW))
-		return VStack(top, powerMilestoneCard(m, cw))
+		top := HRowEqualCards(gap, trainContent(m, colW), shareContent(m, colW))
+		return VStack(top, CardInFrom(powerMilestoneContent(m, cw)))
 	}
-	return GridN(cw, gap, 3,
-		func(w int) string { return trainCard(m, w) },
-		func(w int) string { return shareCard(m, w) },
-		func(w int) string { return powerMilestoneCard(m, w) },
+	return GridNCards(cw, gap, 3,
+		func(w int) cardContent { return trainContent(m, w) },
+		func(w int) cardContent { return shareContent(m, w) },
+		func(w int) cardContent { return powerMilestoneContent(m, w) },
 	)
+}
+
+// CardInFrom renders a cardContent.
+func CardInFrom(c cardContent) string {
+	return CardIn(c.kind, c.w, c.title, c.body)
 }
 
 func overviewPendingStrip(m Model) string {
@@ -114,10 +130,7 @@ func renderDailyUsageCard(m Model, w int) string {
 	if bodyW < 8 {
 		bodyW = 8
 	}
-	if w < 100 {
-		return CardIn(CardDefault, w, title, wrapCompactSegments(segs, bodyW))
-	}
-	// Wide thin: source totals (+ wrap) then 合計.
+	// All widths: four source totals + 合計 (spec §4.2). Compact may wrap segments.
 	body := wrapCompactSegments(segs, bodyW)
 	body = VStack(body, fmt.Sprintf("合計 %s", formatTokenCount(grand)))
 	return CardIn(CardDefault, w, title, body)
@@ -171,6 +184,10 @@ func wrapCompactSegments(segs []string, maxW int) string {
 }
 
 func companyCard(m Model, w int) string {
+	return CardInFrom(companyContent(m, w))
+}
+
+func companyContent(m Model, w int) cardContent {
 	s := m.state
 	rank, field := sim.MarketRank(s, m.cfg, model.SegConsumer)
 	val := sim.Valuation(s, m.cfg)
@@ -188,11 +205,14 @@ func companyCard(m Model, w int) string {
 	if tr := m.sparkValuation.Render(18); tr != "" {
 		lines = append(lines, styleCyan.Render("趨勢 ")+stylePurple.Render(tr))
 	}
-	body := VStack(lines...)
-	return CardIn(CardDefault, w, "公司", body)
+	return cardContent{kind: CardDefault, w: w, title: "公司", body: VStack(lines...)}
 }
 
 func trainCard(m Model, w int) string {
+	return CardInFrom(trainContent(m, w))
+}
+
+func trainContent(m Model, w int) cardContent {
 	s := m.state
 	var lines []string
 	// Model training progress (catalog work total for the bar).
@@ -230,7 +250,7 @@ func trainCard(m Model, w int) string {
 	}
 	// Frontier research from pure sim view (no TUI math duplication).
 	lines = append(lines, renderFrontierProgressLines(m)...)
-	return CardIn(CardDefault, w, "訓練 / 前沿", VStack(lines...))
+	return cardContent{kind: CardDefault, w: w, title: "訓練 / 前沿", body: VStack(lines...)}
 }
 
 // renderFrontierProgressLines formats sim.FrontierProgressView for the overview
@@ -278,18 +298,66 @@ func formatETASec(sec float64) string {
 }
 
 func shareCard(m Model, w int) string {
-	s := m.state
-	var shareLines []string
-	bars := sim.SegmentShareBars(s, m.cfg, model.SegConsumer)
-	limit := 4
-	if len(bars) < limit {
-		limit = len(bars)
+	return CardInFrom(shareContent(m, w))
+}
+
+// pickShareRows returns at most limit bars, always including the player (You).
+func pickShareRows(bars []sim.ShareRow, limit int) []sim.ShareRow {
+	if limit < 1 || len(bars) == 0 {
+		return nil
 	}
-	for i := 0; i < limit; i++ {
-		bRow := bars[i]
+	if len(bars) <= limit {
+		return bars
+	}
+	var you *sim.ShareRow
+	for i := range bars {
+		if bars[i].You {
+			row := bars[i]
+			you = &row
+			break
+		}
+	}
+	out := make([]sim.ShareRow, 0, limit)
+	othersBudget := limit
+	if you != nil {
+		othersBudget = limit - 1
+	}
+	takenOthers := 0
+	youAdded := false
+	for _, b := range bars {
+		if b.You {
+			if !youAdded && you != nil {
+				out = append(out, *you)
+				youAdded = true
+			}
+			continue
+		}
+		if takenOthers >= othersBudget {
+			continue
+		}
+		out = append(out, b)
+		takenOthers++
+	}
+	if !youAdded && you != nil {
+		out = append(out, *you)
+	}
+	return out
+}
+
+func shareContent(m Model, w int) cardContent {
+	s := m.state
+	full := sim.SegmentShareBars(s, m.cfg, model.SegConsumer)
+	bars := pickShareRows(full, 4)
+	var shareLines []string
+	for _, bRow := range bars {
 		share := bRow.Share
-		if m.dispReady && i < len(m.disp.ConsumerShares) {
-			share = m.disp.ConsumerShares[i]
+		if m.dispReady {
+			for j, fb := range full {
+				if fb.Name == bRow.Name && fb.You == bRow.You && j < len(m.disp.ConsumerShares) {
+					share = m.disp.ConsumerShares[j]
+					break
+				}
+			}
 		}
 		star := " "
 		if bRow.You {
@@ -306,10 +374,14 @@ func shareCard(m Model, w int) string {
 		}
 		shareLines = append(shareLines, line)
 	}
-	return CardIn(CardDefault, w, "市佔 (消費者)", VStack(shareLines...))
+	return cardContent{kind: CardDefault, w: w, title: "市佔 (消費者)", body: VStack(shareLines...)}
 }
 
 func powerMilestoneCard(m Model, w int) string {
+	return CardInFrom(powerMilestoneContent(m, w))
+}
+
+func powerMilestoneContent(m Model, w int) cardContent {
 	s := m.state
 	trainUtil := 0.0
 	if s.HasTraining {
@@ -334,7 +406,7 @@ func powerMilestoneCard(m Model, w int) string {
 		infBar,
 		milestoneStr,
 	)
-	return CardIn(CardDefault, w, "里程碑 & 算力", body)
+	return cardContent{kind: CardDefault, w: w, title: "里程碑 & 算力", body: body}
 }
 
 // renderEventsCard is the 產業動態 card with the overview default of 4 body lines.
