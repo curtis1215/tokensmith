@@ -19,24 +19,118 @@ const minDashWidth = 80
 // Grid lays cells out in two equal-width columns; below minDashWidth it
 // stacks vertically with full-width cells. An odd trailing cell gets full width.
 func Grid(cw, gap int, cells ...func(w int) string) string {
+	return GridN(cw, gap, 2, cells...)
+}
+
+// padBodyLines ensures body has exactly n lines (pad with "" or truncate from end).
+func padBodyLines(body string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	lines := strings.Split(body, "\n")
+	if len(lines) > n {
+		lines = lines[:n]
+	}
+	for len(lines) < n {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// EqualHeight pads each part with trailing "\n" so lipgloss.Height matches the tallest.
+// Prefer padding *card bodies* via padBodyLines before CardIn when equal borders are required.
+func EqualHeight(parts ...string) []string {
+	maxH := 0
+	for _, p := range parts {
+		if h := lipgloss.Height(p); h > maxH {
+			maxH = h
+		}
+	}
+	out := make([]string, len(parts))
+	for i, p := range parts {
+		for lipgloss.Height(p) < maxH {
+			p += "\n"
+		}
+		out[i] = p
+	}
+	return out
+}
+
+// HRowEqual runs EqualHeight then HRow(gap, ...).
+func HRowEqual(gap int, parts ...string) string {
+	return HRow(gap, EqualHeight(parts...)...)
+}
+
+// gridColWidths splits cw across n columns with (n-1)*gap gutters.
+// Remainder cells go to the trailing columns so the row width equals cw.
+func gridColWidths(cw, gap, n int) []int {
+	if n < 1 {
+		return nil
+	}
+	if n == 1 {
+		return []int{cw}
+	}
+	inner := cw - gap*(n-1)
+	base := inner / n
+	if base < 1 {
+		base = 1
+	}
+	// Recompute with floor so trailing columns absorb leftover cells.
+	rem := cw - gap*(n-1) - base*(n-1)
+	if rem < 1 {
+		rem = 1
+	}
+	ws := make([]int, n)
+	for i := 0; i < n-1; i++ {
+		ws[i] = base
+	}
+	ws[n-1] = rem
+	return ws
+}
+
+// GridN lays cells in `cols` equal-width columns.
+// Below minDashWidth stacks full-width. Odd trailing cells span full width.
+func GridN(cw, gap, cols int, cells ...func(w int) string) string {
 	if len(cells) == 0 {
 		return ""
 	}
-	if cw < minDashWidth {
+	if cols < 1 {
+		cols = 1
+	}
+	if cw < minDashWidth || cols == 1 {
 		parts := make([]string, len(cells))
 		for i, c := range cells {
 			parts[i] = c(cw)
 		}
 		return VStack(parts...)
 	}
-	colW := (cw - gap) / 2
 	var rows []string
-	for i := 0; i < len(cells); i += 2 {
-		if i+1 < len(cells) {
-			rows = append(rows, HRow(gap, cells[i](colW), cells[i+1](colW)))
-		} else {
-			rows = append(rows, cells[i](cw))
+	for i := 0; i < len(cells); i += cols {
+		end := i + cols
+		if end > len(cells) {
+			end = len(cells)
 		}
+		chunk := cells[i:end]
+		if len(chunk) < cols {
+			// trailing incomplete row: if single cell, full width; else equal split among remaining
+			if len(chunk) == 1 {
+				rows = append(rows, chunk[0](cw))
+				continue
+			}
+			widths := gridColWidths(cw, gap, len(chunk))
+			parts := make([]string, len(chunk))
+			for j, c := range chunk {
+				parts[j] = c(widths[j])
+			}
+			rows = append(rows, HRowEqual(gap, parts...))
+			continue
+		}
+		widths := gridColWidths(cw, gap, cols)
+		parts := make([]string, cols)
+		for j, c := range chunk {
+			parts[j] = c(widths[j])
+		}
+		rows = append(rows, HRowEqual(gap, parts...))
 	}
 	return VStack(rows...)
 }

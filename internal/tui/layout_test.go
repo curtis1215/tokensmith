@@ -128,3 +128,59 @@ func TestGridStacksWhenNarrow(t *testing.T) {
 		}
 	}
 }
+
+func TestPadBodyLines(t *testing.T) {
+	got := padBodyLines("a\nb", 4)
+	if lipgloss.Height(got) != 4 {
+		t.Fatalf("height=%d want 4 (%q)", lipgloss.Height(got), got)
+	}
+	short := padBodyLines("a\nb\nc\nd\ne", 2)
+	if lipgloss.Height(short) != 2 || !strings.Contains(short, "a") {
+		t.Fatalf("truncate failed: %q", short)
+	}
+}
+
+func TestEqualHeight(t *testing.T) {
+	a := "1\n2\n3"
+	b := "x"
+	out := EqualHeight(a, b)
+	if lipgloss.Height(out[0]) != lipgloss.Height(out[1]) {
+		t.Fatalf("heights %d vs %d", lipgloss.Height(out[0]), lipgloss.Height(out[1]))
+	}
+	if lipgloss.Height(out[0]) != 3 {
+		t.Fatalf("want height 3, got %d", lipgloss.Height(out[0]))
+	}
+}
+
+func TestHRowEqual(t *testing.T) {
+	left := CardIn(CardDefault, 40, "L", "a\nb\nc")
+	right := CardIn(CardDefault, 40, "R", "x")
+	// Pad bodies then re-card for border-equal demo in later tasks;
+	// HRowEqual still equalizes finished block heights.
+	row := HRowEqual(2, left, right)
+	if lipgloss.Height(row) < lipgloss.Height(left) {
+		t.Fatalf("row shorter than tallest card")
+	}
+}
+
+func TestGridNThreeColumns(t *testing.T) {
+	cell := func(label string) func(int) string {
+		return func(w int) string { return CardIn(CardDefault, w, label, "x") }
+	}
+	got := GridN(102, 2, 3, cell("A"), cell("B"), cell("C"))
+	// First visual row should be ~102 wide (3 cols + 2 gaps).
+	first := strings.Split(got, "\n")[0]
+	if lipgloss.Width(first) != 102 {
+		t.Fatalf("row width=%d want 102", lipgloss.Width(first))
+	}
+}
+
+func TestGridNStacksWhenNarrow(t *testing.T) {
+	cell := func(w int) string { return CardIn(CardDefault, w, "T", "B") }
+	got := GridN(60, 2, 3, cell, cell, cell)
+	for _, ln := range strings.Split(got, "\n") {
+		if lipgloss.Width(ln) > 60 {
+			t.Fatalf("overflow %d > 60", lipgloss.Width(ln))
+		}
+	}
+}
