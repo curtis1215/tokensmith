@@ -12,21 +12,33 @@ import (
 	"tokensmith/internal/model"
 )
 
-func TestOverviewShowsCampaignWarRoom(t *testing.T) {
+func TestOverviewHasNoCampaignCards(t *testing.T) {
 	m := testModel(t)
 	m.state.Campaign = model.CampaignState{
 		Doctrine: model.DoctrineConsumer, Stage: model.CampaignStageExpand, Cycle: 4,
-		Primary:  model.RivalRoadmap{Company: "OpenAI", ActionIndex: 0, CyclesUntilAction: 1},
-		Wildcard: model.RivalRoadmap{Company: "DeepSeek", ActionIndex: 0, CyclesUntilAction: 2},
+		Primary: model.RivalRoadmap{Company: "OpenAI", ActionIndex: 0, CyclesUntilAction: 1},
 		Reports: []model.BoardReport{{Cycle: 4, Entries: []model.CampaignReportEntry{
 			{Kind: model.ReportRivalAction, SubjectID: "OpenAI", DetailID: "openai-flagship"},
 		}}},
 	}
 	v := renderOverview(m)
-	for _, want := range []string{"主要戰略", "消費者霸主", "OpenAI", "下一步", "董事會報告"} {
-		if !strings.Contains(v, want) {
-			t.Fatalf("missing %q:\n%s", want, v)
+	// Ban campaign card titles / labels. Do not ban bare "OpenAI" — share card
+	// legitimately lists market rivals. Ban campaign-only OpenAI phrasing instead.
+	for _, ban := range []string{"公司戰略", "宿敵路線", "董事會報告", "產業動態", "主要戰略", "主要宿敵", "消費旗艦"} {
+		if strings.Contains(v, ban) {
+			t.Fatalf("overview must not show campaign content %q:\n%s", ban, v)
 		}
+	}
+}
+
+func TestOverviewPendingStrip(t *testing.T) {
+	m := pendingChipShortage(testModel(t))
+	v := renderOverview(m)
+	if !strings.Contains(v, "[2]戰情室") || !strings.Contains(v, "待決策") {
+		t.Fatalf("expected pending strip pointing to war room:\n%s", v)
+	}
+	if strings.Contains(v, "產業動態") {
+		t.Fatalf("overview must not show 產業動態 card title:\n%s", v)
 	}
 }
 
@@ -36,15 +48,6 @@ func TestOverviewShowsHQ(t *testing.T) {
 	m = mm.(Model)
 	if out := renderOverview(m); !strings.Contains(out, "總部") {
 		t.Fatal("overview should show HQ card")
-	}
-}
-
-func TestOverviewPreCampaignGuidance(t *testing.T) {
-	m := testModel(t)
-	m.state.Campaign = model.CampaignState{}
-	v := renderOverview(m)
-	if !strings.Contains(v, "第一個模型上線後可選公司戰略") {
-		t.Fatalf("pre-campaign guidance missing:\n%s", v)
 	}
 }
 
@@ -83,12 +86,15 @@ func TestOverviewShowsFrontier(t *testing.T) {
 		RecommendedCompute: 100,
 	}
 	v := renderOverview(m)
-	for _, want := range []string{
-		"訓練 Gen5", "前沿 Gen6", "分配 前沿40%", "訓練60%",
-		"有效", "折合", "建議", "ETA", "R&D 進度",
-	} {
+	// Overview only: progress + ETA/stall (≤2 frontier lines). No 分配/有效/折合/建議/R&D 進度.
+	for _, want := range []string{"訓練 Gen5", "前沿 Gen6", "ETA"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("overview frontier missing %q:\n%s", want, v)
+		}
+	}
+	for _, ban := range []string{"分配 前沿", "有效", "折合", "建議", "R&D 進度"} {
+		if strings.Contains(v, ban) {
+			t.Errorf("overview frontier too detailed: has %q", ban)
 		}
 	}
 }
@@ -165,28 +171,20 @@ func TestOverviewShowsDailyUsageBySource(t *testing.T) {
 		},
 	}
 	out := renderOverview(m)
-	for _, want := range []string{"今日 Token 收成", "Claude Code", "Codex", "Grok（估算）", "OpenCode", "316K"} {
+	// Thin layout: source totals; labels may be narrowLabel or shortened wideLabel.
+	for _, want := range []string{"今日 Token 收成", "Claude", "Codex", "Grok", "OpenCode", "316K"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q:\n%s", want, out)
 		}
 	}
-	// Wide layout shows In/Out breakdown (Grok has In only, no fake Out amount).
-	if !strings.Contains(out, "In 120K") || !strings.Contains(out, "Out 18K") {
-		t.Fatalf("wide In/Out missing:\n%s", out)
-	}
-	if !strings.Contains(out, "In 30K") {
-		t.Fatalf("Grok In missing:\n%s", out)
-	}
-	// Grok must not invent a non-zero Out amount.
+	// Must NOT require full multi-line In/Out rows.
+	// Still: Grok must not fabricate Out.
 	if strings.Contains(out, "Grok") {
-		// Find the Grok line and ensure it doesn't claim Out with a positive amount.
 		for _, ln := range strings.Split(out, "\n") {
 			if strings.Contains(ln, "Grok") && strings.Contains(ln, "Out") {
-				// Zero Out is ok to omit entirely; positive Out is not.
 				if strings.Contains(ln, "Out 0") {
 					continue
 				}
-				// Any "Out N" with N>0 is wrong for Grok-only estimated in.
 				t.Fatalf("Grok line must not show fabricated Out: %q", ln)
 			}
 		}
@@ -200,7 +198,7 @@ func TestOverviewDailyUsageZerosWhenMissing(t *testing.T) {
 	m.dailyDay = "2026-07-12"
 	m.dailyDoc.Days = nil
 	out := renderOverview(m)
-	for _, want := range []string{"今日 Token 收成", "Claude Code", "Codex", "Grok（估算）", "OpenCode"} {
+	for _, want := range []string{"今日 Token 收成", "Claude", "Codex", "Grok", "OpenCode"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q:\n%s", want, out)
 		}
