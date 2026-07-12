@@ -17,14 +17,11 @@ func TestDefaultV0Values(t *testing.T) {
 	if c.ResearcherRnDPerSec[model.Tier3] != 0.04/RealSecCompression {
 		t.Errorf("Tier3 R&D/s = %v, want %v", c.ResearcherRnDPerSec[model.Tier3], 0.04/RealSecCompression)
 	}
-	if c.TokenInputWeight != 1 || c.TokenOutputWeight != 2 || c.TokenDivisor != 10 {
+	if c.TokenInputWeight != 1 || c.TokenOutputWeight != 2 || c.TokenDivisor != 1 {
 		t.Errorf("token formula params wrong: %+v", c)
 	}
 	if c.StreakMult != 1.0 {
 		t.Errorf("StreakMult default = %v, want 1.0 (neutral)", c.StreakMult)
-	}
-	if c.SoftCapFull != 200000 || c.SoftCapMult != 0.3 || c.SoftCapWindowSec != 86400 {
-		t.Errorf("soft cap params wrong: %+v", c)
 	}
 }
 

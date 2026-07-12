@@ -42,11 +42,6 @@ type Config struct {
 	// today's behavior unchanged.
 	StreakMult float64
 
-	// Daily soft cap on token-sourced R&D within a rolling window.
-	SoftCapFull      float64 // R&D granted at full rate before diminishing
-	SoftCapMult      float64 // multiplier applied beyond SoftCapFull
-	SoftCapWindowSec float64 // window length in seconds
-
 	// TrainRentPerGPUSec is cash cost per rented training GPU per second.
 	// v0 placeholder (spec §12 $500/GPU·day is game-day-ambiguous); tune later.
 	TrainRentPerGPUSec float64
@@ -136,12 +131,8 @@ func Default() Config {
 
 	c.TokenInputWeight = 1
 	c.TokenOutputWeight = 2
-	c.TokenDivisor = 10
+	c.TokenDivisor = 1
 	c.StreakMult = 1.0
-
-	c.SoftCapFull = 200000
-	c.SoftCapMult = 0.3
-	c.SoftCapWindowSec = 86400
 
 	// Per-generation train costs/work/quality live in Generation() (generation.go).
 	c.TrainRentPerGPUSec = 0.01

@@ -33,21 +33,6 @@ func TokenRawRnD(events []model.TokenEvent, b balance.Config) float64 {
 	return raw
 }
 
-// applySoftCap diminishes raw token R&D once cumulative window R&D passes full.
-// Returns the effective R&D to grant and the updated window cumulative.
-func applySoftCap(windowRnD, raw, full, mult float64) (effective, newWindow float64) {
-	newWindow = windowRnD + raw
-	if windowRnD >= full {
-		return raw * mult, newWindow
-	}
-	remainingFull := full - windowRnD
-	if raw <= remainingFull {
-		return raw, newWindow
-	}
-	over := raw - remainingFull
-	return remainingFull + over*mult, newWindow
-}
-
 // totalSalaryPerSec is the aggregate staff salary per second.
 func totalSalaryPerSec(ns model.GameState, b balance.Config) float64 {
 	var s float64
@@ -121,18 +106,9 @@ func tickWithClocks(s model.GameState, economyDT, industryDT float64, events []m
 	ns = advanceEvents(ns, b)
 	ee := eventEffects(ns, b)
 
-	// Soft-cap window uses economy time.
-	ns.WindowElapsed += economyDT
-	if ns.WindowElapsed >= b.SoftCapWindowSec {
-		ns.WindowElapsed -= b.SoftCapWindowSec
-		ns.WindowRnD = 0
-	}
-
 	staffRnD := staffRnDPerSec(s.Research, b) * economyDT
 
-	raw := TokenRawRnD(events, b)
-	tokenRnD, newWindow := applySoftCap(ns.WindowRnD, raw, b.SoftCapFull, b.SoftCapMult)
-	ns.WindowRnD = newWindow
+	tokenRnD := TokenRawRnD(events, b)
 
 	pe := PrestigeEffects(ns.Prestige.UnlockedPrestige, b)
 	starRnD := starEffects(ns, b).RnDPerSec * economyDT

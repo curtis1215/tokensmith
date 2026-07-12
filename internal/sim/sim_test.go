@@ -53,11 +53,11 @@ func TestTickAddsStaffRnDAndAdvancesTime(t *testing.T) {
 func TestTokenRawRnD(t *testing.T) {
 	b := balance.Default()
 	events := []model.TokenEvent{
-		{InputTokens: 1000, OutputTokens: 500}, // (1000 + 2*500)/10 = 200
-		{InputTokens: 0, OutputTokens: 1000},   // (0 + 2000)/10   = 200
+		{InputTokens: 1000, OutputTokens: 500}, // (1000 + 2*500)/1 = 2000
+		{InputTokens: 0, OutputTokens: 1000},   // (0 + 2000)/1   = 2000
 	}
-	if got := TokenRawRnD(events, b); !approx(got, 400) {
-		t.Fatalf("TokenRawRnD = %v, want 400", got)
+	if got := TokenRawRnD(events, b); !approx(got, 4000) {
+		t.Fatalf("TokenRawRnD = %v, want 4000", got)
 	}
 }
 
@@ -70,11 +70,11 @@ func TestTokenRawRnDEmpty(t *testing.T) {
 func TestTickAddsTokenRnD(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{Research: model.Research{EfficiencyMult: 1.0}}
-	// no staff → only token R&D. 1000 output → (2000)/10 = 200.
+	// no staff → only token R&D. 1000 output → (2000)/1 = 2000.
 	events := []model.TokenEvent{{OutputTokens: 1000}}
 	ns := Tick(s, 1, events, b)
-	if !approx(ns.Resources.RnD, 200) {
-		t.Fatalf("RnD = %v, want 200", ns.Resources.RnD)
+	if !approx(ns.Resources.RnD, 2000) {
+		t.Fatalf("RnD = %v, want 2000", ns.Resources.RnD)
 	}
 }
 
@@ -91,7 +91,7 @@ func TestTickStreakMultOnlyAffectsTokenRnD(t *testing.T) {
 	}
 
 	tokenOnly := model.GameState{}
-	events := []model.TokenEvent{{OutputTokens: 1000}} // raw 200
+	events := []model.TokenEvent{{OutputTokens: 1000}} // raw 2000
 	nsTokenStreak := Tick(tokenOnly, 1, events, b)
 	nsTokenBase := Tick(tokenOnly, 1, events, base)
 	if !approx(nsTokenStreak.Resources.RnD, 2*nsTokenBase.Resources.RnD) {
@@ -99,63 +99,6 @@ func TestTickStreakMultOnlyAffectsTokenRnD(t *testing.T) {
 	}
 }
 
-func TestApplySoftCapBelowFull(t *testing.T) {
-	eff, nw := applySoftCap(0, 1000, 200000, 0.3)
-	if !approx(eff, 1000) || !approx(nw, 1000) {
-		t.Fatalf("below full: eff=%v nw=%v, want 1000/1000", eff, nw)
-	}
-}
-
-func TestApplySoftCapCrossingFull(t *testing.T) {
-	// window at 199,000; raw 2,000 → 1,000 full + 1,000*0.3 = 1,300 effective
-	eff, nw := applySoftCap(199000, 2000, 200000, 0.3)
-	if !approx(eff, 1300) {
-		t.Fatalf("crossing: eff=%v, want 1300", eff)
-	}
-	if !approx(nw, 201000) {
-		t.Fatalf("crossing: nw=%v, want 201000", nw)
-	}
-}
-
-func TestApplySoftCapAboveFull(t *testing.T) {
-	// already above full → everything diminished
-	eff, nw := applySoftCap(200000, 1000, 200000, 0.3)
-	if !approx(eff, 300) || !approx(nw, 201000) {
-		t.Fatalf("above: eff=%v nw=%v, want 300/201000", eff, nw)
-	}
-}
-
-func TestTickSoftCapAccumulatesWindow(t *testing.T) {
-	b := balance.Default()
-	s := model.GameState{Research: model.Research{EfficiencyMult: 1.0}}
-	// event that yields raw 199000 R&D: output = 199000*10/2 = 995000
-	ev1 := []model.TokenEvent{{OutputTokens: 995000}}
-	s = Tick(s, 1, ev1, b)
-	if !approx(s.WindowRnD, 199000) {
-		t.Fatalf("WindowRnD after ev1 = %v, want 199000", s.WindowRnD)
-	}
-	// next raw 2000 (output 10000) → 1300 effective (1000 full + 300)
-	before := s.Resources.RnD
-	s = Tick(s, 1, []model.TokenEvent{{OutputTokens: 10000}}, b)
-	if !approx(s.Resources.RnD-before, 1300) {
-		t.Fatalf("effective token R&D = %v, want 1300", s.Resources.RnD-before)
-	}
-}
-
-func TestTickWindowResets(t *testing.T) {
-	b := balance.Default()
-	s := model.GameState{Research: model.Research{EfficiencyMult: 1.0}, WindowRnD: 199000, WindowElapsed: 86399}
-	// advancing past the 86400s window boundary resets WindowRnD to 0,
-	// so the next tokens are granted at full rate again.
-	before := s.Resources.RnD
-	s = Tick(s, 2, []model.TokenEvent{{OutputTokens: 10000}}, b) // raw 2000
-	if !approx(s.WindowRnD, 2000) {
-		t.Fatalf("WindowRnD after reset = %v, want 2000", s.WindowRnD)
-	}
-	if !approx(s.Resources.RnD-before, 2000) {
-		t.Fatalf("token R&D after reset = %v, want 2000 (full rate)", s.Resources.RnD-before)
-	}
-}
 
 func TestOfflineFastForwardEquivalenceStaffOnly(t *testing.T) {
 	b := balance.Default()

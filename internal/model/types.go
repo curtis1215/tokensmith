@@ -46,7 +46,7 @@ type SourceTotals struct {
 }
 
 // GameState is the full simulation state (plan-01 subset).
-// GameTime and WindowElapsed are in seconds.
+// GameTime is in seconds.
 type GameState struct {
 	GameTime          float64
 	Resources         Resources
@@ -58,8 +58,6 @@ type GameState struct {
 	PeakValuation     float64
 	MilestonesReached int
 	Prestige          Prestige
-	WindowRnD         float64 // token-sourced R&D accrued in the current soft-cap window
-	WindowElapsed     float64 // seconds elapsed in the current soft-cap window
 	Compute           Compute
 	Models            []Model
 	Competitors       []Competitor
