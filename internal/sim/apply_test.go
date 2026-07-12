@@ -148,6 +148,45 @@ func TestApplyStartTrainingInsufficientCashForBoost(t *testing.T) {
 	}
 }
 
+func TestApplyStartTrainingRejectsNegativeRoleWeightConfig(t *testing.T) {
+	b := balance.Default()
+	for i := range b.TrainBoosts {
+		if b.TrainBoosts[i].Dim == model.DimCapability {
+			b.TrainBoosts[i].RoleWeight = -0.1
+		}
+	}
+	s := model.GameState{}
+	s.Resources.RnD = 50_000
+	s.Resources.Cash = 0
+	var boosts [model.NumQualityDims]bool
+	boosts[model.DimCapability] = true
+	out, err := Apply(s, model.StartTraining{Gen: 1, Alloc: validAlloc(), Price: 12, Boosts: boosts}, b)
+	if !errors.Is(err, balance.ErrInvalidTrainBoostConfig) {
+		t.Fatalf("err = %v, want ErrInvalidTrainBoostConfig", err)
+	}
+	if out.HasTraining || out.Resources.Cash != 0 || out.Resources.RnD != 50_000 {
+		t.Fatalf("must not mint cash or start training: cash=%v rnd=%v training=%v",
+			out.Resources.Cash, out.Resources.RnD, out.HasTraining)
+	}
+}
+
+func TestApplyStartTrainingRejectsNaNPainMult(t *testing.T) {
+	b := balance.Default()
+	b.TrainBoostPainMult = math.NaN()
+	s := model.GameState{}
+	s.Resources.RnD = 50_000
+	s.Resources.Cash = 1e9
+	var boosts [model.NumQualityDims]bool
+	boosts[0] = true
+	out, err := Apply(s, model.StartTraining{Gen: 1, Alloc: validAlloc(), Price: 12, Boosts: boosts}, b)
+	if !errors.Is(err, balance.ErrInvalidTrainBoostConfig) {
+		t.Fatalf("err = %v, want ErrInvalidTrainBoostConfig", err)
+	}
+	if out.HasTraining || math.IsNaN(out.Resources.Cash) {
+		t.Fatalf("must not train or write NaN cash: %+v", out.Resources)
+	}
+}
+
 func TestAdvanceTrainingAppliesFrozenCashBonus(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{}

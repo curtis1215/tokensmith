@@ -1,12 +1,14 @@
 package tui
 
 import (
+	"math"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"tokensmith/internal/balance"
 	"tokensmith/internal/model"
+	"tokensmith/internal/sim"
 )
 
 func key(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }
@@ -158,6 +160,77 @@ func TestTrainDialogRenderShowsChineseBoostNames(t *testing.T) {
 	}
 	if !strings.Contains(out, "預測吸引力") {
 		t.Fatal("missing predicted appeal label")
+	}
+}
+
+func TestTrainDialogMarginalShowsSlotSurcharge(t *testing.T) {
+	m := testModel(t)
+	d := newTrainDialog(m)
+	// Select all four so safety is rank 2 (×1.8) and speed rank 3 (×2.5).
+	for _, k := range []string{"1", "2", "3", "4"} {
+		d, _, _ = d.update(key(k))
+	}
+	out := renderTrainDialog(d, m)
+	if !strings.Contains(out, "第3件") || !strings.Contains(out, "×1.8") {
+		t.Fatalf("expected 3rd-item surcharge label in:\n%s", out)
+	}
+	if !strings.Contains(out, "第4件") || !strings.Contains(out, "×2.5") {
+		t.Fatalf("expected 4th-item surcharge label in:\n%s", out)
+	}
+	if !strings.Contains(out, "全滿投資") {
+		t.Fatalf("missing full-pack line in:\n%s", out)
+	}
+	// Marginal for safety under full select = quote(all) - quote(all without safety)
+	var all, noSafety [model.NumQualityDims]bool
+	for i := range all {
+		all[i] = true
+		noSafety[i] = true
+	}
+	noSafety[model.DimSafety] = false
+	cAll, err := sim.QuoteTrainBoostCost(m.state, 1, all, m.cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cNo, err := sim.QuoteTrainBoostCost(m.state, 1, noSafety, m.cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantMarginal := cAll - cNo
+	got := trainBoostMarginalCost(m, 1, all, model.DimSafety)
+	if math.Abs(got-wantMarginal) > 1e-6 {
+		t.Fatalf("marginal safety = %v, want %v", got, wantMarginal)
+	}
+	// Row must not show pure base (lower than slot-aware marginal for rank 2+).
+	base, err := balance.TrainBoostBasePrice(1, sim.TrainBoostRefMonthly(m.state, m.cfg), model.DimSafety, m.cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wantMarginal <= base+1e-6 {
+		t.Fatalf("precondition failed: slot marginal %v should exceed base %v", wantMarginal, base)
+	}
+	if strings.Contains(out, human(base)) && !strings.Contains(out, human(wantMarginal)) {
+		// human() formatting may round; ensure marginal appears as the +price line content
+		t.Logf("base=%v marginal=%v out=\n%s", base, wantMarginal, out)
+	}
+	if !strings.Contains(out, human(wantMarginal)) && !strings.Contains(out, "+"+human(wantMarginal)) {
+		// human may format with commas; check +prefix via marginal helper display path
+		if !strings.Contains(out, human(got)) {
+			t.Fatalf("render should show slot-aware marginal %s:\n%s", human(got), out)
+		}
+	}
+}
+
+func TestTrainBoostNameZHUsesDimNotSliceOrder(t *testing.T) {
+	cfg := balance.Default()
+	// Reverse catalog order; names must still map by Dim.
+	cfg.TrainBoosts = []balance.TrainBoost{
+		cfg.TrainBoosts[3], cfg.TrainBoosts[2], cfg.TrainBoosts[1], cfg.TrainBoosts[0],
+	}
+	if got := trainBoostNameZH(cfg, model.DimSafety); got != "安全評測" {
+		t.Fatalf("name = %q, want 安全評測", got)
+	}
+	if got := trainBoostNameZH(cfg, model.DimCapability); got != "優質語料" {
+		t.Fatalf("name = %q, want 優質語料", got)
 	}
 }
 

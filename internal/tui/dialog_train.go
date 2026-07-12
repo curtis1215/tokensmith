@@ -140,6 +140,29 @@ func trainPredictedAppeal(q [model.NumQualityDims]float64, seg model.Segment, cf
 	return a
 }
 
+func trainBoostNameZH(cfg balance.Config, dim model.QualityDim) string {
+	if tb, ok := balance.TrainBoostByDim(cfg, dim); ok && tb.NameZH != "" {
+		return tb.NameZH
+	}
+	return dimNames[dim]
+}
+
+// trainBoostMarginalCost is quote(with dim) - quote(without dim) under current
+// selection (slot re-rank aware). Enabling or disabling dim both use the same
+// absolute delta so row labels stay honest for 3rd/4th-item surcharges.
+func trainBoostMarginalCost(m Model, gen int, boosts [model.NumQualityDims]bool, dim model.QualityDim) float64 {
+	with := boosts
+	without := boosts
+	with[dim] = true
+	without[dim] = false
+	cWith, err1 := sim.QuoteTrainBoostCost(m.state, gen, with, m.cfg)
+	cWithout, err2 := sim.QuoteTrainBoostCost(m.state, gen, without, m.cfg)
+	if err1 != nil || err2 != nil {
+		return 0
+	}
+	return cWith - cWithout
+}
+
 func renderTrainDialog(d trainDialog, m Model) string {
 	cfg := m.cfg
 	var b strings.Builder
@@ -160,10 +183,15 @@ func renderTrainDialog(d trainDialog, m Model) string {
 	refMonthly := sim.TrainBoostRefMonthly(m.state, cfg)
 	rawMonthly := sim.BoostRefMonthlyCash(m.state, cfg)
 	totalCost, _ := sim.QuoteTrainBoostCost(m.state, d.gen, d.boosts, cfg)
+	var allBoosts [model.NumQualityDims]bool
+	for i := range allBoosts {
+		allBoosts[i] = true
+	}
+	fullPack, _ := sim.QuoteTrainBoostCost(m.state, d.gen, allBoosts, cfg)
 
 	b.WriteString("\n訓練投資（可選）\n")
-	catalog := cfg.TrainBoosts
 	for i := 0; i < model.NumQualityDims; i++ {
+		dim := model.QualityDim(i)
 		cursor := " "
 		if d.focus == model.NumQualityDims+i {
 			cursor = "▸"
@@ -172,12 +200,17 @@ func renderTrainDialog(d trainDialog, m Model) string {
 		if d.boosts[i] {
 			mark = "[x]"
 		}
-		name := dimNames[i]
-		if i < len(catalog) && catalog[i].NameZH != "" {
-			name = catalog[i].NameZH
+		name := trainBoostNameZH(cfg, dim)
+		// Preview rank if this dim is (or becomes) selected for surcharge labels.
+		preview := d.boosts
+		preview[dim] = true
+		rank := balance.TrainBoostSlotRank(preview, dim)
+		marginal := trainBoostMarginalCost(m, d.gen, d.boosts, dim)
+		surcharge := ""
+		if rank >= 2 && rank < model.NumQualityDims {
+			surcharge = fmt.Sprintf("  第%d件 ×%.1f", rank+1, cfg.TrainBoostSlotMult[rank])
 		}
-		base, _ := balance.TrainBoostBasePrice(d.gen, refMonthly, model.QualityDim(i), cfg)
-		b.WriteString(fmt.Sprintf("%s %s %s  %s\n", cursor, mark, name, human(base)))
+		b.WriteString(fmt.Sprintf("%s %s %s  +%s%s\n", cursor, mark, name, human(marginal), surcharge))
 	}
 
 	floorBadge := ""
@@ -194,6 +227,9 @@ func renderTrainDialog(d trainDialog, m Model) string {
 		b.WriteString(fmt.Sprintf("  （約 %.1f 年有效現金）", years))
 	}
 	b.WriteString("\n")
+	if fullPack > 0 {
+		b.WriteString(fmt.Sprintf("全滿投資 %s  （含 3/4 件溢價）\n", human(fullPack)))
+	}
 
 	var none [model.NumQualityDims]bool
 	qBefore, _ := sim.PredictedTrainQuality(m.state, d.gen, d.alloc, none, cfg)

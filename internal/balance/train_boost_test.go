@@ -147,3 +147,68 @@ func TestTrainBoostAffordanceGen1Floor(t *testing.T) {
 		t.Fatalf("full %v < linear annual %v", full, linear)
 	}
 }
+
+func TestValidateTrainBoostConfigDefaultOK(t *testing.T) {
+	if err := ValidateTrainBoostConfig(Default()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTrainBoostCashCostRejectsInvalidKnobs(t *testing.T) {
+	ref := Default().TrainBoostFloorMonthly
+	var one [model.NumQualityDims]bool
+	one[model.DimCapability] = true
+
+	cases := []struct {
+		name string
+		mut  func(*Config)
+	}{
+		{"nan pain", func(c *Config) { c.TrainBoostPainMult = math.NaN() }},
+		{"neg pain", func(c *Config) { c.TrainBoostPainMult = -1 }},
+		{"nan beta", func(c *Config) { c.TrainBoostBeta = math.NaN() }},
+		{"neg beta", func(c *Config) { c.TrainBoostBeta = -0.1 }},
+		{"neg role weight", func(c *Config) {
+			for i := range c.TrainBoosts {
+				if c.TrainBoosts[i].Dim == model.DimCapability {
+					c.TrainBoosts[i].RoleWeight = -0.1
+				}
+			}
+		}},
+		{"slot below one", func(c *Config) { c.TrainBoostSlotMult[2] = 0.5 }},
+		{"nan slot", func(c *Config) { c.TrainBoostSlotMult[0] = math.NaN() }},
+		{"duplicate dim", func(c *Config) {
+			c.TrainBoosts[1].Dim = model.DimCapability
+		}},
+		{"missing name", func(c *Config) { c.TrainBoosts[0].NameZH = "" }},
+		{"bad rival picks", func(c *Config) { c.TrainBoostRivalPicks = 9 }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			b := Default()
+			tc.mut(&b)
+			cost, err := TrainBoostCashCost(1, ref, one, b)
+			if err != ErrInvalidTrainBoostConfig {
+				t.Fatalf("cost=%v err=%v want ErrInvalidTrainBoostConfig", cost, err)
+			}
+			if cost != 0 {
+				t.Fatalf("cost on error = %v, want 0", cost)
+			}
+			_, errB := TrainBoostCashBonus(1, one, b)
+			if errB != ErrInvalidTrainBoostConfig {
+				t.Fatalf("bonus err=%v want ErrInvalidTrainBoostConfig", errB)
+			}
+		})
+	}
+}
+
+func TestTrainBoostByDimIndependentOfCatalogOrder(t *testing.T) {
+	b := Default()
+	// reverse catalog slice order
+	b.TrainBoosts = []TrainBoost{
+		b.TrainBoosts[3], b.TrainBoosts[2], b.TrainBoosts[1], b.TrainBoosts[0],
+	}
+	tb, ok := TrainBoostByDim(b, model.DimSafety)
+	if !ok || tb.NameZH != "安全評測" {
+		t.Fatalf("got %+v ok=%v", tb, ok)
+	}
+}
