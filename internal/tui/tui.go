@@ -83,21 +83,22 @@ type Model struct {
 	savePath          string
 	ticksSinceSave    int
 	page              Page
-	dialog            *trainDialog       // non-nil while the training modal is open
-	publish           *publishDialog     // non-nil while the publish/price modal is open
-	event             *eventDialog       // non-nil while the event-choice modal is open
-	doctrineDialog    *doctrineDialog    // non-nil while doctrine/perk/secondary/pivot modal is open
-	directiveDialog   *directiveDialog   // non-nil while executive-directive modal is open
-	campaignEnd       *campaignEndDialog // non-nil while victory/exit modal is open
-	campaignError     string             // last rejected campaign command; survives ticks
-	techCursor        int                // visible tech-entry index on the tech page
-	techEra           int                // selected era (1-based); 0 = current era
-	procCursor        int                // selected process node on the compute page
-	modelCursor       int                // selected index into state.Models on models page
-	marketCursor      int                // focused talent-market candidate on team page
-	rosterCursor      int                // focused roster employee on team page
-	teamFocusRoster   bool               // false = market focus; true = roster focus
-	fireConfirmID     string             // pending FireEmployee id; empty = no confirm armed
+	dialog            *trainDialog          // non-nil while the training modal is open
+	publish           *publishDialog        // non-nil while the publish/price modal is open
+	event             *eventDialog          // non-nil while the event-choice modal is open
+	doctrineDialog    *doctrineDialog       // non-nil while doctrine/perk/secondary/pivot modal is open
+	directiveDialog   *directiveDialog      // non-nil while executive-directive modal is open
+	campaignEnd       *campaignEndDialog    // non-nil while victory/exit modal is open
+	employeeDetail    *employeeDetailDialog // non-nil while team employee/candidate detail is open
+	campaignError     string                // last rejected campaign command; survives ticks
+	techCursor        int                   // visible tech-entry index on the tech page
+	techEra           int                   // selected era (1-based); 0 = current era
+	procCursor        int                   // selected process node on the compute page
+	modelCursor       int                   // selected index into state.Models on models page
+	marketCursor      int                   // focused talent-market candidate on team page
+	rosterCursor      int                   // focused roster employee on team page
+	teamFocusRoster   bool                  // false = market focus; true = roster focus
+	fireConfirmID     string                // pending FireEmployee id; empty = no confirm armed
 	// Harvest-daemon integration (§10.2).
 	ledgerPath     string
 	metaPath       string
@@ -668,6 +669,9 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		if m.dialog != nil {
 			return m.updateDialog(msg)
 		}
+		if m.employeeDetail != nil {
+			return m.updateEmployeeDetailDialog(msg)
+		}
 		// Mechanism A: a second X confirms a voluntary restart; any other key cancels.
 		if m.pendingRestart {
 			m.pendingRestart = false
@@ -765,6 +769,14 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		case "enter":
 			if m.page == PageTech {
 				techActivate(&m)
+			}
+			if m.page == PageTeam {
+				if d, ok := newEmployeeDetailDialog(m); ok {
+					m.fireConfirmID = ""
+					m.employeeDetail = &d
+				} else {
+					m.setNotice("沒有可查看的員工／候選人")
+				}
 			}
 			return m, nil
 		case "q", "ctrl+c":
@@ -937,6 +949,17 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			return m, nil
 		}
 	}
+	return m, nil
+}
+
+// updateEmployeeDetailDialog closes the team employee/candidate detail modal.
+func (m Model) updateEmployeeDetailDialog(msg tea.KeyMsg) (Model, tea.Cmd) {
+	d, cancel := m.employeeDetail.update(msg)
+	if cancel {
+		m.employeeDetail = nil
+		return m, nil
+	}
+	m.employeeDetail = &d
 	return m, nil
 }
 
@@ -1214,6 +1237,9 @@ func (m Model) contentBody() string {
 	if m.dialog != nil {
 		return renderTrainDialog(*m.dialog, m)
 	}
+	if m.employeeDetail != nil {
+		return renderEmployeeDetailDialog(*m.employeeDetail, m)
+	}
 	return m.renderPage()
 }
 
@@ -1259,7 +1285,8 @@ func (m Model) tryScroll(msg tea.KeyMsg) (bool, Model) {
 // pageKeys returns page-specific help text for the fixed shell footer.
 func pageKeys(m Model) string {
 	if m.publish != nil || m.dialog != nil || m.event != nil ||
-		m.doctrineDialog != nil || m.directiveDialog != nil || m.campaignEnd != nil {
+		m.doctrineDialog != nil || m.directiveDialog != nil || m.campaignEnd != nil ||
+		m.employeeDetail != nil {
 		return "" // dialogs embed their own help
 	}
 	switch m.page {
@@ -1285,7 +1312,7 @@ func pageKeys(m Model) string {
 	case PageCompute:
 		return "[↑↓]選製程 [r/R]±訓練 [i/I]±推理 [b/B]建訓練/推理伺服器 [e]擴機房"
 	case PageTeam:
-		return "[j/k]選擇 [space]市場/名冊 [h]雇用 [f]解雇(兩次確認) [u]升級 [r]重抽"
+		return "[j/k]選擇 [space]市場/名冊 [Enter]詳情 [h]雇用 [f]解雇(兩次確認) [u]升級 [r]重抽"
 	case PageTech:
 		return "[↑↓]條目 [ ]時代 [Enter]執行 [+]/[-]前沿分配"
 	case PageAchievements:
