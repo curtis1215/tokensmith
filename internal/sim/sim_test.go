@@ -713,13 +713,14 @@ func TestTickDeductsElectricity(t *testing.T) {
 func TestTickDeductsEmployeeSalary(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{
-		Employees: []model.Employee{{MonthlySalary: 6000}}, // 10/s
+		Employees: []model.Employee{{MonthlySalary: 6000}},
 	}
 	s.Resources.Cash = 100
 	ns := Tick(s, 10, nil, b)
-	want := 100.0 - 10*10
+	rate := balance.MonthlyToPerSec(6000, b)
+	want := 100.0 - rate*10
 	if !approx(ns.Resources.Cash, want) {
-		t.Fatalf("Cash = %v, want %v", ns.Resources.Cash, want)
+		t.Fatalf("Cash = %v, want %v (rate=%v)", ns.Resources.Cash, want, rate)
 	}
 }
 

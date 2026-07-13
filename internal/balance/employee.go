@@ -44,8 +44,16 @@ func MonthlyToPerSec(monthly float64, b Config) float64 {
 }
 
 // applyEmployeeDefaults fills office, market, rank, and salary knobs on c.
+// Caller must set MonthSec first: SecondsPerMonth shares the same sim-month
+// unit so payroll and subscription revenue stay on one clock (TUI tickDT=3600).
 func applyEmployeeDefaults(c *Config) {
-	c.SecondsPerMonth = 600
+	// Align monthly salary burn with MonthSec (not wall-second 600). Using 600
+	// made each TUI tick deduct ~6 months of pay and bankrupted hires in ~1s.
+	if c.MonthSec > 0 {
+		c.SecondsPerMonth = c.MonthSec
+	} else {
+		c.SecondsPerMonth = 2592000
+	}
 	c.MaxOfficeLevel = 8
 
 	// Index by level 1..8; index 0 unused.
@@ -75,7 +83,8 @@ func applyEmployeeDefaults(c *Config) {
 	}
 
 	c.MarketPoolSize = 5
-	c.MarketRefreshSec = 600
+	// Design: ~10 wall-minutes free refresh → sim seconds via RealSecCompression.
+	c.MarketRefreshSec = 600 * RealSecCompression
 	c.MarketRerollBase = 5000
 	c.MarketRerollGrowth = 2
 
@@ -141,10 +150,11 @@ func applyEmployeeDefaults(c *Config) {
 	c.StaffPowerK = 1.2
 	c.StaffPowerRef = 200
 
-	// RnDPerPower: R&D/sec per unit research RolePower (before EfficiencyMult).
-	// Tuned so a staff primary ≈40 yields order-of-magnitude old T1 researcher
-	// rate before RealSecCompression; fine-tune in economy pass.
-	c.RnDPerPower = 0.0002
+	// RnDPerPower: R&D per sim-second per unit research RolePower (× EfficiencyMult).
+	// 0.0002 is the pre-compression calibration; divide by RealSecCompression so
+	// TUI perceived rate matches the rest of the economy (same contract as old
+	// ResearcherRnDPerSec which was already stored compressed).
+	c.RnDPerPower = 0.0002 / RealSecCompression
 
 	// Flat fallback when a mid-run save has no probeable legacy headcount.
 	c.RestructuringGrant = 25_000

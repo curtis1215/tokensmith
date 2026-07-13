@@ -641,7 +641,7 @@ func TestLoadSchema2SoftRepairsOfficeAndMarket(t *testing.T) {
 		GameTime:    5000,
 		Resources:   model.Resources{Cash: 42, RnD: 1},
 		Progression: model.ProgressionState{MaxUnlockedGen: 1, IndustryTime: 5000},
-		// Office.Level 0, Employees nil, Market empty
+		// Office.Level 0, Employees nil, Market empty (uninitialized)
 	}
 	if err := Save(path, s); err != nil {
 		t.Fatal(err)
@@ -663,6 +663,44 @@ func TestLoadSchema2SoftRepairsOfficeAndMarket(t *testing.T) {
 	// No RestructuringGrant on already-current schema.
 	if got.Resources.Cash != 42 {
 		t.Fatalf("Cash = %v, want 42 (no grant on schema 2 soft-repair)", got.Resources.Cash)
+	}
+}
+
+func TestLoadSchema2PreservesDepletedMarket(t *testing.T) {
+	b := balance.Default()
+	path := filepath.Join(t.TempDir(), "v2-empty-market.json")
+	// Legal runtime: hired everyone, waiting on free refresh, high reroll count.
+	s := model.GameState{
+		GameTime:  100,
+		Resources: model.Resources{Cash: 99},
+		Office:    model.Office{Level: 2},
+		Employees: []model.Employee{{ID: "e1", MonthlySalary: 1000}},
+		Market: model.TalentMarket{
+			Candidates:    []model.Employee{}, // non-nil empty
+			NextRefreshAt: 10000,
+			RerollCount:   4,
+			RandState:     42,
+		},
+		Progression: model.ProgressionState{MaxUnlockedGen: 1, IndustryTime: 100},
+	}
+	if err := Save(path, s); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := LoadWithConfig(path, b)
+	if err != nil || !ok {
+		t.Fatalf("load: ok=%v err=%v", ok, err)
+	}
+	if len(got.Market.Candidates) != 0 {
+		t.Fatalf("depleted market was refilled: %d candidates", len(got.Market.Candidates))
+	}
+	if got.Market.RerollCount != 4 {
+		t.Fatalf("RerollCount=%d want 4 (no free reset on reload)", got.Market.RerollCount)
+	}
+	if got.Market.NextRefreshAt != 10000 {
+		t.Fatalf("NextRefreshAt=%v want 10000", got.Market.NextRefreshAt)
+	}
+	if got.Market.RandState != 42 {
+		t.Fatalf("RandState=%d want 42", got.Market.RandState)
 	}
 }
 

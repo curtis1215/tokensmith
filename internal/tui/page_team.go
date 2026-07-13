@@ -46,13 +46,9 @@ func roleNameZH(r model.Role) string {
 	}
 }
 
-// totalMonthlyPayroll sums roster MonthlySalary (UI primary unit).
-func totalMonthlyPayroll(emps []model.Employee) float64 {
-	var sum float64
-	for _, e := range emps {
-		sum += e.MonthlySalary
-	}
-	return sum
+// totalMonthlyPayroll is the sim-authoritative roster payroll quote (UI /月).
+func totalMonthlyPayroll(m Model) float64 {
+	return sim.TotalMonthlyPayroll(m.state, m.cfg)
 }
 
 // employeeStatsBlurb is a compact four-stat line, e.g. "研40 工10 營10 行10".
@@ -120,7 +116,7 @@ func renderTeamOffice(m Model, w int) string {
 	body := VStack(
 		KV("等級", fmt.Sprintf("Lv%d %s", level, name)),
 		KV("工位", fmt.Sprintf("%d/%d", filled, seats)),
-		KV("月薪合計", fmt.Sprintf("$%s/月", human(totalMonthlyPayroll(s.Employees)))),
+		KV("月薪合計", fmt.Sprintf("$%s/月", human(totalMonthlyPayroll(m)))),
 		officeUpgradeLine(level, m.cfg),
 	)
 	return CardIn(CardDefault, w, "辦公室", body)
@@ -137,18 +133,19 @@ func renderTeamRoster(m Model, w int) string {
 			if m.teamFocusRoster && i == m.rosterCursor {
 				cur = "▸ "
 			}
+			pay := sim.EffectiveMonthlySalary(e, s, m.cfg)
 			lines = append(lines, fmt.Sprintf("%s%s · %s · %s · 月薪 $%s/月 · %s",
 				cur,
 				e.Name,
 				rankNameZH(e.Rank),
 				roleNameZH(e.PrimaryRole),
-				human(e.MonthlySalary),
+				human(pay),
 				skillCountLabel(len(e.SkillIDs)),
 			))
 		}
 	}
 	lines = append(lines, "")
-	lines = append(lines, KV("月薪合計", fmt.Sprintf("$%s/月", human(totalMonthlyPayroll(s.Employees)))))
+	lines = append(lines, KV("月薪合計", fmt.Sprintf("$%s/月", human(totalMonthlyPayroll(m)))))
 	focusHint := ""
 	if m.teamFocusRoster {
 		focusHint = " · 焦點"
@@ -177,8 +174,9 @@ func renderTeamMarket(m Model, w int) string {
 			lines = append(lines, fmt.Sprintf("%s%s · %s · %s · %s",
 				cur, e.Name, rankNameZH(e.Rank), roleNameZH(e.PrimaryRole), employeeStatsBlurb(e)))
 			hire := sim.HireCostQuote(s, e, m.cfg)
+			pay := sim.EffectiveMonthlySalaryForHire(e, s, m.cfg)
 			lines = append(lines, fmt.Sprintf("    簽約 $%s · 月薪 $%s/月 · %s",
-				human(hire), human(e.MonthlySalary), skillCountLabel(len(e.SkillIDs))))
+				human(hire), human(pay), skillCountLabel(len(e.SkillIDs))))
 		}
 	}
 	lines = append(lines, "")
@@ -248,8 +246,12 @@ func teamToggleFocus(m *Model) {
 	clampTeamCursors(m)
 }
 
-// applyTeamHire hires the focused market candidate.
+// applyTeamHire hires the focused market candidate (market pane only).
 func applyTeamHire(m *Model) {
+	if m.teamFocusRoster {
+		m.setNotice("請先切到人才市場焦點（space）再雇用")
+		return
+	}
 	clampTeamCursors(m)
 	cands := m.state.Market.Candidates
 	if len(cands) == 0 || m.marketCursor < 0 || m.marketCursor >= len(cands) {
@@ -268,24 +270,29 @@ func applyTeamHire(m *Model) {
 	m.setNotice(fmt.Sprintf("已雇用 %s", name))
 }
 
-// applyTeamFire fires the focused roster employee.
+// applyTeamFire fires the focused roster employee (roster pane only).
+// Notice includes severance quote so the cost is visible after the action.
 func applyTeamFire(m *Model) {
+	if !m.teamFocusRoster {
+		m.setNotice("請先切到名冊焦點（space）再解雇")
+		return
+	}
 	clampTeamCursors(m)
 	emps := m.state.Employees
 	if len(emps) == 0 || m.rosterCursor < 0 || m.rosterCursor >= len(emps) {
 		m.setNotice("沒有可解雇的員工")
 		return
 	}
-	id := emps[m.rosterCursor].ID
-	name := emps[m.rosterCursor].Name
-	ns, err := sim.Apply(m.state, model.FireEmployee{EmployeeID: id}, m.cfg)
+	emp := emps[m.rosterCursor]
+	sev := sim.SeveranceQuote(emp, m.state, m.cfg)
+	ns, err := sim.Apply(m.state, model.FireEmployee{EmployeeID: emp.ID}, m.cfg)
 	if err != nil {
 		m.setNotice(teamCmdErrNotice(err))
 		return
 	}
 	m.state = ns
 	clampTeamCursors(m)
-	m.setNotice(fmt.Sprintf("已解雇 %s", name))
+	m.setNotice(fmt.Sprintf("已解雇 %s（遣散 $%s）", emp.Name, human(sev)))
 }
 
 // applyTeamUpgrade upgrades the office by one level.

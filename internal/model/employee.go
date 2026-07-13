@@ -4,13 +4,13 @@ package model
 type Rank int
 
 const (
-	RankGrunt Rank = iota // 雜魚
-	RankStaff             // 職員
-	RankLead              // 幹部
-	RankManager           // 經理
-	RankDirector          // 總監
-	RankGod               // 大神
-	NumRanks  = 6
+	RankGrunt    Rank = iota // 雜魚
+	RankStaff                // 職員
+	RankLead                 // 幹部
+	RankManager              // 經理
+	RankDirector             // 總監
+	RankGod                  // 大神
+	NumRanks     = 6
 )
 
 // SkillTier gates which skills can roll onto which ranks.

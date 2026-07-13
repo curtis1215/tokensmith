@@ -177,11 +177,12 @@ func TestDefaultEmployeeEconomyKnobs(t *testing.T) {
 	if c.PrimaryWeight != 1.0 || c.SecondaryWeight != 0.35 {
 		t.Errorf("role weights wrong: primary=%v secondary=%v", c.PrimaryWeight, c.SecondaryWeight)
 	}
-	if c.RnDPerPower != 0.0002 {
-		t.Errorf("RnDPerPower = %v, want 0.0002", c.RnDPerPower)
+	wantRnD := 0.0002 / RealSecCompression
+	if c.RnDPerPower != wantRnD {
+		t.Errorf("RnDPerPower = %v, want %v", c.RnDPerPower, wantRnD)
 	}
-	if c.SecondsPerMonth != 600 {
-		t.Errorf("SecondsPerMonth = %v, want 600", c.SecondsPerMonth)
+	if c.SecondsPerMonth != c.MonthSec {
+		t.Errorf("SecondsPerMonth = %v, want MonthSec %v", c.SecondsPerMonth, c.MonthSec)
 	}
 	if c.HireMonths != 2 || c.SeveranceMonths != 0.5 {
 		t.Errorf("hire/severance months wrong: hire=%v sev=%v", c.HireMonths, c.SeveranceMonths)

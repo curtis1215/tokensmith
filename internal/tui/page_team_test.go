@@ -84,6 +84,7 @@ func TestTeamKeyUpgradeOffice(t *testing.T) {
 func TestTeamKeyHireFocusedCandidate(t *testing.T) {
 	m := testModel(t)
 	m.page = PageTeam
+	m.teamFocusRoster = false // market pane
 	m.state.Office.Level = 1
 	m.state.Resources.Cash = 100_000
 	m.state.Employees = nil
@@ -102,9 +103,28 @@ func TestTeamKeyHireFocusedCandidate(t *testing.T) {
 	}
 }
 
+func TestTeamKeyHireNoOpOnRosterFocus(t *testing.T) {
+	m := testModel(t)
+	m.page = PageTeam
+	m.teamFocusRoster = true
+	m.state.Resources.Cash = 100_000
+	m.state.Market.Candidates = []model.Employee{
+		{ID: "c1", Name: "甲", HireCost: 100, MonthlySalary: 500},
+	}
+	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	g := nm.(Model)
+	if len(g.state.Employees) != 0 {
+		t.Fatalf("hire on roster focus should no-op, emps=%d", len(g.state.Employees))
+	}
+	if !strings.Contains(g.notice, "人才市場") {
+		t.Fatalf("notice=%q", g.notice)
+	}
+}
+
 func TestTeamKeyFireFocusedEmployee(t *testing.T) {
 	m := testModel(t)
 	m.page = PageTeam
+	m.teamFocusRoster = true // roster pane required
 	m.state.Resources.Cash = 100_000
 	m.state.Employees = []model.Employee{
 		{ID: "e1", Name: "甲", MonthlySalary: 1000, Rank: model.RankStaff},
@@ -115,6 +135,27 @@ func TestTeamKeyFireFocusedEmployee(t *testing.T) {
 	g := nm.(Model)
 	if len(g.state.Employees) != 1 || g.state.Employees[0].ID != "e1" {
 		t.Fatalf("fire focused: emps=%+v", g.state.Employees)
+	}
+	if !strings.Contains(g.notice, "遣散") {
+		t.Fatalf("fire notice should quote severance: %q", g.notice)
+	}
+}
+
+func TestTeamKeyFireNoOpOnMarketFocus(t *testing.T) {
+	m := testModel(t)
+	m.page = PageTeam
+	m.teamFocusRoster = false
+	m.state.Resources.Cash = 100_000
+	m.state.Employees = []model.Employee{
+		{ID: "e1", Name: "甲", MonthlySalary: 1000},
+	}
+	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	g := nm.(Model)
+	if len(g.state.Employees) != 1 {
+		t.Fatalf("fire on market focus should no-op")
+	}
+	if !strings.Contains(g.notice, "名冊") {
+		t.Fatalf("notice=%q", g.notice)
 	}
 }
 

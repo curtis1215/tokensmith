@@ -195,8 +195,7 @@ func applyFireEmployee(s model.GameState, c model.FireEmployee, b balance.Config
 	if idx < 0 {
 		return s, ErrUnknownEmployee
 	}
-	sev := emp.MonthlySalary * b.SeveranceMonths *
-		employeeSelfSeveranceMult(emp, b) * companySeveranceMult(s, b)
+	sev := SeveranceQuote(emp, s, b)
 	if s.Resources.Cash < sev {
 		return s, ErrInsufficientCash
 	}
@@ -238,6 +237,34 @@ func RerollCostQuote(s model.GameState, b balance.Config) float64 {
 // SeatCap is office seats at the effective level plus capped skill ExtraSeats.
 func SeatCap(ns model.GameState, b balance.Config) int {
 	return seatCap(ns, b)
+}
+
+// EffectiveMonthlySalary is the roster pay amount for one employee after self
+// and company salary mults (what TotalSalaryPerSec converts to cash/sec).
+func EffectiveMonthlySalary(e model.Employee, ns model.GameState, b balance.Config) float64 {
+	return e.MonthlySalary * employeeSelfSalaryMult(e, b) * companySalaryMult(ns, b)
+}
+
+// EffectiveMonthlySalaryForHire quotes a candidate's monthly pay if hired now
+// (candidate self mults + current company mults).
+func EffectiveMonthlySalaryForHire(cand model.Employee, ns model.GameState, b balance.Config) float64 {
+	return cand.MonthlySalary * employeeSelfSalaryMult(cand, b) * companySalaryMult(ns, b)
+}
+
+// TotalMonthlyPayroll is Σ EffectiveMonthlySalary for the roster (UI 月薪合計).
+func TotalMonthlyPayroll(ns model.GameState, b balance.Config) float64 {
+	co := companySalaryMult(ns, b)
+	var sum float64
+	for _, e := range ns.Employees {
+		sum += e.MonthlySalary * employeeSelfSalaryMult(e, b) * co
+	}
+	return sum
+}
+
+// SeveranceQuote is cash charged to fire emp (same formula as Apply).
+func SeveranceQuote(emp model.Employee, ns model.GameState, b balance.Config) float64 {
+	return emp.MonthlySalary * b.SeveranceMonths *
+		employeeSelfSeveranceMult(emp, b) * companySeveranceMult(ns, b)
 }
 
 // companyHireCostMult is the product of HireCostMult hooks across the roster.

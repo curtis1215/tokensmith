@@ -109,7 +109,9 @@ func migrateToEmployeeOffice(s model.GameState, b balance.Config, leg legacyStaf
 }
 
 // ensureEmployeeOfficeDefaults soft-repairs schema-2 (or post-migrate) state
-// without cash grants — Office floor, nil employees, empty market seed.
+// without cash grants — Office floor, nil employees. Market is seeded only when
+// still fully uninitialized: an empty candidate pool after hiring is legal and
+// must keep NextRefreshAt / RerollCount (do not free-refresh on reload).
 func ensureEmployeeOfficeDefaults(s model.GameState, b balance.Config) model.GameState {
 	if s.Office.Level < 1 {
 		s.Office.Level = 1
@@ -117,13 +119,19 @@ func ensureEmployeeOfficeDefaults(s model.GameState, b balance.Config) model.Gam
 	if s.Employees == nil {
 		s.Employees = []model.Employee{}
 	}
-	if len(s.Market.Candidates) == 0 {
+	if marketNeedsSeed(s.Market) {
 		if s.Market.RandState == 0 {
 			s.Market.RandState = 1
 		}
 		s = sim.RefreshMarket(s, b)
 	}
 	return s
+}
+
+// marketNeedsSeed is true only for a never-initialized market (zero timer and
+// zero RNG). Empty Candidates with NextRefreshAt>0 is a normal depleted pool.
+func marketNeedsSeed(m model.TalentMarket) bool {
+	return m.NextRefreshAt == 0 && m.RandState == 0 && len(m.Candidates) == 0
 }
 
 // rivalRankPct maps a 0-based rank among up to 7 rivals onto the approved

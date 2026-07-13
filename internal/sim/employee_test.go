@@ -36,8 +36,41 @@ func TestSalaryPerSec(t *testing.T) {
 	b := balance.Default()
 	ns := model.GameState{Employees: []model.Employee{{MonthlySalary: 6000}}}
 	got := totalSalaryPerSecFromEmployees(ns, b)
-	if math.Abs(got-10) > 1e-9 {
-		t.Fatalf("got %v", got)
+	want := balance.MonthlyToPerSec(6000, b)
+	if math.Abs(got-want) > 1e-12 {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	// TUI tickDT=3600 must not deduct multi-month pay for a modest salary.
+	tickBurn := got * 3600
+	if tickBurn > 20 {
+		t.Fatalf("tick burn too high: %v (SecondsPerMonth=%v)", tickBurn, b.SecondsPerMonth)
+	}
+}
+
+func TestEffectiveMonthlySalaryQuotesSkillMults(t *testing.T) {
+	b := balance.Default()
+	// m-thrifty SelfSalaryMult 0.92; d-comp-opt CompanySalaryMult 0.96
+	ns := model.GameState{
+		Employees: []model.Employee{
+			{ID: "a", MonthlySalary: 10000, SkillIDs: []string{"m-thrifty"}},
+			{ID: "b", MonthlySalary: 10000, SkillIDs: []string{"d-comp-opt"}},
+		},
+	}
+	// Company mult applies to both: 0.96
+	// a: 10000 * 0.92 * 0.96 = 8832
+	// b: 10000 * 1 * 0.96 = 9600
+	if !approx(EffectiveMonthlySalary(ns.Employees[0], ns, b), 8832) {
+		t.Fatalf("a pay=%v", EffectiveMonthlySalary(ns.Employees[0], ns, b))
+	}
+	if !approx(EffectiveMonthlySalary(ns.Employees[1], ns, b), 9600) {
+		t.Fatalf("b pay=%v", EffectiveMonthlySalary(ns.Employees[1], ns, b))
+	}
+	if !approx(TotalMonthlyPayroll(ns, b), 8832+9600) {
+		t.Fatalf("payroll=%v", TotalMonthlyPayroll(ns, b))
+	}
+	// Severance uses SeveranceMult families only — thrifty is salary, not severance.
+	if !approx(SeveranceQuote(ns.Employees[0], ns, b), 10000*0.5) {
+		t.Fatalf("sev a=%v want 5000", SeveranceQuote(ns.Employees[0], ns, b))
 	}
 }
 
