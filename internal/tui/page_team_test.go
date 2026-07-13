@@ -131,13 +131,53 @@ func TestTeamKeyFireFocusedEmployee(t *testing.T) {
 		{ID: "e2", Name: "乙", MonthlySalary: 1000, Rank: model.RankLead},
 	}
 	m.rosterCursor = 1
+	// First f arms confirmation with severance preview.
 	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
 	g := nm.(Model)
-	if len(g.state.Employees) != 1 || g.state.Employees[0].ID != "e1" {
-		t.Fatalf("fire focused: emps=%+v", g.state.Employees)
+	if len(g.state.Employees) != 2 {
+		t.Fatalf("first f must not fire yet, emps=%d", len(g.state.Employees))
 	}
-	if !strings.Contains(g.notice, "遣散") {
-		t.Fatalf("fire notice should quote severance: %q", g.notice)
+	if g.fireConfirmID != "e2" {
+		t.Fatalf("fireConfirmID=%q want e2", g.fireConfirmID)
+	}
+	if !strings.Contains(g.notice, "確認解雇") || !strings.Contains(g.notice, "遣散") {
+		t.Fatalf("confirm notice: %q", g.notice)
+	}
+	// Second f confirms.
+	nm, _ = g.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	g = nm.(Model)
+	if len(g.state.Employees) != 1 || g.state.Employees[0].ID != "e1" {
+		t.Fatalf("second f should fire: emps=%+v", g.state.Employees)
+	}
+	if g.fireConfirmID != "" {
+		t.Fatalf("confirm should clear after fire")
+	}
+	if !strings.Contains(g.notice, "已解雇") {
+		t.Fatalf("done notice: %q", g.notice)
+	}
+}
+
+func TestTeamKeyFireConfirmCancelEsc(t *testing.T) {
+	m := testModel(t)
+	m.page = PageTeam
+	m.teamFocusRoster = true
+	m.state.Resources.Cash = 100_000
+	m.state.Employees = []model.Employee{
+		{ID: "e1", Name: "甲", MonthlySalary: 1000},
+	}
+	m.rosterCursor = 0
+	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	g := nm.(Model)
+	if g.fireConfirmID != "e1" {
+		t.Fatalf("armed=%q", g.fireConfirmID)
+	}
+	nm, _ = g.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	g = nm.(Model)
+	if g.fireConfirmID != "" {
+		t.Fatalf("esc should clear confirm")
+	}
+	if len(g.state.Employees) != 1 {
+		t.Fatalf("esc must not fire")
 	}
 }
 

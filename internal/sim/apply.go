@@ -245,10 +245,13 @@ func EffectiveMonthlySalary(e model.Employee, ns model.GameState, b balance.Conf
 	return e.MonthlySalary * employeeSelfSalaryMult(e, b) * companySalaryMult(ns, b)
 }
 
-// EffectiveMonthlySalaryForHire quotes a candidate's monthly pay if hired now
-// (candidate self mults + current company mults).
+// EffectiveMonthlySalaryForHire quotes a candidate's monthly pay if hired now.
+// Temporarily includes cand on a cloned roster so their CompanySalaryMult
+// (e.g. d-comp-opt) is reflected the same way post-hire payroll will.
 func EffectiveMonthlySalaryForHire(cand model.Employee, ns model.GameState, b balance.Config) float64 {
-	return cand.MonthlySalary * employeeSelfSalaryMult(cand, b) * companySalaryMult(ns, b)
+	probe := ns
+	probe.Employees = append(append([]model.Employee(nil), ns.Employees...), cand)
+	return EffectiveMonthlySalary(cand, probe, b)
 }
 
 // TotalMonthlyPayroll is Σ EffectiveMonthlySalary for the roster (UI 月薪合計).

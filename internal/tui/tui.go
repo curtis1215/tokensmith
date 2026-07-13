@@ -97,6 +97,7 @@ type Model struct {
 	marketCursor      int                // focused talent-market candidate on team page
 	rosterCursor      int                // focused roster employee on team page
 	teamFocusRoster   bool               // false = market focus; true = roster focus
+	fireConfirmID     string             // pending FireEmployee id; empty = no confirm armed
 	// Harvest-daemon integration (§10.2).
 	ledgerPath     string
 	metaPath       string
@@ -912,6 +913,11 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 				applyTeamFire(&m)
 			}
 			return m, nil
+		case "esc", "escape":
+			if m.page == PageTeam && m.fireConfirmID != "" {
+				clearTeamFireConfirm(&m)
+			}
+			return m, nil
 		case "j":
 			if m.page == PageTeam {
 				teamMoveFocus(&m, +1)
@@ -1279,7 +1285,7 @@ func pageKeys(m Model) string {
 	case PageCompute:
 		return "[↑↓]選製程 [r/R]±訓練 [i/I]±推理 [b/B]建訓練/推理伺服器 [e]擴機房"
 	case PageTeam:
-		return "[j/k]選擇 [space]市場/名冊 [h]雇用 [f]解雇 [u]升級 [r]重抽"
+		return "[j/k]選擇 [space]市場/名冊 [h]雇用 [f]解雇(兩次確認) [u]升級 [r]重抽"
 	case PageTech:
 		return "[↑↓]條目 [ ]時代 [Enter]執行 [+]/[-]前沿分配"
 	case PageAchievements:

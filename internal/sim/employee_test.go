@@ -74,6 +74,25 @@ func TestEffectiveMonthlySalaryQuotesSkillMults(t *testing.T) {
 	}
 }
 
+func TestEffectiveMonthlySalaryForHireIncludesCandidateCompanyMult(t *testing.T) {
+	b := balance.Default()
+	ns := model.GameState{Employees: nil}
+	cand := model.Employee{
+		ID: "c1", MonthlySalary: 10000, SkillIDs: []string{"d-comp-opt"}, // CompanySalaryMult 0.96
+	}
+	// Pre-hire quote must match post-hire payroll (candidate brings company mult).
+	pre := EffectiveMonthlySalaryForHire(cand, ns, b)
+	if !approx(pre, 9600) {
+		t.Fatalf("pre-hire quote=%v want 9600", pre)
+	}
+	hired := ns
+	hired.Employees = []model.Employee{cand}
+	post := TotalMonthlyPayroll(hired, b)
+	if !approx(pre, post) {
+		t.Fatalf("pre-hire %v != post-hire %v", pre, post)
+	}
+}
+
 func TestRoleBonusZeroNeutral(t *testing.T) {
 	b := balance.Default()
 	if roleBonus(0, b) != 0 {

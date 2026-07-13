@@ -225,6 +225,7 @@ func clampTeamCursors(m *Model) {
 
 // teamMoveFocus advances market or roster cursor by delta (−1/+1).
 func teamMoveFocus(m *Model, delta int) {
+	m.fireConfirmID = ""
 	if m.teamFocusRoster {
 		n := len(m.state.Employees)
 		if n == 0 {
@@ -242,6 +243,7 @@ func teamMoveFocus(m *Model, delta int) {
 
 // teamToggleFocus switches between market and roster selection panes.
 func teamToggleFocus(m *Model) {
+	m.fireConfirmID = ""
 	m.teamFocusRoster = !m.teamFocusRoster
 	clampTeamCursors(m)
 }
@@ -270,29 +272,48 @@ func applyTeamHire(m *Model) {
 	m.setNotice(fmt.Sprintf("已雇用 %s", name))
 }
 
-// applyTeamFire fires the focused roster employee (roster pane only).
-// Notice includes severance quote so the cost is visible after the action.
+// applyTeamFire arms or confirms firing the focused roster employee.
+// First press: preview severance quote (no state change). Second press on the
+// same employee: dispatch FireEmployee. Esc / focus change clears pending.
 func applyTeamFire(m *Model) {
 	if !m.teamFocusRoster {
+		m.fireConfirmID = ""
 		m.setNotice("請先切到名冊焦點（space）再解雇")
 		return
 	}
 	clampTeamCursors(m)
 	emps := m.state.Employees
 	if len(emps) == 0 || m.rosterCursor < 0 || m.rosterCursor >= len(emps) {
+		m.fireConfirmID = ""
 		m.setNotice("沒有可解雇的員工")
 		return
 	}
 	emp := emps[m.rosterCursor]
 	sev := sim.SeveranceQuote(emp, m.state, m.cfg)
+	if m.fireConfirmID != emp.ID {
+		m.fireConfirmID = emp.ID
+		m.setNotice(fmt.Sprintf("確認解雇 %s？遣散 $%s — 再按 f 確認，Esc 取消", emp.Name, human(sev)))
+		return
+	}
 	ns, err := sim.Apply(m.state, model.FireEmployee{EmployeeID: emp.ID}, m.cfg)
 	if err != nil {
+		m.fireConfirmID = ""
 		m.setNotice(teamCmdErrNotice(err))
 		return
 	}
 	m.state = ns
+	m.fireConfirmID = ""
 	clampTeamCursors(m)
 	m.setNotice(fmt.Sprintf("已解雇 %s（遣散 $%s）", emp.Name, human(sev)))
+}
+
+// clearTeamFireConfirm drops a pending fire confirmation.
+func clearTeamFireConfirm(m *Model) {
+	if m.fireConfirmID == "" {
+		return
+	}
+	m.fireConfirmID = ""
+	m.setNotice("已取消解雇")
 }
 
 // applyTeamUpgrade upgrades the office by one level.
