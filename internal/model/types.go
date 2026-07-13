@@ -4,28 +4,15 @@ package model
 
 import "time"
 
-// StaffTier is a researcher skill tier. Values double as array indices.
-type StaffTier int
-
-const (
-	TierNone StaffTier = iota // 0 — unused slot / no staff
-	Tier1                     // 1
-	Tier2                     // 2
-	Tier3                     // 3
-	NumTiers = 4              // size of tier-indexed arrays
-)
-
 // Resources are the fungible currencies the player accumulates.
 type Resources struct {
 	RnD  float64
 	Cash float64
 }
 
-// Research is the R&D-generating workforce.
-// Researchers is indexed by StaffTier (index 0 unused).
+// Research holds R&D modifiers (workforce is now per-employee on GameState).
 type Research struct {
-	Researchers    [NumTiers]int
-	EfficiencyMult float64 // infra bonus; 1.0 = no bonus
+	EfficiencyMult float64 // 1.0 = neutral; kept for tech hooks / future
 }
 
 // TokenEvent is a normalized real-world AI-tool usage event.
@@ -51,9 +38,9 @@ type GameState struct {
 	GameTime          float64
 	Resources         Resources
 	Research          Research
-	Engineers         int
-	Ops               int
-	Marketing         int
+	Employees         []Employee
+	Office            Office
+	Market            TalentMarket
 	UnlockedTech      []string
 	PeakValuation     float64
 	MilestonesReached int
@@ -65,7 +52,6 @@ type GameState struct {
 	Datacenter        Datacenter
 	HasTraining       bool
 	Training          TrainingJob
-	HiredStars        []string
 	Events            EventsState
 	Campaign          CampaignState
 	Progression       ProgressionState
@@ -216,7 +202,7 @@ type ExpandDatacenter struct {
 
 func (ExpandDatacenter) commandMarker() {}
 
-// Role identifies an aggregate staff function.
+// Role identifies an aggregate staff function / employee stat axis.
 type Role int
 
 const (
@@ -226,24 +212,6 @@ const (
 	RoleMarketing              // 3
 	NumRoles       = 4
 )
-
-// HireStaff hires Count staff of Role (Tier used only for RoleResearcher).
-type HireStaff struct {
-	Role  Role
-	Tier  StaffTier
-	Count int
-}
-
-func (HireStaff) commandMarker() {}
-
-// FireStaff removes Count staff of Role (Tier used only for RoleResearcher).
-type FireStaff struct {
-	Role  Role
-	Tier  StaffTier
-	Count int
-}
-
-func (FireStaff) commandMarker() {}
 
 // TechBranch identifies a tech-tree branch.
 type TechBranch int
@@ -334,36 +302,3 @@ type BuyPrestigeNode struct {
 }
 
 func (BuyPrestigeNode) commandMarker() {}
-
-// StarEffects are a star employee's numeric bonuses; neutral = mults 1, bonus 0.
-type StarEffects struct {
-	QualityMult    [NumQualityDims]float64
-	RnDPerSec      float64
-	InfraMult      float64
-	UserGrowthMult float64
-}
-
-// NeutralStarEffects returns effects that change nothing.
-func NeutralStarEffects() StarEffects {
-	e := StarEffects{RnDPerSec: 0, InfraMult: 1, UserGrowthMult: 1}
-	for d := range e.QualityMult {
-		e.QualityMult[d] = 1
-	}
-	return e
-}
-
-// Star is a named hireable employee.
-type Star struct {
-	ID           string
-	Name         string
-	SigningCost  float64
-	SalaryPerSec float64
-	Effects      StarEffects
-}
-
-// SignStar hires the star with the given ID.
-type SignStar struct {
-	StarID string
-}
-
-func (SignStar) commandMarker() {}

@@ -5,15 +5,10 @@ import (
 	"time"
 )
 
-func TestResearchIndexedByTier(t *testing.T) {
+func TestResearchEfficiencyMult(t *testing.T) {
 	r := Research{EfficiencyMult: 1.0}
-	r.Researchers[Tier1] = 2
-	r.Researchers[Tier3] = 1
-	if r.Researchers[Tier1] != 2 || r.Researchers[Tier3] != 1 {
-		t.Fatalf("tier indexing wrong: %+v", r.Researchers)
-	}
-	if NumTiers != 4 {
-		t.Fatalf("NumTiers = %d, want 4", NumTiers)
+	if r.EfficiencyMult != 1.0 {
+		t.Fatalf("EfficiencyMult = %v, want 1.0", r.EfficiencyMult)
 	}
 }
 
@@ -129,24 +124,10 @@ func TestComputeInfraTypes(t *testing.T) {
 	}
 }
 
-func TestRolesAndStaffCommands(t *testing.T) {
-	if NumRoles != 4 || RoleMarketing != 3 {
-		t.Fatalf("role consts wrong")
-	}
-	var s GameState
-	s.Engineers = 3
-	s.Ops = 2
-	s.Marketing = 1
-	if s.Engineers != 3 || s.Ops != 2 || s.Marketing != 1 {
-		t.Fatalf("staff fields wrong: %+v", s)
-	}
-	var c1 Command = HireStaff{Role: RoleResearcher, Tier: Tier2, Count: 3}
-	var c2 Command = FireStaff{Role: RoleEngineer, Count: 1}
-	if _, ok := c1.(HireStaff); !ok {
-		t.Fatalf("HireStaff not a Command")
-	}
-	if _, ok := c2.(FireStaff); !ok {
-		t.Fatalf("FireStaff not a Command")
+func TestRolesConsts(t *testing.T) {
+	if NumRoles != 4 || RoleMarketing != 3 || RoleResearcher != 0 {
+		t.Fatalf("role consts wrong: NumRoles=%d RoleMarketing=%d RoleResearcher=%d",
+			NumRoles, RoleMarketing, RoleResearcher)
 	}
 }
 
@@ -197,23 +178,6 @@ func TestPrestigeTypes(t *testing.T) {
 	}
 	if _, ok := c2.(BuyPrestigeNode); !ok {
 		t.Fatalf("BuyPrestigeNode not a Command")
-	}
-}
-
-func TestStarTypes(t *testing.T) {
-	e := NeutralStarEffects()
-	if e.QualityMult[DimCapability] != 1 || e.InfraMult != 1 || e.UserGrowthMult != 1 || e.RnDPerSec != 0 {
-		t.Fatalf("neutral star effects wrong: %+v", e)
-	}
-	st := Star{ID: "x", Name: "X", SigningCost: 100, SalaryPerSec: 1, Effects: e}
-	var s GameState
-	s.HiredStars = append(s.HiredStars, st.ID)
-	if len(s.HiredStars) != 1 {
-		t.Fatalf("HiredStars not usable")
-	}
-	var c Command = SignStar{StarID: "x"}
-	if _, ok := c.(SignStar); !ok {
-		t.Fatalf("SignStar not a Command")
 	}
 }
 

@@ -5,8 +5,9 @@ import (
 	"strings"
 )
 
+// hqStageNames aligned with balance.Config.OfficeNames levels 1..8.
 var hqStageNames = [8]string{
-	"車庫", "小辦公室", "辦公樓", "科技園區", "摩天大樓", "百層巨塔", "企業之城", "太空電梯",
+	"車庫", "小辦公室", "開放式樓層", "辦公樓", "園區", "摩天樓", "巨塔", "太空電梯",
 }
 
 var hqStageIcons = [8]string{"🏠", "🏢", "🏬", "🏞", "🏙", "🗼", "🌃", "🚀"}
@@ -55,15 +56,26 @@ var hqArts = [8]string{
     ___|||_______`,
 }
 
-// hqStage clamps MilestonesReached into the art range.
-func hqStage(milestones int) int {
-	if milestones < 0 {
+// hqStageFromOffice maps Office.Level (1..8) to art index 0..7.
+func hqStageFromOffice(level int) int {
+	if level < 1 {
+		level = 1
+	}
+	if level > 8 {
+		level = 8
+	}
+	return level - 1
+}
+
+// hqStage clamps a raw art index into the art range.
+func hqStage(stage int) int {
+	if stage < 0 {
 		return 0
 	}
-	if milestones > 7 {
+	if stage > 7 {
 		return 7
 	}
-	return milestones
+	return stage
 }
 
 // hqArt renders a stage; lit swaps the datacenter light on (訓練中閃爍用).
@@ -86,7 +98,7 @@ func renderHQ(m Model, w int) string {
 // hqContent builds HQ card pieces. compact=true uses the single-line stage strip;
 // compact=false always uses full ASCII art (art width ≤ 30 cells) regardless of w.
 func hqContent(m Model, w int, compact bool) cardContent {
-	stage := hqStage(m.state.MilestonesReached)
+	stage := hqStageFromOffice(m.state.Office.Level)
 	if compact {
 		var icons []string
 		for i, ic := range hqStageIcons {

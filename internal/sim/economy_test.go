@@ -11,8 +11,6 @@ func TestEarlyGameBreakEven(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{}
 	s.Research.EfficiencyMult = 1
-	s.Research.Researchers[model.Tier1] = 2
-	s.Marketing = 1
 	s.Compute.RentedInference = map[string]int{"N7": 1}
 	s.Models = []model.Model{{Online: true, Segment: model.SegConsumer, Price: 12, Users: 1000,
 		Quality: [model.NumQualityDims]float64{25, 0, 0, 0}}}

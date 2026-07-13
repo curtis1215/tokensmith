@@ -8,20 +8,15 @@ import (
 
 func TestDefaultV0Values(t *testing.T) {
 	c := Default()
-	if c.ResearcherRnDPerSec[model.Tier1] != 0.005/RealSecCompression {
-		t.Errorf("Tier1 R&D/s = %v, want %v", c.ResearcherRnDPerSec[model.Tier1], 0.005/RealSecCompression)
-	}
-	if c.ResearcherRnDPerSec[model.Tier2] != 0.015/RealSecCompression {
-		t.Errorf("Tier2 R&D/s = %v, want %v", c.ResearcherRnDPerSec[model.Tier2], 0.015/RealSecCompression)
-	}
-	if c.ResearcherRnDPerSec[model.Tier3] != 0.04/RealSecCompression {
-		t.Errorf("Tier3 R&D/s = %v, want %v", c.ResearcherRnDPerSec[model.Tier3], 0.04/RealSecCompression)
-	}
 	if c.TokenInputWeight != 1 || c.TokenOutputWeight != 2 || c.TokenDivisor != 1 {
 		t.Errorf("token formula params wrong: %+v", c)
 	}
 	if c.StreakMult != 1.0 {
 		t.Errorf("StreakMult default = %v, want 1.0 (neutral)", c.StreakMult)
+	}
+	// Employee R&D uses RnDPerPower × RolePower (see applyEmployeeDefaults).
+	if c.RnDPerPower <= 0 {
+		t.Errorf("RnDPerPower = %v, want > 0", c.RnDPerPower)
 	}
 }
 
@@ -177,19 +172,23 @@ func TestSelfBuildCheaperThanRent(t *testing.T) {
 	}
 }
 
-func TestDefaultStaffValues(t *testing.T) {
+func TestDefaultEmployeeEconomyKnobs(t *testing.T) {
 	c := Default()
-	if c.ResearcherHireCost[model.Tier2] != 15000 {
-		t.Errorf("ResearcherHireCost[T2] = %v, want 15000", c.ResearcherHireCost[model.Tier2])
+	if c.PrimaryWeight != 1.0 || c.SecondaryWeight != 0.35 {
+		t.Errorf("role weights wrong: primary=%v secondary=%v", c.PrimaryWeight, c.SecondaryWeight)
 	}
-	if c.ResearcherSalaryPerSec[model.Tier3] != 0.005 {
-		t.Errorf("ResearcherSalaryPerSec[T3] = %v, want 0.005", c.ResearcherSalaryPerSec[model.Tier3])
+	wantRnD := 0.0002 / RealSecCompression
+	if c.RnDPerPower != wantRnD {
+		t.Errorf("RnDPerPower = %v, want %v", c.RnDPerPower, wantRnD)
 	}
-	if c.EngineerHireCost != 8000 || c.OpsHireCost != 6000 || c.MarketingHireCost != 6000 {
-		t.Errorf("hire costs wrong: %+v", c)
+	if c.SecondsPerMonth != c.MonthSec {
+		t.Errorf("SecondsPerMonth = %v, want MonthSec %v", c.SecondsPerMonth, c.MonthSec)
 	}
-	if c.EngineerInfraBonus != 0.02 || c.OpsChurnReduction != 0.1 || c.MarketingBonus != 0.03 {
-		t.Errorf("staff bonuses wrong: %+v", c)
+	if c.HireMonths != 2 || c.SeveranceMonths != 0.5 {
+		t.Errorf("hire/severance months wrong: hire=%v sev=%v", c.HireMonths, c.SeveranceMonths)
+	}
+	if c.MaxOfficeLevel != 8 || c.OfficeSeats[1] != 3 {
+		t.Errorf("office defaults wrong: max=%d seatsL1=%d", c.MaxOfficeLevel, c.OfficeSeats[1])
 	}
 }
 
@@ -247,27 +246,6 @@ func TestDefaultPrestige(t *testing.T) {
 	}
 	if n, ok := byID["rnd-mult-1"]; !ok || n.Effects.RnDMult != 1.1 {
 		t.Errorf("rnd-mult-1 wrong: %+v", n)
-	}
-}
-
-func TestDefaultStars(t *testing.T) {
-	c := Default()
-	if len(c.Stars) < 6 {
-		t.Fatalf("stars = %d, want >= 6", len(c.Stars))
-	}
-	byID := map[string]model.Star{}
-	for _, s := range c.Stars {
-		byID[s.ID] = s
-	}
-	if s, ok := byID["aria-chen"]; !ok || s.Effects.QualityMult[model.DimCapability] != 1.22 || s.Effects.RnDPerSec != 300/RealSecCompression {
-		t.Errorf("aria-chen wrong: %+v ok=%v", s, ok)
-	}
-	if s, ok := byID["marcus-cole"]; !ok || s.Effects.UserGrowthMult != 1.30 {
-		t.Errorf("marcus-cole wrong: %+v", s)
-	}
-	// unrelated fields neutral
-	if byID["aria-chen"].Effects.InfraMult != 1 {
-		t.Errorf("aria-chen InfraMult should be neutral 1")
 	}
 }
 

@@ -318,6 +318,12 @@ func resolveChoice(ns model.GameState, pendingIndex, choice int, auto bool, b ba
 		if choice == 0 { // public apology halves the loss, no aftermath
 			loss, entLoss = loss/2, entLoss/2
 		}
+		// Soften user loss by roster EventNegMult (<1 reduces impact).
+		neg := passiveSkillEffects(ns, b).EventNegMult
+		if neg > 0 && neg != 1 {
+			loss *= neg
+			entLoss *= neg
+		}
 		ns = scalePlayerUsers(ns, 1-loss, 1-entLoss)
 		if choice == 1 { // 低調: lingering elevated incident chance
 			ns.Events.Active = addModifier(ns.Events.Active, mod(-1, func(e *model.EventEffects) {
@@ -505,10 +511,8 @@ func eventWeight(ns model.GameState, spec balance.EventSpec, b balance.Config) f
 		}
 		return spec.Weight * f * techEffects(ns, b).IncidentMult * eventEffects(ns, b).IncidentChanceMult
 	case balance.EvPaper:
-		n := 0
-		for tier := model.Tier1; tier <= model.Tier3; tier++ {
-			n += ns.Research.Researchers[tier]
-		}
+		// Weight paper events by roster size (research staff was per-tier counts).
+		n := len(ns.Employees)
 		m := 1 + float64(n)*0.1
 		if m > 3 {
 			m = 3

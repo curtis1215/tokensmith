@@ -448,3 +448,297 @@ func assertRivalsBounded(t *testing.T, s model.GameState, b balance.Config) {
 		}
 	}
 }
+
+func TestProbeLegacyStaffEnvelope(t *testing.T) {
+	raw := []byte(`{
+		"schemaVersion":1,
+		"state":{
+			"Engineers":3,
+			"Ops":2,
+			"Marketing":1,
+			"HiredStars":["aria-chen","marcus-cole"],
+			"Research":{"Researchers":[0,4,1,0],"EfficiencyMult":1},
+			"Resources":{"Cash":1000,"RnD":0},
+			"GameTime":100
+		}
+	}`)
+	leg := probeLegacyStaff(raw)
+	if leg.Engineers != 3 || leg.Ops != 2 || leg.Marketing != 1 {
+		t.Fatalf("staff counts: %+v", leg)
+	}
+	if leg.Researchers != [4]int{0, 4, 1, 0} {
+		t.Fatalf("researchers: %v", leg.Researchers)
+	}
+	if len(leg.HiredStars) != 2 {
+		t.Fatalf("stars: %v", leg.HiredStars)
+	}
+	// heads = 3+2+1+4+1 = 11; stars = 2 → 11*2000 + 2*50000 = 122000
+	if got := leg.compensation(); got != 122_000 {
+		t.Fatalf("compensation = %v, want 122000", got)
+	}
+}
+
+func TestProbeLegacyStaffBare(t *testing.T) {
+	raw := []byte(`{"Engineers":5,"HiredStars":["x"],"Research":{"Researchers":[1,0,0,0]}}`)
+	leg := probeLegacyStaff(raw)
+	if leg.Engineers != 5 || leg.Researchers[0] != 1 || len(leg.HiredStars) != 1 {
+		t.Fatalf("bare probe: %+v", leg)
+	}
+	// 5+1 heads + 1 star = 6*2000 + 50000 = 62000
+	if got := leg.compensation(); got != 62_000 {
+		t.Fatalf("compensation = %v, want 62000", got)
+	}
+}
+
+func TestMigrateToEmployeeOfficeProbeCompensation(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{
+		GameTime:  500,
+		Resources: model.Resources{Cash: 1000},
+	}
+	leg := legacyStaffFields{
+		Engineers: 2, Ops: 1, Marketing: 0,
+		Researchers: [4]int{0, 1, 0, 0},
+		HiredStars:  []string{"aria-chen"},
+	}
+	// heads=4 → 8000 + star 50000 = 58000; cash 1000 → 59000
+	ns := migrateToEmployeeOffice(s, b, leg)
+	if ns.Office.Level != 1 {
+		t.Fatalf("Office.Level = %d, want 1", ns.Office.Level)
+	}
+	if ns.Employees == nil {
+		t.Fatal("Employees still nil")
+	}
+	if ns.Resources.Cash != 59_000 {
+		t.Fatalf("Cash = %v, want 59000", ns.Resources.Cash)
+	}
+	if len(ns.Market.Candidates) != b.MarketPoolSize {
+		t.Fatalf("market size = %d, want %d", len(ns.Market.Candidates), b.MarketPoolSize)
+	}
+	// Probe compensation must NOT also apply flat RestructuringGrant.
+	if ns.Resources.Cash == 1000+b.RestructuringGrant {
+		t.Fatal("double-applied RestructuringGrant")
+	}
+}
+
+func TestMigrateToEmployeeOfficeRestructuringGrantFallback(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{
+		GameTime:  1000,
+		Resources: model.Resources{Cash: 500},
+	}
+	ns := migrateToEmployeeOffice(s, b, legacyStaffFields{})
+	want := 500 + b.RestructuringGrant
+	if ns.Resources.Cash != want {
+		t.Fatalf("Cash = %v, want %v (grant fallback)", ns.Resources.Cash, want)
+	}
+	if ns.Office.Level != 1 || len(ns.Market.Candidates) == 0 {
+		t.Fatalf("office/market not seeded: level=%d cands=%d", ns.Office.Level, len(ns.Market.Candidates))
+	}
+}
+
+func TestMigrateToEmployeeOfficeNoGrantAtGameStart(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{GameTime: 0, Resources: model.Resources{Cash: 100}}
+	ns := migrateToEmployeeOffice(s, b, legacyStaffFields{})
+	if ns.Resources.Cash != 100 {
+		t.Fatalf("Cash = %v, want 100 (no grant at t=0)", ns.Resources.Cash)
+	}
+}
+
+func TestLoadSchema1LegacyStaffCompensation(t *testing.T) {
+	b := balance.Default()
+	path := filepath.Join(t.TempDir(), "v1-staff.json")
+	// Schema 1 envelope still carrying retired staff/star fields in JSON.
+	raw := []byte(`{
+		"schemaVersion":1,
+		"state":{
+			"GameTime":3600,
+			"Resources":{"Cash":10000,"RnD":50},
+			"Engineers":2,
+			"Ops":1,
+			"Marketing":1,
+			"HiredStars":["aria-chen"],
+			"Research":{"Researchers":[0,3,0,0],"EfficiencyMult":1},
+			"Progression":{"MaxUnlockedGen":1,"IndustryTime":3600}
+		}
+	}`)
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := LoadWithConfig(path, b)
+	if err != nil || !ok {
+		t.Fatalf("load: ok=%v err=%v", ok, err)
+	}
+	// heads = 2+1+1+3 = 7 → 14000; stars 1 → 50000; cash 10000 → 74000
+	if got.Resources.Cash != 74_000 {
+		t.Fatalf("Cash = %v, want 74000", got.Resources.Cash)
+	}
+	if got.Office.Level != 1 {
+		t.Fatalf("Office.Level = %d, want 1", got.Office.Level)
+	}
+	if len(got.Employees) != 0 {
+		t.Fatalf("Employees = %d, want empty", len(got.Employees))
+	}
+	if len(got.Market.Candidates) != b.MarketPoolSize {
+		t.Fatalf("market = %d, want %d", len(got.Market.Candidates), b.MarketPoolSize)
+	}
+	// Rewritten as schema 2.
+	onDisk, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env SaveFile
+	if err := json.Unmarshal(onDisk, &env); err != nil {
+		t.Fatal(err)
+	}
+	if env.SchemaVersion != CurrentSchemaVersion {
+		t.Fatalf("schemaVersion = %d, want %d", env.SchemaVersion, CurrentSchemaVersion)
+	}
+	// Idempotent: second load must not re-grant.
+	cashAfter := got.Resources.Cash
+	got2, ok, err := LoadWithConfig(path, b)
+	if err != nil || !ok {
+		t.Fatalf("second load: %v", err)
+	}
+	if got2.Resources.Cash != cashAfter {
+		t.Fatalf("double compensation: first=%v second=%v", cashAfter, got2.Resources.Cash)
+	}
+}
+
+func TestLoadSchema1RestructuringGrantFallback(t *testing.T) {
+	b := balance.Default()
+	path := filepath.Join(t.TempDir(), "v1-midrun.json")
+	// Mid-run v1 with no probeable staff (fields already dropped or never set).
+	raw := []byte(`{
+		"schemaVersion":1,
+		"state":{
+			"GameTime":999,
+			"Resources":{"Cash":1,"RnD":0},
+			"Progression":{"MaxUnlockedGen":2,"IndustryTime":999}
+		}
+	}`)
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := LoadWithConfig(path, b)
+	if err != nil || !ok {
+		t.Fatalf("load: ok=%v err=%v", ok, err)
+	}
+	if got.Resources.Cash != 1+b.RestructuringGrant {
+		t.Fatalf("Cash = %v, want %v", got.Resources.Cash, 1+b.RestructuringGrant)
+	}
+	if got.Office.Level != 1 || len(got.Market.Candidates) == 0 {
+		t.Fatalf("defaults missing: office=%d market=%d", got.Office.Level, len(got.Market.Candidates))
+	}
+}
+
+func TestLoadSchema2SoftRepairsOfficeAndMarket(t *testing.T) {
+	b := balance.Default()
+	path := filepath.Join(t.TempDir(), "v2-zero-office.json")
+	// Already schema 2 but Office.Level=0 and empty market — soft repair, no grant.
+	s := model.GameState{
+		GameTime:    5000,
+		Resources:   model.Resources{Cash: 42, RnD: 1},
+		Progression: model.ProgressionState{MaxUnlockedGen: 1, IndustryTime: 5000},
+		// Office.Level 0, Employees nil, Market empty (uninitialized)
+	}
+	if err := Save(path, s); err != nil {
+		t.Fatal(err)
+	}
+	// Force schema 2 envelope with zero office (Save already writes CurrentSchemaVersion).
+	got, ok, err := LoadWithConfig(path, b)
+	if err != nil || !ok {
+		t.Fatalf("load: ok=%v err=%v", ok, err)
+	}
+	if got.Office.Level != 1 {
+		t.Fatalf("Office.Level = %d, want 1", got.Office.Level)
+	}
+	if got.Employees == nil {
+		t.Fatal("Employees still nil")
+	}
+	if len(got.Market.Candidates) != b.MarketPoolSize {
+		t.Fatalf("market = %d, want %d", len(got.Market.Candidates), b.MarketPoolSize)
+	}
+	// No RestructuringGrant on already-current schema.
+	if got.Resources.Cash != 42 {
+		t.Fatalf("Cash = %v, want 42 (no grant on schema 2 soft-repair)", got.Resources.Cash)
+	}
+}
+
+func TestLoadSchema2PreservesDepletedMarket(t *testing.T) {
+	b := balance.Default()
+	path := filepath.Join(t.TempDir(), "v2-empty-market.json")
+	// Legal runtime: hired everyone, waiting on free refresh, high reroll count.
+	s := model.GameState{
+		GameTime:  100,
+		Resources: model.Resources{Cash: 99},
+		Office:    model.Office{Level: 2},
+		Employees: []model.Employee{{ID: "e1", MonthlySalary: 1000}},
+		Market: model.TalentMarket{
+			Candidates:    []model.Employee{}, // non-nil empty
+			NextRefreshAt: 10000,
+			RerollCount:   4,
+			RandState:     42,
+		},
+		Progression: model.ProgressionState{MaxUnlockedGen: 1, IndustryTime: 100},
+	}
+	if err := Save(path, s); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := LoadWithConfig(path, b)
+	if err != nil || !ok {
+		t.Fatalf("load: ok=%v err=%v", ok, err)
+	}
+	if len(got.Market.Candidates) != 0 {
+		t.Fatalf("depleted market was refilled: %d candidates", len(got.Market.Candidates))
+	}
+	if got.Market.RerollCount != 4 {
+		t.Fatalf("RerollCount=%d want 4 (no free reset on reload)", got.Market.RerollCount)
+	}
+	if got.Market.NextRefreshAt != 10000 {
+		t.Fatalf("NextRefreshAt=%v want 10000", got.Market.NextRefreshAt)
+	}
+	if got.Market.RandState != 42 {
+		t.Fatalf("RandState=%d want 42", got.Market.RandState)
+	}
+}
+
+func TestLoadBareLegacyMigratesOffice(t *testing.T) {
+	b := balance.Default()
+	path := filepath.Join(t.TempDir(), "bare-staff.json")
+	raw := []byte(`{
+		"GameTime":100,
+		"Resources":{"Cash":0,"RnD":0},
+		"Engineers":1,
+		"Ops":0,
+		"Marketing":0,
+		"HiredStars":[],
+		"Research":{"Researchers":[0,1,0,0]}
+	}`)
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := LoadWithConfig(path, b)
+	if err != nil || !ok {
+		t.Fatalf("load: ok=%v err=%v", ok, err)
+	}
+	// heads = 1+1 = 2 → 4000
+	if got.Resources.Cash != 4000 {
+		t.Fatalf("Cash = %v, want 4000", got.Resources.Cash)
+	}
+	if got.Office.Level != 1 || len(got.Market.Candidates) == 0 {
+		t.Fatalf("office/market: level=%d cands=%d", got.Office.Level, len(got.Market.Candidates))
+	}
+	if got.Progression.MaxUnlockedGen < 1 {
+		t.Fatalf("MaxUnlockedGen = %d", got.Progression.MaxUnlockedGen)
+	}
+	onDisk, _ := os.ReadFile(path)
+	var env SaveFile
+	if err := json.Unmarshal(onDisk, &env); err != nil {
+		t.Fatal(err)
+	}
+	if env.SchemaVersion != CurrentSchemaVersion {
+		t.Fatalf("schema = %d, want %d", env.SchemaVersion, CurrentSchemaVersion)
+	}
+}

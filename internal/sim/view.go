@@ -79,11 +79,11 @@ func EffectiveInference(ns model.GameState, b balance.Config) float64 {
 	return effectiveInference(ns, b)
 }
 
-// RnDRatePerSec is the steady R&D generated each second by staff and stars,
+// RnDRatePerSec is the steady R&D generated each second by employees,
 // after prestige multipliers (the bursty token inflow is surfaced separately).
 func RnDRatePerSec(ns model.GameState, b balance.Config) float64 {
 	pe := PrestigeEffects(ns.Prestige.UnlockedPrestige, b)
-	return (staffRnDPerSec(ns.Research, b) + starEffects(ns, b).RnDPerSec) * pe.RnDMult
+	return staffRnDPerSecFromEmployees(ns, b) * pe.RnDMult
 }
 
 // TotalUsers sums users across online models.
@@ -115,6 +115,7 @@ func NetCashPerSec(ns model.GameState, b balance.Config) float64 {
 	ce := campaignEffects(ns, b)
 	pe := PrestigeEffects(ns.Prestige.UnlockedPrestige, b)
 	ee := eventEffects(ns, b)
+	sk := passiveSkillEffects(ns, b)
 	var rev float64
 	for _, m := range ns.Models {
 		if !m.Online {
@@ -123,7 +124,8 @@ func NetCashPerSec(ns model.GameState, b balance.Config) float64 {
 		if int(m.Segment) < 0 || int(m.Segment) >= model.NumSegments {
 			continue
 		}
-		rev += m.Users * m.Price * ce.RevenueMult[m.Segment] / b.MonthSec * pe.CashMult * b.RevenueMult
+		rev += m.Users * m.Price * ce.RevenueMult[m.Segment] / b.MonthSec *
+			pe.CashMult * b.RevenueMult * sk.RevenueMult
 	}
 	serverPower := 0.0
 	for _, sv := range ns.Servers {
@@ -131,8 +133,7 @@ func NetCashPerSec(ns model.GameState, b balance.Config) float64 {
 	}
 	costs := poolRentPerSec(ns, b) +
 		serverPower*b.ElectricityPerKWSec*ee.PowerCostMult +
-		totalSalaryPerSec(ns, b) +
-		starSalaryPerSec(ns, b)
+		totalSalaryPerSec(ns, b)
 	return rev - costs
 }
 
@@ -191,7 +192,7 @@ func EstimateUserTarget(s model.GameState, modelIndex int, price float64, b bala
 		return 0
 	}
 	te := techEffects(s, b)
-	se := starEffects(s, b)
+	sk := passiveSkillEffects(s, b)
 	ee := eventEffects(s, b)
 	ce := campaignEffects(s, b)
 	w := b.SegmentWeights[m.Segment]
@@ -210,9 +211,9 @@ func EstimateUserTarget(s model.GameState, modelIndex int, price float64, b bala
 	}
 	refPrice := EffectiveRefPrice(s, m.Segment, b)
 	demandMult := math.Pow(refPrice/price, b.PriceElasticity)
-	marketingMult := 1 + float64(s.Marketing)*b.MarketingBonus
+	marketingMult := employeeMarketingMult(s, b) * sk.UserGrowthMult
 	target := appeal * b.SegmentTargetScale[m.Segment] * demandMult * share *
-		marketingMult * te.UserGrowthMult * se.UserGrowthMult *
+		marketingMult * te.UserGrowthMult *
 		ee.UserGrowthMult * ee.TAMMult
 	target *= ce.UserGrowthMult[m.Segment]
 	return target

@@ -353,7 +353,7 @@ func campaignProgress(s model.GameState, b balance.Config, status CampaignStatus
 				boolProgress(enterpriseSafetyOK(s, b)),
 				clamp01(status.Share/b.Campaign.EnterpriseWinShare),
 				boolProgress(status.PriceOK),
-				boolProgress(s.Ops >= 1),
+				boolProgress(totalRolePower(s, b)[model.RoleOps] > 0),
 				capacityProgress(s, b, 0.80),
 			)
 		case model.DoctrineDeveloper:

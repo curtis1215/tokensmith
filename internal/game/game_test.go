@@ -2,8 +2,6 @@ package game
 
 import (
 	"testing"
-
-	"tokensmith/internal/model"
 )
 
 func TestNewGameSeed(t *testing.T) {
@@ -17,8 +15,14 @@ func TestNewGameSeed(t *testing.T) {
 	if len(s.Competitors) != 7 {
 		t.Errorf("competitors = %d, want 7", len(s.Competitors))
 	}
-	if s.Research.Researchers[model.Tier1] == 0 || s.Research.EfficiencyMult == 0 {
-		t.Errorf("research not seeded: %+v", s.Research)
+	if s.Research.EfficiencyMult == 0 {
+		t.Errorf("research efficiency not seeded: %+v", s.Research)
+	}
+	if s.Office.Level != 1 {
+		t.Errorf("Office.Level = %d, want 1", s.Office.Level)
+	}
+	if len(s.Employees) != 0 {
+		t.Errorf("new game should start with empty roster, got %d", len(s.Employees))
 	}
 	// New runs start with NO rented compute — the player rents on demand so
 	// there is no rent burn before a product exists.
@@ -30,5 +34,8 @@ func TestNewGameSeed(t *testing.T) {
 	}
 	if s.Progression.IndustryTime != 0 || s.Progression.Frontier.Active || len(s.Progression.Eras) != 0 {
 		t.Errorf("rest of Progression should be zero on new game: %+v", s.Progression)
+	}
+	if len(s.Market.Candidates) == 0 {
+		t.Errorf("NewGame should seed talent market candidates")
 	}
 }

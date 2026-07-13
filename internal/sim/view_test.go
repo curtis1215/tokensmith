@@ -25,9 +25,15 @@ func TestRnDRatePerSec(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{}
 	s.Research.EfficiencyMult = 1
-	s.Research.Researchers[model.Tier1] = 2 // 2 × (0.005/RealSecCompression)/s
-	want := 2 * 0.005 / balance.RealSecCompression
-	if RnDRatePerSec(s, b) != want {
+	if RnDRatePerSec(s, b) != 0 {
+		t.Errorf("RnDRatePerSec empty = %v, want 0", RnDRatePerSec(s, b))
+	}
+	s.Employees = []model.Employee{{
+		PrimaryRole: model.RoleResearcher,
+		Stats:       [model.NumRoles]int{50, 0, 0, 0},
+	}}
+	want := staffRnDPerSecFromEmployees(s, b)
+	if !approx(RnDRatePerSec(s, b), want) {
 		t.Errorf("RnDRatePerSec = %v, want %v", RnDRatePerSec(s, b), want)
 	}
 }

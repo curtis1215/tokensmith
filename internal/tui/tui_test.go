@@ -406,12 +406,21 @@ func TestSaveMetaPersistsAchievements(t *testing.T) {
 
 func TestHireShowsSuccessNotice(t *testing.T) {
 	m := newAt(filepath.Join(t.TempDir(), "save.json"))
-	m.state.Resources.Cash = 1e9
 	m.page = PageTeam
+	m.state.Resources.Cash = 100_000
+	m.state.Office.Level = 1
+	m.state.Employees = nil
+	m.state.Market.Candidates = []model.Employee{
+		{ID: "c1", Name: "測試員", HireCost: 100, MonthlySalary: 500, Rank: model.RankGrunt, PrimaryRole: model.RoleResearcher},
+	}
+	m.marketCursor = 0
 	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
 	m = mm.(Model)
-	if !strings.Contains(m.notice, "已雇用研究員") {
-		t.Fatalf("hire should set success notice, got %q", m.notice)
+	if !strings.Contains(m.notice, "已雇用") {
+		t.Fatalf("hire should set notice, got %q", m.notice)
+	}
+	if len(m.state.Employees) != 1 {
+		t.Fatalf("hire should add employee, got %d", len(m.state.Employees))
 	}
 }
 

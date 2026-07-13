@@ -114,14 +114,11 @@ func TestPageChangeGotoTop(t *testing.T) {
 }
 
 func TestTeamKStillHiresNotScroll(t *testing.T) {
+	// Team uses k for focus navigation (not viewport scroll).
 	m := tallViewport(t, PageTeam)
-	beforeM := m.state.Marketing
 	beforeOff := m.vp.YOffset
 	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
 	g := nm.(Model)
-	if g.state.Marketing != beforeM+1 {
-		t.Fatalf("team k should hire marketing: %d → %d", beforeM, g.state.Marketing)
-	}
 	if g.vp.YOffset != beforeOff {
 		t.Fatalf("team k must not scroll")
 	}

@@ -104,17 +104,31 @@ var achievementCatalog = []achievement{
 	{"tokens-10m", "千萬鍛造", "累計收成 10M tokens", func(m Model) bool { return totalTokens(m) >= 10_000_000 }},
 	{"tokens-100m", "億級鍛造", "累計收成 100M tokens", func(m Model) bool { return totalTokens(m) >= 100_000_000 }},
 	// 經營（18-21）
-	{"star-first", "首位明星", "簽下第一位明星員工", func(m Model) bool { return len(m.state.HiredStars) >= 1 }},
-	{"star-all", "全明星陣容", "簽下所有明星員工", func(m Model) bool {
-		return len(m.cfg.Stars) > 0 && len(m.state.HiredStars) >= len(m.cfg.Stars)
+	{"star-first", "首位明星", "雇用第一位大神級員工", func(m Model) bool {
+		for _, e := range m.state.Employees {
+			if e.Rank >= model.RankGod {
+				return true
+			}
+		}
+		return false
+	}},
+	{"star-all", "全明星陣容", "同時擁有三名大神級員工", func(m Model) bool {
+		n := 0
+		for _, e := range m.state.Employees {
+			if e.Rank >= model.RankGod {
+				n++
+			}
+		}
+		return n >= 3
 	}},
 	{"team-full", "四職能齊備", "研究/工程/營運/行銷都有人", func(m Model) bool {
-		s := m.state
-		r := 0
-		for _, n := range s.Research.Researchers {
-			r += n
+		c := primaryRoleCounts(m.state)
+		for r := model.Role(0); r < model.NumRoles; r++ {
+			if c[r] == 0 {
+				return false
+			}
 		}
-		return r > 0 && s.Engineers > 0 && s.Ops > 0 && s.Marketing > 0
+		return true
 	}},
 	{"triple-crown", "三冠王", "三個市場同時排名第一", func(m Model) bool {
 		for seg := 0; seg < model.NumSegments; seg++ {

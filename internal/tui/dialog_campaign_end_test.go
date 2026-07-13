@@ -203,7 +203,7 @@ func TestCampaignEndPWithoutVictoryKeepsPrestigeReset(t *testing.T) {
 	m.state.PeakValuation = 1e9
 	m.state.Resources.Cash = 5e6
 	m.state.Resources.RnD = 1e6
-	m.state.Engineers = 5
+	m.state.Employees = []model.Employee{{ID: "e1", Rank: model.RankStaff}}
 	m.state.Prestige.Patents = 1
 	beforePatents := m.state.Prestige.Patents
 	wantPatents := beforePatents + 3 // patentsFor(1e9) = 3 with default balance
@@ -216,9 +216,9 @@ func TestCampaignEndPWithoutVictoryKeepsPrestigeReset(t *testing.T) {
 	if got.state.Prestige.Patents != wantPatents {
 		t.Fatalf("PrestigeReset patents=%v want %v (banked)", got.state.Prestige.Patents, wantPatents)
 	}
-	if len(got.state.Models) != 0 || got.state.Engineers != 0 || got.state.PeakValuation != 0 {
-		t.Fatalf("PrestigeReset must start a fresh run: models=%d eng=%d peak=%v",
-			len(got.state.Models), got.state.Engineers, got.state.PeakValuation)
+	if len(got.state.Models) != 0 || len(got.state.Employees) != 0 || got.state.PeakValuation != 0 {
+		t.Fatalf("PrestigeReset must start a fresh run: models=%d employees=%d peak=%v",
+			len(got.state.Models), len(got.state.Employees), got.state.PeakValuation)
 	}
 	if got.state.Resources.Cash != got.cfg.StartingCash {
 		t.Fatalf("cash after PrestigeReset=%v want StartingCash %v", got.state.Resources.Cash, got.cfg.StartingCash)

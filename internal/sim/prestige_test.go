@@ -99,11 +99,15 @@ func TestFreshRun(t *testing.T) {
 	if ns.Research.EfficiencyMult != 1 {
 		t.Errorf("efficiency mult not reset to 1")
 	}
-	// The starting baseline (researchers, base R&D) must be reseeded so a reset
-	// run is actually playable. Compute starts empty (nil maps), same as a
-	// brand-new run — the player rents on demand.
-	if ns.Research.Researchers[model.Tier1] != b.StartingResearchersT1 {
-		t.Errorf("researchers not reseeded: %v", ns.Research.Researchers[model.Tier1])
+	// Office L1, empty roster, talent market seeded. Compute starts empty.
+	if ns.Office.Level != 1 {
+		t.Errorf("office level = %d, want 1", ns.Office.Level)
+	}
+	if len(ns.Employees) != 0 {
+		t.Errorf("employees should start empty, got %d", len(ns.Employees))
+	}
+	if len(ns.Market.Candidates) != b.MarketPoolSize {
+		t.Errorf("market candidates = %d, want %d", len(ns.Market.Candidates), b.MarketPoolSize)
 	}
 	if len(ns.Compute.RentedTraining) != 0 || len(ns.Compute.RentedInference) != 0 {
 		t.Errorf("compute should start empty, got train=%v inf=%v", ns.Compute.RentedTraining, ns.Compute.RentedInference)
@@ -116,6 +120,17 @@ func TestFreshRun(t *testing.T) {
 	}
 	if ns.Progression.IndustryTime != 0 || ns.Progression.Frontier.Active || len(ns.Progression.Eras) != 0 {
 		t.Errorf("rest of Progression should be zero on fresh run: %+v", ns.Progression)
+	}
+}
+
+func TestFreshRunSeedsOfficeAndMarket(t *testing.T) {
+	b := balance.Default()
+	ns := freshRun(model.Prestige{}, b)
+	if ns.Office.Level != 1 || len(ns.Employees) != 0 {
+		t.Fatalf("%+v", ns)
+	}
+	if len(ns.Market.Candidates) != b.MarketPoolSize {
+		t.Fatal(len(ns.Market.Candidates))
 	}
 }
 

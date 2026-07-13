@@ -24,7 +24,11 @@ func winningCampaignFixture(d model.Doctrine, seed uint64, b balance.Config) mod
 		Resources:   model.Resources{Cash: 1e7, RnD: 1e7},
 		Models:      []model.Model{{Online: true, Segment: seg, Price: price, Users: 100000, Quality: [4]float64{100, 100, 100, 100}}},
 		Competitors: comps,
-		Ops:         2,
+		// Enterprise showdown needs ops RolePower > 0 (was Ops headcount ≥ 1).
+		Employees: []model.Employee{{
+			ID: "ops-fixture", PrimaryRole: model.RoleOps,
+			Stats: [model.NumRoles]int{10, 10, 40, 10},
+		}},
 	}
 	s.Compute.RentedInference = map[string]int{balance.EntryProcessID: 1000}
 	s.Campaign.RandState = seed
