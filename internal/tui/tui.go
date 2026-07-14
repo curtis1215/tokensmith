@@ -587,9 +587,10 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		cfgTick.StreakMult = m.currentStreakMult()
 		if m.tokensThisTick {
 			pe := sim.PrestigeEffects(m.state.Prestige.UnlockedPrestige, cfgTick)
+			hq := balance.OfficeTokenRnDMultAt(m.state.Office.Level, cfgTick)
 			rnd := make(map[string]float64, len(events))
 			for _, e := range events {
-				rnd[e.Source] += sim.TokenRawRnD([]model.TokenEvent{e}, cfgTick) * cfgTick.StreakMult * pe.RnDMult
+				rnd[e.Source] += sim.TokenRawRnD([]model.TokenEvent{e}, cfgTick) * cfgTick.StreakMult * pe.RnDMult * hq
 			}
 			m.lastTokenRnD = rnd
 		}
@@ -1437,7 +1438,9 @@ func renderResourceBar(m Model) string {
 			chip := fmt.Sprintf(" ⚡%s +%s R&D ", sourceLabel(src), human(m.lastTokenRnD[src]))
 			parts = append(parts, lipgloss.NewStyle().Bold(true).Foreground(colorInk).Background(colorCyan).Render(chip))
 		}
-		bar += "  " + strings.Join(parts, " ")
+		hq := balance.OfficeTokenRnDMultAt(m.state.Office.Level, m.cfg)
+		hqChip := styleMuted.Render(fmt.Sprintf(" ·  總部 ×%.2f", hq))
+		bar += "  " + strings.Join(parts, " ") + hqChip
 	}
 	return bar
 }

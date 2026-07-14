@@ -3,6 +3,8 @@ package tui
 import (
 	"fmt"
 	"strings"
+
+	"tokensmith/internal/balance"
 )
 
 // hqStageNames aligned with balance.Config.OfficeNames levels 1..8.
@@ -108,11 +110,14 @@ func hqContent(m Model, w int, compact bool) cardContent {
 				icons = append(icons, styleMuted.Render(ic))
 			}
 		}
+		hq := balance.OfficeTokenRnDMultAt(m.state.Office.Level, m.cfg)
+		body := strings.Join(icons, styleMuted.Render("→")) +
+			styleMuted.Render(fmt.Sprintf(" · Token→R&D ×%.2f", hq))
 		return cardContent{
 			kind:  CardDefault,
 			w:     w,
 			title: "總部",
-			body:  strings.Join(icons, styleMuted.Render("→")),
+			body:  body,
 		}
 	}
 	lit := m.state.HasTraining && m.blink
@@ -121,10 +126,12 @@ func hqContent(m Model, w int, compact bool) cardContent {
 	if m.state.HasTraining {
 		status = styleAmber.Render("  訓練機房運轉中…")
 	}
+	hq := balance.OfficeTokenRnDMultAt(m.state.Office.Level, m.cfg)
+	multLine := styleMuted.Render(fmt.Sprintf("Token→R&D ×%.2f", hq))
 	return cardContent{
 		kind:  CardDefault,
 		w:     w,
 		title: fmt.Sprintf("總部 — %s %s", hqStageIcons[stage], hqStageNames[stage]),
-		body:  art + status,
+		body:  art + status + "\n" + multLine,
 	}
 }
