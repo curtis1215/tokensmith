@@ -104,6 +104,10 @@ type Config struct {
 	OfficeUpgradeCost [9]float64
 	// OfficeNames Chinese stage labels aligned with ASCII HQ.
 	OfficeNames [9]string
+	// OfficeTokenRnDMult[level] multiplies token-sourced R&D only (never employee
+	// R&D). Index 0 unused; levels 1..MaxOfficeLevel. See design
+	// 2026-07-14-hq-token-rnd-mult.
+	OfficeTokenRnDMult [9]float64
 	// Talent market pool + free refresh + paid reroll geometric cost.
 	MarketPoolSize     int
 	MarketRefreshSec   float64

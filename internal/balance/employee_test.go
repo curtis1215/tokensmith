@@ -80,3 +80,35 @@ func TestMarketRefreshIsWallMinuteScale(t *testing.T) {
 		t.Fatalf("MarketRefreshSec=%v want %v", b.MarketRefreshSec, want)
 	}
 }
+
+func TestOfficeTokenRnDMultTable(t *testing.T) {
+	b := Default()
+	want := [9]float64{0, 1.0, 1.3, 1.7, 2.2, 2.8, 3.5, 4.2, 5.0}
+	if b.OfficeTokenRnDMult != want {
+		t.Fatalf("OfficeTokenRnDMult = %v, want %v", b.OfficeTokenRnDMult, want)
+	}
+}
+
+func TestOfficeTokenRnDMultAt(t *testing.T) {
+	b := Default()
+	if got := OfficeTokenRnDMultAt(1, b); got != 1.0 {
+		t.Fatalf("L1 = %v, want 1.0", got)
+	}
+	if got := OfficeTokenRnDMultAt(8, b); got != 5.0 {
+		t.Fatalf("L8 = %v, want 5.0", got)
+	}
+	if got := OfficeTokenRnDMultAt(0, b); got != 1.0 {
+		t.Fatalf("level 0 → L1 = %v, want 1.0", got)
+	}
+	if got := OfficeTokenRnDMultAt(-3, b); got != 1.0 {
+		t.Fatalf("negative → L1 = %v, want 1.0", got)
+	}
+	if got := OfficeTokenRnDMultAt(99, b); got != 5.0 {
+		t.Fatalf("oversize clamps to L8 = %v, want 5.0", got)
+	}
+	// Fail-safe: non-positive slot after clamp returns 1.0
+	b.OfficeTokenRnDMult[1] = 0
+	if got := OfficeTokenRnDMultAt(1, b); got != 1.0 {
+		t.Fatalf("non-positive mult fail-safe = %v, want 1.0", got)
+	}
+}

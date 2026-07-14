@@ -18,6 +18,30 @@ func OfficeSeatsAt(level int, b Config) int {
 	return b.OfficeSeats[level]
 }
 
+// OfficeTokenRnDMultAt returns the token→R&D multiplier for an office level.
+// Level < 1 is treated as 1; level above MaxOfficeLevel clamps to max.
+// Non-positive table entries return 1.0 (neutral fail-safe).
+func OfficeTokenRnDMultAt(level int, b Config) float64 {
+	if level < 1 {
+		level = 1
+	}
+	max := b.MaxOfficeLevel
+	if max < 1 {
+		max = 1
+	}
+	if level > max {
+		level = max
+	}
+	if level < 0 || level >= len(b.OfficeTokenRnDMult) {
+		return 1.0
+	}
+	m := b.OfficeTokenRnDMult[level]
+	if m <= 0 || math.IsNaN(m) {
+		return 1.0
+	}
+	return m
+}
+
 // OfficeUpgradeCostAt returns the cash cost to upgrade from level → level+1.
 // ok is false when already at MaxOfficeLevel or level is out of range.
 func OfficeUpgradeCostAt(level int, b Config) (cost float64, ok bool) {
@@ -80,6 +104,17 @@ func applyEmployeeDefaults(c *Config) {
 		"摩天樓",
 		"巨塔",
 		"太空電梯",
+	}
+	c.OfficeTokenRnDMult = [9]float64{
+		0,
+		1.0, // L1 車庫
+		1.3, // L2 小辦公室
+		1.7, // L3 開放式樓層
+		2.2, // L4 辦公樓
+		2.8, // L5 園區
+		3.5, // L6 摩天樓
+		4.2, // L7 巨塔
+		5.0, // L8 太空電梯
 	}
 
 	c.MarketPoolSize = 5
