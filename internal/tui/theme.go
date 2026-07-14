@@ -26,6 +26,7 @@ var (
 	styleLoss   = lipgloss.NewStyle().Foreground(colorLoss)
 	styleAmber  = lipgloss.NewStyle().Foreground(colorAmber)
 	styleGold   = lipgloss.NewStyle().Foreground(colorGold)
+	styleDim    = lipgloss.NewStyle().Foreground(colorDim)
 )
 
 // CardKind 選擇作戰室卡片變體。

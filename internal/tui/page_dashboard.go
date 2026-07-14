@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"tokensmith/internal/metrics"
 	"tokensmith/internal/sim"
 )
@@ -48,6 +50,8 @@ func renderDashboard(m Model) string {
 	}
 
 	// R&D inflow multi-line by SourceOrder (positive booked amounts only).
+	// Palette matches SourceOrder: claude-code, codex, grok, opencode, staff.
+	inflowStyles := []lipgloss.Style{styleCyan, styleGain, styleAmber, styleGold, styleDim}
 	inflowSeries := make([][]float64, 0, len(metrics.SourceOrder))
 	for _, src := range metrics.SourceOrder {
 		src := src
@@ -60,7 +64,7 @@ func renderDashboard(m Model) string {
 	}
 	inflowChart := longEmpty
 	if hasLong {
-		inflowChart = stylePurple.Render(multiLineChart(inflowSeries, chartW, chartH))
+		inflowChart = multiLineChart(inflowSeries, chartW, chartH, inflowStyles)
 	}
 
 	dayKey := m.metricsDay
@@ -69,14 +73,16 @@ func renderDashboard(m Model) string {
 	}
 	todayPt := m.metricsDoc.Days[dayKey]
 	legendParts := make([]string, 0, len(metrics.SourceOrder))
-	for _, src := range metrics.SourceOrder {
+	for i, src := range metrics.SourceOrder {
 		amt := 0.0
 		if todayPt.RnDInflow != nil {
 			amt = todayPt.RnDInflow[src]
 		}
-		legendParts = append(legendParts, fmt.Sprintf("%s %s", sourceLabel(src), human(amt)))
+		label := fmt.Sprintf("%s %s", sourceLabel(src), human(amt))
+		st := inflowStyles[i%len(inflowStyles)]
+		legendParts = append(legendParts, st.Render(label))
 	}
-	todayLegend := styleMuted.Render("今日 " + strings.Join(legendParts, " · "))
+	todayLegend := styleMuted.Render("今日 ") + strings.Join(legendParts, styleMuted.Render(" · "))
 
 	userVal := human(users)
 	if d := deltaToday(todayPt.OpenUsers, users, todayPt.OpenSet); d != "" {
