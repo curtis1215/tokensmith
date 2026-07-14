@@ -21,10 +21,10 @@ func IndustryTimeCapSec(s model.GameState, b balance.Config) float64 {
 	}
 	spec, err := balance.Generation(capGen)
 	if err != nil {
-		return math.MaxFloat64
+		return math.Inf(1)
 	}
 	if spec.TimeBaselineDay < 0 || math.IsNaN(spec.TimeBaselineDay) || math.IsInf(spec.TimeBaselineDay, 0) {
-		return math.MaxFloat64
+		return math.Inf(1)
 	}
 	return spec.TimeBaselineDay * 86400
 }

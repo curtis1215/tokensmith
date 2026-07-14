@@ -62,12 +62,16 @@ func TestTimeFrontierCappedByPlayerLead(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{}
 	s.Progression.MaxUnlockedGen = 5
-	// Raw industry far past Gen6 baseline (would be late-game without cap).
-	s.Progression.IndustryTime = 40500 * 86400
 	g6, err := balance.Generation(6)
 	if err != nil {
 		t.Fatal(err)
 	}
+	g10, err := balance.Generation(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Raw industry past Gen10 baseline so an uncapped path would reach Gen10 scale.
+	s.Progression.IndustryTime = (g10.TimeBaselineDay + 500) * 86400
 	g1, _ := balance.Generation(1)
 	want := b.CompetitorBaseQuality * g6.QualityScale / g1.QualityScale
 	tf := TimeFrontier(s, b)
@@ -76,10 +80,7 @@ func TestTimeFrontierCappedByPlayerLead(t *testing.T) {
 			t.Fatalf("capped TF dim %d = %v, want Gen6-scale %v", d, tf[d], want)
 		}
 	}
-	// Uncapped would be much higher (Gen10 baseline day 40000 is still below 40500).
-	g10, _ := balance.Generation(10)
-	uncappedScale := g10.QualityScale // at/after day 40000
-	uncapped := b.CompetitorBaseQuality * uncappedScale / g1.QualityScale
+	uncapped := b.CompetitorBaseQuality * g10.QualityScale / g1.QualityScale
 	if tf[0] >= uncapped*0.9 {
 		t.Fatalf("TF %v looks uncapped (near Gen10 %v)", tf[0], uncapped)
 	}

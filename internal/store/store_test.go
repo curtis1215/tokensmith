@@ -176,8 +176,12 @@ func TestLoadClampsOverheatedIndustryTime(t *testing.T) {
 	b := balance.Default()
 	var s model.GameState
 	s.Progression.MaxUnlockedGen = 5
-	// Far past Gen6 baseline.
-	s.Progression.IndustryTime = 40500 * 86400
+	g10, err := balance.Generation(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Past Gen10 baseline (well past Gen6 player-lead cap for MaxUnlockedGen=5).
+	s.Progression.IndustryTime = (g10.TimeBaselineDay + 500) * 86400
 	s.Models = []model.Model{{
 		Online: true, Gen: 5, Segment: model.SegConsumer,
 		Quality: [model.NumQualityDims]float64{80, 40, 40, 40},

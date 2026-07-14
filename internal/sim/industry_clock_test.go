@@ -143,3 +143,13 @@ func TestIndustryIdleMultConstant(t *testing.T) {
 		t.Fatalf("IdleMult = %v, want 0.15", balance.IndustryIdleMult)
 	}
 }
+
+func TestIndustryTimeCapSecFiniteForNormalGens(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Progression.MaxUnlockedGen = 5
+	cap := IndustryTimeCapSec(s, b)
+	if math.IsInf(cap, 0) || math.IsNaN(cap) || cap <= 0 {
+		t.Fatalf("Gen5+1 cap should be finite positive, got %v", cap)
+	}
+}
