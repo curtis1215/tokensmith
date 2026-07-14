@@ -140,6 +140,10 @@ type Model struct {
 	sparkUsers     spark
 	sparkRnD       spark
 	sparkTick      int
+	// Dashboard short-window stock rings (session-only; not the overview rate sparks).
+	dashUsers     spark
+	dashRevenue   spark
+	dashRnDStock  spark
 	cashRate       float64                // smoothed display cash delta, $/real-second
 	prevRank       [model.NumSegments]int // 上次取樣名次（0 = 無資料）
 	lastRank       [model.NumSegments]int
@@ -249,6 +253,9 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 	m.sparkValuation = newSpark(60)
 	m.sparkUsers = newSpark(60)
 	m.sparkRnD = newSpark(60)
+	m.dashUsers = newSpark(120)
+	m.dashRevenue = newSpark(120)
+	m.dashRnDStock = newSpark(120)
 	m.resize(m.width, m.height)
 	m.refreshViewport()
 	return m

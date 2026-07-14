@@ -149,6 +149,14 @@ func (m *Model) advanceDisplay() {
 		m.sparkValuation.push(m.disp.Valuation)
 		m.sparkUsers.push(m.disp.TotalUsers)
 		m.sparkRnD.push(sim.RnDRatePerSec(m.state, m.cfg) * gameSecPerRealSec)
+		// Dashboard short-window stocks (capacity 120; ~1s sample interval).
+		users := sim.TotalUsers(m.state)
+		if m.dispReady {
+			users = m.disp.TotalUsers
+		}
+		m.dashUsers.push(users)
+		m.dashRevenue.push(sim.MonthlyRevenue(m.state))
+		m.dashRnDStock.push(m.state.Resources.RnD)
 	}
 	if len(m.banners) > 0 {
 		m.bannerTicks--
