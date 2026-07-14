@@ -17,6 +17,7 @@ import (
 	"tokensmith/internal/game"
 	"tokensmith/internal/ingest"
 	"tokensmith/internal/ledger"
+	"tokensmith/internal/metrics"
 	"tokensmith/internal/model"
 	"tokensmith/internal/sim"
 	"tokensmith/internal/store"
@@ -162,6 +163,13 @@ type Model struct {
 	dailyReader       dailyusage.Reader
 	dailyWriter       *dailyusage.Buffer
 	dailyRefreshTicks int
+	// Dashboard KPI calendar-day history (metrics-history.json sidecar).
+	metricsPath       string
+	metricsStore      *metrics.Store // nil-safe if path empty
+	metricsDoc        metrics.Document
+	metricsDay        string // last seen local day key
+	metricsFlushTicks int
+	metricsDirty      bool
 }
 
 // pushBanner queues a Major banner, dropping the oldest beyond maxBanners.
@@ -225,6 +233,14 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 		dailyDoc = doc
 	}
 
+	// Metrics history is sibling to save; failure never blocks gameplay.
+	metricsPath := filepath.Join(filepath.Dir(savePath), "metrics-history.json")
+	ms := metrics.New(metricsPath)
+	metricsDoc := metrics.EmptyDocument()
+	if d, ok, err := ms.Load(); err == nil && ok {
+		metricsDoc = d
+	}
+
 	m := Model{
 		state:             state,
 		cfg:               balance.Default(),
@@ -249,6 +265,10 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 		dailyDay:          dailyusage.DayKey(time.Now()),
 		dailyReader:       dailyStore,
 		dailyWriter:       dailyusage.NewBuffer(dailyStore),
+		metricsPath:       metricsPath,
+		metricsStore:      ms,
+		metricsDoc:        metricsDoc,
+		metricsDay:        metrics.DayKey(time.Now()),
 	}
 	m.sparkValuation = newSpark(60)
 	m.sparkUsers = newSpark(60)
@@ -586,6 +606,16 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		now := time.Time(msg)
 		events := m.pollTokens()
 		m.recordDailyUsage(now, events)
+		// Dashboard KPI sidecar: roll calendar day, snapshot stocks in memory,
+		// flush to disk on a ~30s cadence (and also on autosave/quit).
+		m.metricsMaybeRollDay(now)
+		m.metricsSnapshotNow(now)
+		m.metricsDirty = true
+		m.metricsFlushTicks++
+		if m.metricsFlushTicks >= metricsFlushEveryTicks {
+			m.metricsFlushTicks = 0
+			m.metricsFlush()
+		}
 		m.tokensThisTick = len(events) > 0
 		if m.tokensThisTick {
 			m.updateStreak(now)
@@ -650,6 +680,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			if !m.saveDisabled {
 				if err := store.Save(m.savePath, m.state); err == nil {
 					m.saveMeta()
+					m.metricsFlush()
 				}
 			}
 		}
@@ -794,6 +825,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 					m.saveMeta()
 				}
 			}
+			m.metricsFlush()
 			return m, tea.Quit
 		case "t":
 			if m.page == PageModels || m.page == PageOverview {
