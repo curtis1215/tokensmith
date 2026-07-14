@@ -31,8 +31,9 @@ func TestTimeFrontierInterpolationAndBaselineScale(t *testing.T) {
 	b := balance.Default()
 	g1, _ := balance.Generation(1)
 	g2, _ := balance.Generation(2)
-	// Day 0 → Gen1 scale.
+	// Day 0 → Gen1 scale. Unlock high enough that day 500 is under the player-lead cap.
 	s := model.GameState{}
+	s.Progression.MaxUnlockedGen = 5
 	s.Progression.IndustryTime = 0
 	tf0 := TimeFrontier(s, b)
 	want0 := b.CompetitorBaseQuality * g1.QualityScale / g1.QualityScale
@@ -57,6 +58,33 @@ func TestTimeFrontierInterpolationAndBaselineScale(t *testing.T) {
 	}
 }
 
+func TestTimeFrontierCappedByPlayerLead(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Progression.MaxUnlockedGen = 5
+	// Raw industry far past Gen6 baseline (would be late-game without cap).
+	s.Progression.IndustryTime = 40500 * 86400
+	g6, err := balance.Generation(6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g1, _ := balance.Generation(1)
+	want := b.CompetitorBaseQuality * g6.QualityScale / g1.QualityScale
+	tf := TimeFrontier(s, b)
+	for d := range model.NumQualityDims {
+		if !approx(tf[d], want) {
+			t.Fatalf("capped TF dim %d = %v, want Gen6-scale %v", d, tf[d], want)
+		}
+	}
+	// Uncapped would be much higher (Gen10 baseline day 40000 is still below 40500).
+	g10, _ := balance.Generation(10)
+	uncappedScale := g10.QualityScale // at/after day 40000
+	uncapped := b.CompetitorBaseQuality * uncappedScale / g1.QualityScale
+	if tf[0] >= uncapped*0.9 {
+		t.Fatalf("TF %v looks uncapped (near Gen10 %v)", tf[0], uncapped)
+	}
+}
+
 func TestGlobalFrontierPerDimensionMax(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{
@@ -78,7 +106,11 @@ func TestGlobalFrontierPerDimensionMax(t *testing.T) {
 func TestTickAdvancesIndustryTime(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{}
+	s.Progression.MaxUnlockedGen = 5
 	s.Progression.IndustryTime = 100
+	// Engaged path: full industry DT (under player-lead cap).
+	s.HasTraining = true
+	s.Training.WorkRemaining = 1e12
 	ns := Tick(s, 50, nil, b)
 	if !approx(ns.Progression.IndustryTime, 150) {
 		t.Fatalf("IndustryTime = %v, want 150", ns.Progression.IndustryTime)
@@ -100,7 +132,11 @@ func TestModelFrontierViewStableQualityAndGap(t *testing.T) {
 			Quality: q(10, 5, 5, 5),
 		}},
 	}
+	s.Progression.MaxUnlockedGen = 5
 	s.Progression.IndustryTime = 0
+	// Engaged so industry advances at full rate under the player-lead cap.
+	s.HasTraining = true
+	s.Training.WorkRemaining = 1e18
 	before := s.Models[0].Quality
 	v := ModelFrontierView(s, 0, b)
 	if v.AbsoluteQuality != before {

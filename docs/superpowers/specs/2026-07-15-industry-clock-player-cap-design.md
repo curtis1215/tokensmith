@@ -1,7 +1,7 @@
 # Industry Clock Player Cap & Online Idle Throttle — Design
 
 - **日期**：2026-07-15
-- **狀態**：已確認，待實作
+- **狀態**：已實作
 - **範圍**：TimeFrontier / IndustryTime 綁定玩家解鎖世代；線上怠速節流；離線 allowance 對齊；load soft-repair 救過熱存檔
 - **相關**：`docs/superpowers/specs/2026-07-12-long-term-progression-core-design.md` §8–9；`internal/sim/sim.go`、`frontier.go`、`internal/tui/settle.go`、`internal/store`
 

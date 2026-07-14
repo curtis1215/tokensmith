@@ -20,6 +20,14 @@ const EntryProcessID = "N7"
 // tui's own tickDT/tickInterval derivation.
 const RealSecCompression = 14400.0
 
+// IndustryPlayerLeadGens is how many generations TimeFrontier / IndustryTime
+// may lead MaxUnlockedGen. Lead 1 → cap at Generation(MaxUnlockedGen+1).TimeBaselineDay.
+const IndustryPlayerLeadGens = 1
+
+// IndustryIdleMult scales online industry DT when the player has neither an
+// active frontier project nor an active training job (AFK throttle).
+const IndustryIdleMult = 0.15
+
 // GenUnlockNodeID is the tech node that unlocks training a given model
 // generation (gen >= 2); gen 1 needs no unlock.
 func GenUnlockNodeID(gen int) string {

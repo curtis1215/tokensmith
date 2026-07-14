@@ -11,6 +11,7 @@ import (
 
 	"tokensmith/internal/balance"
 	"tokensmith/internal/model"
+	"tokensmith/internal/sim"
 )
 
 // CurrentSchemaVersion is written on every Save. Load accepts this envelope
@@ -92,6 +93,7 @@ func LoadWithConfig(path string, b balance.Config) (model.GameState, bool, error
 			return model.GameState{}, false, err
 		}
 		migrated = migrateToEmployeeOffice(migrated, b, leg)
+		migrated = sim.ClampIndustryToPlayerCap(migrated, b)
 		if err := validateState(&migrated, b); err != nil {
 			return model.GameState{}, false, err
 		}
@@ -104,6 +106,7 @@ func LoadWithConfig(path string, b balance.Config) (model.GameState, bool, error
 	if schemaVer < CurrentSchemaVersion {
 		// Schema 1 → 2: employee office system (probe compensation, rewrite).
 		migrated := migrateToEmployeeOffice(s, b, leg)
+		migrated = sim.ClampIndustryToPlayerCap(migrated, b)
 		if err := validateState(&migrated, b); err != nil {
 			return model.GameState{}, false, err
 		}
@@ -113,8 +116,9 @@ func LoadWithConfig(path string, b balance.Config) (model.GameState, bool, error
 		return migrated, true, nil
 	}
 
-	// Current schema: soft-repair office/market defaults (no cash grant).
+	// Current schema: soft-repair office/market defaults + industry player-cap.
 	s = ensureEmployeeOfficeDefaults(s, b)
+	s = sim.ClampIndustryToPlayerCap(s, b)
 	if err := validateState(&s, b); err != nil {
 		return model.GameState{}, false, err
 	}
