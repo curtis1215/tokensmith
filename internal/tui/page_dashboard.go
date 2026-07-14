@@ -78,22 +78,35 @@ func renderDashboard(m Model) string {
 	}
 	todayLegend := styleMuted.Render("今日 " + strings.Join(legendParts, " · "))
 
+	userVal := human(users)
+	if d := deltaToday(todayPt.OpenUsers, users, todayPt.OpenSet); d != "" {
+		userVal += " " + d
+	}
+	revVal := "$" + human(rev)
+	if d := deltaToday(todayPt.OpenRevenue, rev, todayPt.OpenSet); d != "" {
+		revVal += " " + d
+	}
+	rndVal := human(rnd)
+	if d := deltaToday(todayPt.OpenRnD, rnd, todayPt.OpenSet); d != "" {
+		rndVal += " " + d
+	}
+
 	userBody := VStack(
-		KV("總用戶", human(users)),
+		KV("總用戶", userVal),
 		styleMuted.Render("近況"),
 		styleCyan.Render(lineChart(m.dashUsers.values(), chartW, chartH)),
 		styleMuted.Render("近 90 日"),
 		userLong,
 	)
 	revBody := VStack(
-		KV("月營收", "$"+human(rev)),
+		KV("月營收", revVal),
 		styleMuted.Render("近況"),
 		styleGain.Render(lineChart(m.dashRevenue.values(), chartW, chartH)),
 		styleMuted.Render("近 90 日"),
 		revLong,
 	)
 	rndBody := VStack(
-		KV("庫存", human(rnd)),
+		KV("庫存", rndVal),
 		styleMuted.Render("近況"),
 		stylePurple.Render(lineChart(m.dashRnDStock.values(), chartW, chartH)),
 		styleMuted.Render("近 90 日"),
@@ -109,4 +122,19 @@ func renderDashboard(m Model) string {
 		CardIn(CardDefault, cw, "營收增長", revBody),
 		CardIn(CardDefault, cw, "R&D 增長", rndBody),
 	)
+}
+
+// deltaToday formats open-of-day stock delta for dashboard KPI headers.
+// Empty when open is not yet set for the day (no snapshot yet).
+func deltaToday(open, now float64, openSet bool) string {
+	if !openSet {
+		return ""
+	}
+	d := now - open
+	sign := "+"
+	if d < 0 {
+		sign = "-"
+		d = -d
+	}
+	return fmt.Sprintf("(%s%s 今日)", sign, human(d))
 }

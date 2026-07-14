@@ -82,3 +82,57 @@ func TestDashboardLongWindowEmptyCopy(t *testing.T) {
 		t.Fatalf("expected empty long-window copy:\n%s", body)
 	}
 }
+
+func TestDeltaTodayFormatting(t *testing.T) {
+	if got := deltaToday(100, 200, false); got != "" {
+		t.Fatalf("openSet=false want empty, got %q", got)
+	}
+	if got := deltaToday(1000, 2200, true); got != "(+1k 今日)" {
+		t.Fatalf("positive delta: got %q", got)
+	}
+	if got := deltaToday(1000, 500, true); got != "(-500 今日)" {
+		t.Fatalf("negative delta: got %q", got)
+	}
+	if got := deltaToday(100, 100, true); got != "(+0 今日)" {
+		t.Fatalf("zero delta: got %q", got)
+	}
+	// Large negative should still use human compact form via abs.
+	if got := deltaToday(3000, 1000, true); got != "(-2k 今日)" {
+		t.Fatalf("large negative: got %q", got)
+	}
+}
+
+func TestDashboardEmptyHistoryCopy(t *testing.T) {
+	m := testModel(t)
+	m.metricsDoc = metrics.EmptyDocument()
+	body := renderDashboard(m)
+	if !strings.Contains(body, "尚無歷史") {
+		t.Fatalf("want empty history copy:\n%s", body)
+	}
+	if !strings.Contains(body, "掛機或跨日後會出現") {
+		t.Fatalf("want full empty-history phrase:\n%s", body)
+	}
+}
+
+func TestDashboardDeltaTodayOnStockCards(t *testing.T) {
+	m := testModel(t)
+	doc := metrics.EmptyDocument()
+	// Open freezes at first upsert: users=1000, rev=100, rnd=50.
+	metrics.UpsertSnapshot(&doc, "2026-07-14", 1000, 100, 50, 1)
+	metrics.UpsertSnapshot(&doc, "2026-07-14", 1500, 200, 40, 2)
+	m.metricsDoc = doc
+	m.metricsDay = "2026-07-14"
+	// Live stocks differ from open-of-day.
+	m.state.Models = []model.Model{{Online: true, Users: 2200, Price: 10}} // rev = 22000
+	m.state.Resources.RnD = 80
+	m.width, m.height = 120, 50
+	m.resize(m.width, m.height)
+
+	body := renderDashboard(m)
+	// users: 2200-1000 = +1k; rev: 22000-100 = +22k; rnd: 80-50 = +30
+	for _, want := range []string{"(+1k 今日)", "(+22k 今日)", "(+30 今日)"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing stock Δ今日 %q:\n%s", want, body)
+		}
+	}
+}
