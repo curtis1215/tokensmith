@@ -124,6 +124,7 @@
 ```json
 {
   "schemaVersion": 1,
+  "updatedAt": 1721000000,
   "days": {
     "2026-07-14": {
       "users": 12500,
@@ -135,7 +136,11 @@
         "grok": 40,
         "opencode": 15,
         "staff": 300
-      }
+      },
+      "openUsers": 11000,
+      "openRevenue": 70000,
+      "openRnd": 2800,
+      "openSet": true
     }
   }
 }
@@ -143,10 +148,13 @@
 
 | 欄位 | 意義 |
 |---|---|
+| `updatedAt` | 最近一次寫入文件的 Unix 秒（文件層） |
 | `users` | 當日**最後一次** flush 的 `sim.TotalUsers` |
 | `monthlyRevenue` | 當日最後一次的 `sim.MonthlyRevenue` |
 | `rndStock` | 當日最後一次的 `Resources.RnD` |
 | `rndInflow.*` | 當日**累加**正流入（非庫存拆帳） |
+| `openUsers` / `openRevenue` / `openRnd` | 當日**第一次** snapshot 的存量（Δ今日開盤） |
+| `openSet` | 是否已寫入開盤點；之後覆寫存量不改 open* |
 
 固定來源 key（缺則視為 0）：
 

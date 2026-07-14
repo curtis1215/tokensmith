@@ -91,13 +91,14 @@ func AddInflow(doc *Document, day, source string, amount float64, nowUnix int64)
 	}
 }
 
-// Prune keeps at most MaxDays newest valid date keys; older keys are dropped.
-// Invalid keys present in the map are removed preferentially.
+// Prune removes every invalid day key, then keeps only the newest MaxDays
+// valid keys (oldest ISO dates dropped first). Invalid keys are always
+// deleted, not only when over capacity.
 func Prune(doc *Document) {
 	if doc == nil || doc.Days == nil {
 		return
 	}
-	// Drop invalid keys first.
+	// Always drop invalid keys (independent of MaxDays).
 	for k := range doc.Days {
 		if !ValidDayKey(k) {
 			delete(doc.Days, k)

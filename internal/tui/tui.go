@@ -142,13 +142,13 @@ type Model struct {
 	sparkRnD       spark
 	sparkTick      int
 	// Dashboard short-window stock rings (session-only; not the overview rate sparks).
-	dashUsers     spark
-	dashRevenue   spark
-	dashRnDStock  spark
-	cashRate       float64                // smoothed display cash delta, $/real-second
-	prevRank       [model.NumSegments]int // 上次取樣名次（0 = 無資料）
-	lastRank       [model.NumSegments]int
-	rankTick       int
+	dashUsers    spark
+	dashRevenue  spark
+	dashRnDStock spark
+	cashRate     float64                // smoothed display cash delta, $/real-second
+	prevRank     [model.NumSegments]int // 上次取樣名次（0 = 無資料）
+	lastRank     [model.NumSegments]int
+	rankTick     int
 	// Celebration feedback (TUI state, never persisted).
 	banners     []Moment
 	bannerTicks int
