@@ -111,12 +111,16 @@ func offlineIndustryAllowance(s model.GameState, b balance.Config, elapsedSec fl
 	fromElapsed := elapsedSec * balance.RealSecCompression
 	cap8h := 8 * 3600 * balance.RealSecCompression
 	oneGen := sim.SecondsUntilNextTimeGeneration(s, b)
+	playerCap := sim.IndustryTimeResidualToCap(s, b)
 	out := fromElapsed
 	if cap8h < out {
 		out = cap8h
 	}
 	if oneGen < out {
 		out = oneGen
+	}
+	if playerCap < out {
+		out = playerCap
 	}
 	if out < 0 {
 		return 0

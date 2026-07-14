@@ -11,6 +11,10 @@ func TestTickWithClocksOnlineSameDelta(t *testing.T) {
 	b := balance.Default()
 	s := model.GameState{}
 	s.Research.EfficiencyMult = 1
+	s.Progression.MaxUnlockedGen = 5
+	// Engaged so EffectiveIndustryDT == economyDT (full industry when under cap).
+	s.HasTraining = true
+	s.Training.WorkRemaining = 1e12
 	s.Competitors = []model.Competitor{{
 		Name: "Rival", Skill: q(1, 1, 1, 1), Quality: q(8, 8, 8, 8),
 	}}
@@ -27,6 +31,51 @@ func TestTickWithClocksOnlineSameDelta(t *testing.T) {
 	}
 	if !approx(a.Competitors[0].Quality[model.DimCapability], c.Competitors[0].Quality[model.DimCapability]) {
 		t.Fatalf("rival diverged")
+	}
+}
+
+func TestTickIdleIndustryThrottle(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Progression.MaxUnlockedGen = 5
+	s.Progression.IndustryTime = 0
+	// Idle: no frontier, no training.
+	const dt = 1000.0
+	ns := Tick(s, dt, nil, b)
+	want := dt * balance.IndustryIdleMult
+	if !approx(ns.Progression.IndustryTime, want) {
+		t.Fatalf("idle IndustryTime = %v, want %v", ns.Progression.IndustryTime, want)
+	}
+	if !approx(ns.GameTime, dt) {
+		t.Fatalf("GameTime = %v, want %v", ns.GameTime, dt)
+	}
+}
+
+func TestTickIndustryStopsAtPlayerCap(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Progression.MaxUnlockedGen = 5
+	cap := IndustryTimeCapSec(s, b)
+	s.Progression.IndustryTime = cap - 10
+	s.HasTraining = true
+	s.Training.WorkRemaining = 1e12
+	ns := Tick(s, 1e6, nil, b)
+	if ns.Progression.IndustryTime > cap+1e-6 {
+		t.Fatalf("IndustryTime = %v > cap %v", ns.Progression.IndustryTime, cap)
+	}
+	if !approx(ns.Progression.IndustryTime, cap) {
+		t.Fatalf("IndustryTime = %v, want cap %v", ns.Progression.IndustryTime, cap)
+	}
+}
+
+func TestTickWithClocksDefensiveIndustryClamp(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Progression.MaxUnlockedGen = 5
+	cap := IndustryTimeCapSec(s, b)
+	ns := tickWithClocks(s, 0, cap*2, nil, b)
+	if ns.Progression.IndustryTime > cap+1e-6 {
+		t.Fatalf("IndustryTime = %v, want ≤ %v", ns.Progression.IndustryTime, cap)
 	}
 }
 

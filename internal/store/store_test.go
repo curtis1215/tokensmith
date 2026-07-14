@@ -10,6 +10,7 @@ import (
 
 	"tokensmith/internal/balance"
 	"tokensmith/internal/model"
+	"tokensmith/internal/sim"
 )
 
 func TestSaveLoadRoundTrip(t *testing.T) {
@@ -167,6 +168,52 @@ func TestSaveEnvelopeRoundTrip(t *testing.T) {
 	}
 	if got.Progression.MaxUnlockedGen != 6 || got.Progression.IndustryTime != 12345 {
 		t.Fatalf("progression: %+v", got.Progression)
+	}
+}
+
+func TestLoadClampsOverheatedIndustryTime(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hot.json")
+	b := balance.Default()
+	var s model.GameState
+	s.Progression.MaxUnlockedGen = 5
+	g10, err := balance.Generation(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Past Gen10 baseline (well past Gen6 player-lead cap for MaxUnlockedGen=5).
+	s.Progression.IndustryTime = (g10.TimeBaselineDay + 500) * 86400
+	s.Models = []model.Model{{
+		Online: true, Gen: 5, Segment: model.SegConsumer,
+		Quality: [model.NumQualityDims]float64{80, 40, 40, 40},
+	}}
+	s.Competitors = []model.Competitor{{
+		Name: "OpenAI",
+		Skill: [model.NumQualityDims]float64{1, 1, 1, 1},
+		// Pre-clamp absolute quality as if time frontier was huge.
+		Quality: [model.NumQualityDims]float64{500, 500, 500, 500},
+	}}
+	if err := Save(path, s); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := Load(path)
+	if err != nil || !ok {
+		t.Fatalf("load: ok=%v err=%v", ok, err)
+	}
+	cap := sim.IndustryTimeCapSec(got, b)
+	if got.Progression.IndustryTime > cap+1e-6 {
+		t.Fatalf("IndustryTime = %v, want ≤ cap %v", got.Progression.IndustryTime, cap)
+	}
+	gf := sim.GlobalFrontier(got, b)
+	for d := 0; d < model.NumQualityDims; d++ {
+		q := got.Competitors[0].Quality[d]
+		lo, hi := gf[d]*0.85, gf[d]*1.15
+		if q < lo-1e-6 || q > hi+1e-6 {
+			t.Fatalf("rival dim %d Q=%v outside [%v,%v]", d, q, lo, hi)
+		}
+	}
+	// Player quality untouched.
+	if got.Models[0].Quality[0] != 80 {
+		t.Fatalf("player quality rewritten: %v", got.Models[0].Quality)
 	}
 }
 

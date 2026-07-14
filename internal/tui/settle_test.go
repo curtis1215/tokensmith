@@ -202,3 +202,20 @@ func TestSettleIndustryCapIsResidualToNextBaseline(t *testing.T) {
 		t.Fatalf("industry advanced full-ish interval %v; cap should be residual", delta)
 	}
 }
+
+func TestSettleIndustryStopsAtPlayerCap(t *testing.T) {
+	b := balance.Default()
+	s := model.GameState{}
+	s.Progression.MaxUnlockedGen = 5
+	cap := sim.IndustryTimeCapSec(s, b)
+	s.Progression.IndustryTime = cap
+	const elapsed = 86400.0 // 1 real day
+	ns, _ := Settle(s, b, elapsed, 0, 0)
+	if !approxIndustry(ns.Progression.IndustryTime, cap) {
+		t.Fatalf("IndustryTime = %v, want still at cap %v", ns.Progression.IndustryTime, cap)
+	}
+	// Economy still advances.
+	if ns.GameTime < elapsed-1 {
+		t.Fatalf("GameTime = %v, want ~%v", ns.GameTime, elapsed)
+	}
+}

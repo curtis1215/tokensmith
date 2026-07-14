@@ -51,10 +51,10 @@ func Valuation(ns model.GameState, b balance.Config) float64 {
 		eventEffects(ns, b).ValuationMult
 }
 
-// Tick advances the simulation by dt seconds on both the economy and industry
-// clocks (online play). Pure: it does not mutate s.
+// Tick advances the simulation by dt economy seconds; industry uses
+// EffectiveIndustryDT (idle throttle + player-lead cap). Pure: it does not mutate s.
 func Tick(s model.GameState, dt float64, events []model.TokenEvent, b balance.Config) model.GameState {
-	return tickWithClocks(s, dt, dt, events, b)
+	return tickWithClocks(s, dt, EffectiveIndustryDT(s, dt, b), events, b)
 }
 
 // OfflineTick is the narrow dual-clock entry point for offline settlement:
@@ -75,6 +75,13 @@ func tickWithClocks(s model.GameState, economyDT, industryDT float64, events []m
 	ns := s
 	ns.GameTime += economyDT
 	ns.Progression.IndustryTime += industryDT
+	// Defensive: never let IndustryTime exceed the player-lead generation cap.
+	if cap := IndustryTimeCapSec(ns, b); ns.Progression.IndustryTime > cap {
+		ns.Progression.IndustryTime = cap
+	}
+	if ns.Progression.IndustryTime < 0 {
+		ns.Progression.IndustryTime = 0
+	}
 	// Free talent-market refresh when the scheduled timer elapses.
 	// NextRefreshAt==0 means "not scheduled" (freshRun seeds the market).
 	if ns.Market.NextRefreshAt > 0 && ns.GameTime >= ns.Market.NextRefreshAt {

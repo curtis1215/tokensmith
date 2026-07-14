@@ -28,14 +28,15 @@ func PlayerFrontier(s model.GameState) [model.NumQualityDims]float64 {
 
 // TimeFrontier interpolates industry progress along generation baseline days
 // and scales each dimension from CompetitorBaseQuality / Gen1.QualityScale.
-// Uses Progression.IndustryTime (game seconds), not GameTime.
+// Uses EffectiveIndustryDay (IndustryTime clamped to MaxUnlockedGen+Lead),
+// not raw GameTime, so AFK cannot push the industry scale unbounded past the player.
 func TimeFrontier(s model.GameState, b balance.Config) [model.NumQualityDims]float64 {
 	var out [model.NumQualityDims]float64
 	g1, err := balance.Generation(1)
 	if err != nil || g1.QualityScale <= 0 {
 		return out
 	}
-	scale := interpolatedQualityScale(s.Progression.IndustryTime / 86400)
+	scale := interpolatedQualityScale(EffectiveIndustryDay(s, b))
 	val := b.CompetitorBaseQuality * scale / g1.QualityScale
 	if math.IsNaN(val) || math.IsInf(val, 0) || val < 0 {
 		val = 0
