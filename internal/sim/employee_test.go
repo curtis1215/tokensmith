@@ -122,6 +122,12 @@ func TestPassiveSkillEffectsProduct(t *testing.T) {
 	if !approx(p.TrainQualityMult, 1.04) {
 		t.Fatalf("TrainQualityMult = %v, want 1.04", p.TrainQualityMult)
 	}
+	if !approx(TokenSkillRnDMult(ns, b), 1.02) {
+		t.Fatalf("TokenSkillRnDMult = %v, want 1.02", TokenSkillRnDMult(ns, b))
+	}
+	if !approx(TokenSkillRnDMult(model.GameState{}, b), 1) {
+		t.Fatalf("TokenSkillRnDMult empty roster = %v, want 1", TokenSkillRnDMult(model.GameState{}, b))
+	}
 }
 
 func TestCompanyRolePowerScalesTotal(t *testing.T) {

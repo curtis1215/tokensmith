@@ -17,6 +17,7 @@ import (
 	"tokensmith/internal/game"
 	"tokensmith/internal/ingest"
 	"tokensmith/internal/ledger"
+	"tokensmith/internal/metrics"
 	"tokensmith/internal/model"
 	"tokensmith/internal/sim"
 	"tokensmith/internal/store"
@@ -60,6 +61,7 @@ type Page int
 
 const (
 	PageOverview Page = iota
+	PageDashboard
 	PageWarRoom
 	PageModels
 	PageMarket
@@ -70,7 +72,7 @@ const (
 	numPages
 )
 
-var pageNames = [numPages]string{"總覽", "戰情室", "模型", "市場", "算力", "團隊", "科技", "成就"}
+var pageNames = [numPages]string{"總覽", "儀表板", "戰情室", "模型", "市場", "算力", "團隊", "科技", "成就"}
 
 // Model is the Bubble Tea root model.
 type Model struct {
@@ -139,10 +141,14 @@ type Model struct {
 	sparkUsers     spark
 	sparkRnD       spark
 	sparkTick      int
-	cashRate       float64                // smoothed display cash delta, $/real-second
-	prevRank       [model.NumSegments]int // 上次取樣名次（0 = 無資料）
-	lastRank       [model.NumSegments]int
-	rankTick       int
+	// Dashboard short-window stock rings (session-only; not the overview rate sparks).
+	dashUsers    spark
+	dashRevenue  spark
+	dashRnDStock spark
+	cashRate     float64                // smoothed display cash delta, $/real-second
+	prevRank     [model.NumSegments]int // 上次取樣名次（0 = 無資料）
+	lastRank     [model.NumSegments]int
+	rankTick     int
 	// Celebration feedback (TUI state, never persisted).
 	banners     []Moment
 	bannerTicks int
@@ -157,6 +163,13 @@ type Model struct {
 	dailyReader       dailyusage.Reader
 	dailyWriter       *dailyusage.Buffer
 	dailyRefreshTicks int
+	// Dashboard KPI calendar-day history (metrics-history.json sidecar).
+	metricsPath       string
+	metricsStore      *metrics.Store // nil-safe if path empty
+	metricsDoc        metrics.Document
+	metricsDay        string // last seen local day key
+	metricsFlushTicks int
+	metricsDirty      bool
 }
 
 // pushBanner queues a Major banner, dropping the oldest beyond maxBanners.
@@ -220,6 +233,14 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 		dailyDoc = doc
 	}
 
+	// Metrics history is sibling to save; failure never blocks gameplay.
+	metricsPath := filepath.Join(filepath.Dir(savePath), "metrics-history.json")
+	ms := metrics.New(metricsPath)
+	metricsDoc := metrics.EmptyDocument()
+	if d, ok, err := ms.Load(); err == nil && ok {
+		metricsDoc = d
+	}
+
 	m := Model{
 		state:             state,
 		cfg:               balance.Default(),
@@ -244,10 +265,17 @@ func newAtPaths(savePath, ledgerPath, metaPath string) Model {
 		dailyDay:          dailyusage.DayKey(time.Now()),
 		dailyReader:       dailyStore,
 		dailyWriter:       dailyusage.NewBuffer(dailyStore),
+		metricsPath:       metricsPath,
+		metricsStore:      ms,
+		metricsDoc:        metricsDoc,
+		metricsDay:        metrics.DayKey(time.Now()),
 	}
 	m.sparkValuation = newSpark(60)
 	m.sparkUsers = newSpark(60)
 	m.sparkRnD = newSpark(60)
+	m.dashUsers = newSpark(120)
+	m.dashRevenue = newSpark(120)
+	m.dashRnDStock = newSpark(120)
 	m.resize(m.width, m.height)
 	m.refreshViewport()
 	return m
@@ -578,6 +606,16 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		now := time.Time(msg)
 		events := m.pollTokens()
 		m.recordDailyUsage(now, events)
+		// Dashboard KPI sidecar: roll calendar day, snapshot stocks in memory,
+		// flush to disk on a ~30s cadence (and also on autosave/quit).
+		m.metricsMaybeRollDay(now)
+		m.metricsSnapshotNow(now)
+		m.metricsDirty = true
+		m.metricsFlushTicks++
+		if m.metricsFlushTicks >= metricsFlushEveryTicks {
+			m.metricsFlushTicks = 0
+			m.metricsFlush()
+		}
 		m.tokensThisTick = len(events) > 0
 		if m.tokensThisTick {
 			m.updateStreak(now)
@@ -588,11 +626,25 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		if m.tokensThisTick {
 			pe := sim.PrestigeEffects(m.state.Prestige.UnlockedPrestige, cfgTick)
 			hq := balance.OfficeTokenRnDMultAt(m.state.Office.Level, cfgTick)
+			// Match sim.Tick token term: raw × streak × prestige × skill × HQ.
+			skMult := sim.TokenSkillRnDMult(m.state, cfgTick)
 			rnd := make(map[string]float64, len(events))
 			for _, e := range events {
-				rnd[e.Source] += sim.TokenRawRnD([]model.TokenEvent{e}, cfgTick) * cfgTick.StreakMult * pe.RnDMult * hq
+				rnd[e.Source] += sim.TokenRawRnD([]model.TokenEvent{e}, cfgTick) *
+					cfgTick.StreakMult * pe.RnDMult * skMult * hq
 			}
 			m.lastTokenRnD = rnd
+			// Attribute token R&D inflow (same amounts as pulse / lastTokenRnD).
+			day := metrics.DayKey(now)
+			for src, amt := range rnd {
+				metrics.AddInflow(&m.metricsDoc, day, src, amt, now.Unix())
+			}
+			m.metricsDirty = true
+		}
+		// Staff R&D for this economy tick (rate from pre-tick state × tickDT).
+		if staff := sim.RnDRatePerSec(prevState, cfgTick) * tickDT; staff > 0 {
+			metrics.AddInflow(&m.metricsDoc, metrics.DayKey(now), metrics.SourceStaff, staff, now.Unix())
+			m.metricsDirty = true
 		}
 		prevFired := m.state.Events.FiredCount
 		m.state = sim.Tick(m.state, tickDT, events, cfgTick)
@@ -642,6 +694,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			if !m.saveDisabled {
 				if err := store.Save(m.savePath, m.state); err == nil {
 					m.saveMeta()
+					m.metricsFlush()
 				}
 			}
 		}
@@ -707,7 +760,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 			m.page = (m.page + numPages - 1) % numPages
 			m.vp.GotoTop()
 			return m, nil
-		case "1", "2", "3", "4", "5", "6", "7", "8":
+		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 			m.page = Page(msg.String()[0] - '1')
 			m.vp.GotoTop()
 			return m, nil
@@ -786,6 +839,7 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 					m.saveMeta()
 				}
 			}
+			m.metricsFlush()
 			return m, tea.Quit
 		case "t":
 			if m.page == PageModels || m.page == PageOverview {
@@ -1291,6 +1345,8 @@ func pageKeys(m Model) string {
 		return "" // dialogs embed their own help
 	}
 	switch m.page {
+	case PageDashboard:
+		return ""
 	case PageWarRoom:
 		hint := "[1]總覽"
 		if len(m.state.Events.Pending) > 0 {
@@ -1468,7 +1524,7 @@ func sourceKeysOrdered(m map[string]float64) []string {
 	return out
 }
 
-// sourceLabel maps a TokenEvent.Source to its display name.
+// sourceLabel maps a TokenEvent.Source (or metrics.SourceStaff) to its display name.
 func sourceLabel(src string) string {
 	switch src {
 	case "claude-code":
@@ -1479,6 +1535,8 @@ func sourceLabel(src string) string {
 		return "Grok（估算）"
 	case "opencode":
 		return "OpenCode"
+	case metrics.SourceStaff:
+		return "員工"
 	default:
 		return src
 	}
@@ -1575,6 +1633,8 @@ func renderTabBar(p Page) string {
 
 func (m Model) renderPage() string {
 	switch m.page {
+	case PageDashboard:
+		return renderDashboard(m)
 	case PageWarRoom:
 		return renderWarRoom(m)
 	case PageModels:

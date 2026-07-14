@@ -160,6 +160,12 @@ type skillPassives struct {
 	EventNegMult     float64
 }
 
+// TokenSkillRnDMult is the product of hired-employee TokenRnDMult passives
+// (same factor sim.Tick multiplies into token→R&D). Empty roster → 1.
+func TokenSkillRnDMult(ns model.GameState, b balance.Config) float64 {
+	return passiveSkillEffects(ns, b).TokenRnDMult
+}
+
 // passiveSkillEffects products skill mult hooks from the hired roster.
 func passiveSkillEffects(ns model.GameState, b balance.Config) skillPassives {
 	p := skillPassives{

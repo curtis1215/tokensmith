@@ -9,6 +9,7 @@ import (
 
 	"tokensmith/internal/balance"
 	"tokensmith/internal/ledger"
+	"tokensmith/internal/metrics"
 	"tokensmith/internal/model"
 	"tokensmith/internal/sim"
 	"tokensmith/internal/store"
@@ -120,7 +121,8 @@ func TestRenderResourceBarShowsGrokEstimateAndOpenCode(t *testing.T) {
 // TestPerSourceRnDDisplayIncludesPrestigeMult proves the status-bar per-source
 // R&D includes pe.RnDMult (e.g. rnd-mult-1 → 1.1x), matching what sim.Tick
 // actually books — without this, prestiging permanently under-reports the bar.
-// Also multiplies by HQ OfficeTokenRnDMult (default Office.Level 0/1 → 1.0).
+// Also multiplies by HQ OfficeTokenRnDMult (default Office.Level 0/1 → 1.0)
+// and TokenSkillRnDMult (1 with empty roster).
 func TestPerSourceRnDDisplayIncludesPrestigeMult(t *testing.T) {
 	dir := t.TempDir()
 	lp := filepath.Join(dir, "ledger.json")
@@ -144,17 +146,18 @@ func TestPerSourceRnDDisplayIncludesPrestigeMult(t *testing.T) {
 	}}, got.cfg)
 	pe := sim.PrestigeEffects(got.state.Prestige.UnlockedPrestige, got.cfg)
 	hq := balance.OfficeTokenRnDMultAt(got.state.Office.Level, got.cfg)
-	// First active day sets streakDays=1 → StreakMult 1.06; RnDMult 1.1 from rnd-mult-1; hq L1=1.0.
-	want := raw * got.currentStreakMult() * pe.RnDMult * hq // 200 * 1.06 * 1.1 * 1.0 = 233.2
+	sk := sim.TokenSkillRnDMult(got.state, got.cfg)
+	// First active day sets streakDays=1 → StreakMult 1.06; RnDMult 1.1 from rnd-mult-1; hq L1=1.0; sk=1.
+	want := raw * got.currentStreakMult() * pe.RnDMult * sk * hq // 200 * 1.06 * 1.1 * 1 * 1 = 233.2
 	if math.Abs(got.lastTokenRnD["claude-code"]-want) > 1e-9 {
-		t.Fatalf("lastTokenRnD[claude-code]=%v want %v (raw*StreakMult*RnDMult*hq)",
+		t.Fatalf("lastTokenRnD[claude-code]=%v want %v (raw*Streak*RnDMult*skill*hq)",
 			got.lastTokenRnD["claude-code"], want)
 	}
 	if pe.RnDMult != 1.1 {
 		t.Fatalf("RnDMult=%v want 1.1 from rnd-mult-1", pe.RnDMult)
 	}
-	// Without prestige the same tick would show raw*streak*hq only (~212); assert the 1.1x gap.
-	withoutPrestige := raw * got.currentStreakMult() * hq
+	// Without prestige the same tick would show raw*streak*skill*hq only (~212); assert the 1.1x gap.
+	withoutPrestige := raw * got.currentStreakMult() * sk * hq
 	if math.Abs(got.lastTokenRnD["claude-code"]-withoutPrestige*1.1) > 1e-9 {
 		t.Fatalf("displayed R&D should be 1.1× the non-prestige amount: got %v vs base %v",
 			got.lastTokenRnD["claude-code"], withoutPrestige)
@@ -190,9 +193,10 @@ func TestPerSourceRnDDisplayIncludesOfficeMult(t *testing.T) {
 	}}, got.cfg)
 	pe := sim.PrestigeEffects(got.state.Prestige.UnlockedPrestige, got.cfg)
 	hq := balance.OfficeTokenRnDMultAt(got.state.Office.Level, got.cfg)
-	want := raw * got.currentStreakMult() * pe.RnDMult * hq
+	sk := sim.TokenSkillRnDMult(got.state, got.cfg)
+	want := raw * got.currentStreakMult() * pe.RnDMult * sk * hq
 	if math.Abs(got.lastTokenRnD["claude-code"]-want) > 1e-9 {
-		t.Fatalf("lastTokenRnD=%v want %v (raw*streak*prestige*hq)",
+		t.Fatalf("lastTokenRnD=%v want %v (raw*streak*prestige*skill*hq)",
 			got.lastTokenRnD["claude-code"], want)
 	}
 
@@ -204,6 +208,58 @@ func TestPerSourceRnDDisplayIncludesOfficeMult(t *testing.T) {
 	wantSeg := "Claude Code +" + human(want) + " R&D"
 	if !strings.Contains(bar, wantSeg) {
 		t.Fatalf("expected HQ-scaled segment %q in bar, got:\n%s", wantSeg, bar)
+	}
+}
+
+// TestPerSourceRnDDisplayIncludesSkillTokenMult proves lastTokenRnD (and thus
+// dashboard inflow) multiplies sim.TokenSkillRnDMult, matching sim.Tick.
+func TestPerSourceRnDDisplayIncludesSkillTokenMult(t *testing.T) {
+	dir := t.TempDir()
+	lp := filepath.Join(dir, "ledger.json")
+	mp := filepath.Join(dir, "meta.json")
+	ledger.Save(lp, ledger.Ledger{
+		Sources:   map[string]model.SourceTotals{"claude-code": {In: 1000, Out: 500}},
+		UpdatedAt: 9_000_000_000,
+	})
+	store.SaveMeta(mp, store.Meta{LastRealUnix: 9_000_000_000})
+
+	m := newAtPaths(filepath.Join(dir, "s.json"), lp, mp)
+	m.daemonMode = true
+	// m-pipeline: TokenRnDMult 1.02
+	m.state.Employees = []model.Employee{{
+		PrimaryRole: model.RoleResearcher,
+		SkillIDs:    []string{"m-pipeline"},
+	}}
+
+	nm, _ := m.Update(tickMsg(time.Unix(0, 0)))
+	got := nm.(Model)
+
+	raw := sim.TokenRawRnD([]model.TokenEvent{{
+		Source: "claude-code", InputTokens: 1000, OutputTokens: 500,
+	}}, got.cfg)
+	pe := sim.PrestigeEffects(got.state.Prestige.UnlockedPrestige, got.cfg)
+	hq := balance.OfficeTokenRnDMultAt(got.state.Office.Level, got.cfg)
+	sk := sim.TokenSkillRnDMult(got.state, got.cfg)
+	if math.Abs(sk-1.02) > 1e-9 {
+		t.Fatalf("TokenSkillRnDMult=%v want 1.02", sk)
+	}
+	want := raw * got.currentStreakMult() * pe.RnDMult * sk * hq
+	if math.Abs(got.lastTokenRnD["claude-code"]-want) > 1e-9 {
+		t.Fatalf("lastTokenRnD=%v want %v (with skill 1.02)", got.lastTokenRnD["claude-code"], want)
+	}
+	withoutSkill := raw * got.currentStreakMult() * pe.RnDMult * hq
+	if math.Abs(got.lastTokenRnD["claude-code"]-withoutSkill*1.02) > 1e-9 {
+		t.Fatalf("skill should scale 1.02×: got %v base %v", got.lastTokenRnD["claude-code"], withoutSkill)
+	}
+
+	// Dashboard inflow uses the same map (day key from the tick wall clock).
+	day := got.metricsDay
+	if day == "" {
+		day = metrics.DayKey(time.Unix(0, 0))
+	}
+	if math.Abs(got.metricsDoc.Days[day].RnDInflow["claude-code"]-want) > 1e-9 {
+		t.Fatalf("metrics inflow=%v want %v (day=%s)",
+			got.metricsDoc.Days[day].RnDInflow["claude-code"], want, day)
 	}
 }
 

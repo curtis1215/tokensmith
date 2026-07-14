@@ -20,34 +20,54 @@ func TestTabCyclesPages(t *testing.T) {
 		t.Fatalf("start page = %v, want overview", m.page)
 	}
 	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	if nm.(Model).page != PageWarRoom {
-		t.Fatalf("after Tab = %v, want war room", nm.(Model).page)
+	if nm.(Model).page != PageDashboard {
+		t.Fatalf("after Tab = %v, want dashboard", nm.(Model).page)
 	}
 }
 
 func TestNumberKeyJumpsPage(t *testing.T) {
 	m := testModel(t)
-	// After renumber: 1總覽 2戰情 3模型 4市場 5算力 6團隊 7科技 8成就
-	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'6'}})
+	// 1總覽 2儀表板 3戰情 4模型 5市場 6算力 7團隊 8科技 9成就
+	nm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'7'}})
 	if nm.(Model).page != PageTeam {
-		t.Fatalf("key 6 = %v, want team", nm.(Model).page)
+		t.Fatalf("key 7 = %v, want team", nm.(Model).page)
 	}
 	nm, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
-	if nm.(Model).page != PageWarRoom {
-		t.Fatalf("key 2 = %v, want war room", nm.(Model).page)
+	if nm.(Model).page != PageDashboard {
+		t.Fatalf("key 2 = %v, want dashboard", nm.(Model).page)
 	}
-	nm, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'8'}})
+	nm, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	if nm.(Model).page != PageWarRoom {
+		t.Fatalf("key 3 = %v, want war room", nm.(Model).page)
+	}
+	nm, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'9'}})
 	if nm.(Model).page != PageAchievements {
-		t.Fatalf("key 8 = %v, want achievements", nm.(Model).page)
+		t.Fatalf("key 9 = %v, want achievements", nm.(Model).page)
 	}
 }
 
-func TestNumPagesIsEight(t *testing.T) {
-	if numPages != 8 {
-		t.Fatalf("numPages=%d want 8", numPages)
+func TestNumPagesIsNine(t *testing.T) {
+	if numPages != 9 {
+		t.Fatalf("numPages=%d want 9", numPages)
 	}
-	if pageNames[1] != "戰情室" {
+	if pageNames[1] != "儀表板" {
 		t.Fatalf("pageNames[1]=%q", pageNames[1])
+	}
+	if pageNames[2] != "戰情室" {
+		t.Fatalf("pageNames[2]=%q", pageNames[2])
+	}
+}
+
+func TestDashboardPageRendersTitles(t *testing.T) {
+	m := testModel(t)
+	m.page = PageDashboard
+	m.width, m.height = 120, 40
+	m.resize(m.width, m.height)
+	v := m.View()
+	for _, want := range []string{"儀表板", "用戶增長", "營收增長", "R&D 增長"} {
+		if !strings.Contains(v, want) {
+			t.Fatalf("missing %q in:\n%s", want, v)
+		}
 	}
 }
 
