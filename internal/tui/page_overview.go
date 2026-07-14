@@ -82,7 +82,7 @@ func overviewPendingStrip(m Model) string {
 	if n == 0 {
 		return ""
 	}
-	return styleWarn.Render(fmt.Sprintf("⚠ 產業待決策 %d · [2]戰情室  [e]決策", n))
+	return styleWarn.Render(fmt.Sprintf("⚠ 產業待決策 %d · [3]戰情室  [e]決策", n))
 }
 
 // dailySourceOrder is the fixed display order for the four accounting identities.

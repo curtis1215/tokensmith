@@ -35,7 +35,7 @@ func TestOverviewHasNoCampaignCards(t *testing.T) {
 func TestOverviewPendingStrip(t *testing.T) {
 	m := pendingChipShortage(testModel(t))
 	v := renderOverview(m)
-	if !strings.Contains(v, "[2]戰情室") || !strings.Contains(v, "待決策") {
+	if !strings.Contains(v, "[3]戰情室") || !strings.Contains(v, "待決策") {
 		t.Fatalf("expected pending strip pointing to war room:\n%s", v)
 	}
 	if strings.Contains(v, "產業動態") {

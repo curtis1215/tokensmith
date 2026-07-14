@@ -366,11 +366,11 @@ func TestResourceBarSegments(t *testing.T) {
 
 func TestTabBarMarksActive(t *testing.T) {
 	got := renderTabBar(PageMarket)
-	// 1總覽 2戰情室 3模型 4市場 …
-	if !strings.Contains(got, "4 市場") {
+	// 1總覽 2儀表板 3戰情室 4模型 5市場 …
+	if !strings.Contains(got, "5 市場") {
 		t.Fatalf("tab bar labels changed unexpectedly: %q", got)
 	}
-	if !strings.Contains(got, "2 戰情室") {
+	if !strings.Contains(got, "3 戰情室") {
 		t.Fatalf("tab bar missing 戰情室: %q", got)
 	}
 }
