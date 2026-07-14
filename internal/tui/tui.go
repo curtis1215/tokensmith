@@ -626,9 +626,12 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 		if m.tokensThisTick {
 			pe := sim.PrestigeEffects(m.state.Prestige.UnlockedPrestige, cfgTick)
 			hq := balance.OfficeTokenRnDMultAt(m.state.Office.Level, cfgTick)
+			// Match sim.Tick token term: raw × streak × prestige × skill × HQ.
+			skMult := sim.TokenSkillRnDMult(m.state, cfgTick)
 			rnd := make(map[string]float64, len(events))
 			for _, e := range events {
-				rnd[e.Source] += sim.TokenRawRnD([]model.TokenEvent{e}, cfgTick) * cfgTick.StreakMult * pe.RnDMult * hq
+				rnd[e.Source] += sim.TokenRawRnD([]model.TokenEvent{e}, cfgTick) *
+					cfgTick.StreakMult * pe.RnDMult * skMult * hq
 			}
 			m.lastTokenRnD = rnd
 			// Attribute token R&D inflow (same amounts as pulse / lastTokenRnD).

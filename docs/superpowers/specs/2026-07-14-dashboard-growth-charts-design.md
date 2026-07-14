@@ -206,16 +206,17 @@
 - 點值：存量（用戶／月營收／R&D 庫存），**不是** R&D 速率。
 - 平滑：用戶可用 `m.disp.TotalUsers`；其餘 truth 或與總覽一致的 approach。
 
-### 6.2 Token 流入（與資源列一致）
+### 6.2 Token 流入（與資源列／`sim.Tick` 一致）
 
 ```
 perSourceRnD = TokenRawRnD(events_of_source)
-             × StreakMult × PrestigeRnDMult × OfficeTokenRnDMult
+             × StreakMult × PrestigeRnDMult × TokenSkillRnDMult × OfficeTokenRnDMult
 ```
 
+- `TokenSkillRnDMult`：`sim.TokenSkillRnDMult`（雇員被動 `token_rnd` 家族 skill 乘積；無技能 = 1）
 - 入帳當下：`day.rndInflow[source] += perSourceRnD`
 - metrics **只記帳**，不重複增加 `Resources.RnD`（sim／既有路徑已加）
-- 優先抽共用 pure helper，或直接复用產生 `lastTokenRnD` 的同一路徑，避免雙公式漂移
+- 與 `lastTokenRnD`／資源列 pulse **同一路徑**，避免雙公式漂移
 
 ### 6.3 Staff 流入
 
