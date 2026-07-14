@@ -631,6 +631,17 @@ func (m Model) handleUpdate(msg tea.Msg) (Model, tea.Cmd) {
 				rnd[e.Source] += sim.TokenRawRnD([]model.TokenEvent{e}, cfgTick) * cfgTick.StreakMult * pe.RnDMult * hq
 			}
 			m.lastTokenRnD = rnd
+			// Attribute token R&D inflow (same amounts as pulse / lastTokenRnD).
+			day := metrics.DayKey(now)
+			for src, amt := range rnd {
+				metrics.AddInflow(&m.metricsDoc, day, src, amt, now.Unix())
+			}
+			m.metricsDirty = true
+		}
+		// Staff R&D for this economy tick (rate from pre-tick state × tickDT).
+		if staff := sim.RnDRatePerSec(prevState, cfgTick) * tickDT; staff > 0 {
+			metrics.AddInflow(&m.metricsDoc, metrics.DayKey(now), metrics.SourceStaff, staff, now.Unix())
+			m.metricsDirty = true
 		}
 		prevFired := m.state.Events.FiredCount
 		m.state = sim.Tick(m.state, tickDT, events, cfgTick)
@@ -1510,7 +1521,7 @@ func sourceKeysOrdered(m map[string]float64) []string {
 	return out
 }
 
-// sourceLabel maps a TokenEvent.Source to its display name.
+// sourceLabel maps a TokenEvent.Source (or metrics.SourceStaff) to its display name.
 func sourceLabel(src string) string {
 	switch src {
 	case "claude-code":
@@ -1521,6 +1532,8 @@ func sourceLabel(src string) string {
 		return "Grok（估算）"
 	case "opencode":
 		return "OpenCode"
+	case metrics.SourceStaff:
+		return "員工"
 	default:
 		return src
 	}

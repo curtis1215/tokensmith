@@ -1,6 +1,11 @@
 package tui
 
 import (
+	"fmt"
+	"strings"
+	"time"
+
+	"tokensmith/internal/metrics"
 	"tokensmith/internal/sim"
 )
 
@@ -25,20 +30,78 @@ func renderDashboard(m Model) string {
 	rev := sim.MonthlyRevenue(m.state)
 	rnd := m.state.Resources.RnD
 
+	days := metrics.SortedDays(m.metricsDoc)
+	hasLong := len(days) >= 2
+	longEmpty := styleMuted.Render("尚無歷史 · 掛機或跨日後會出現")
+
+	longUsers := metrics.Series(m.metricsDoc, days, func(p metrics.DayPoint) float64 { return p.Users })
+	longRev := metrics.Series(m.metricsDoc, days, func(p metrics.DayPoint) float64 { return p.MonthlyRevenue })
+	longRnD := metrics.Series(m.metricsDoc, days, func(p metrics.DayPoint) float64 { return p.RnDStock })
+
+	userLong := longEmpty
+	revLong := longEmpty
+	rndLong := longEmpty
+	if hasLong {
+		userLong = styleCyan.Render(lineChart(longUsers, chartW, chartH))
+		revLong = styleGain.Render(lineChart(longRev, chartW, chartH))
+		rndLong = stylePurple.Render(lineChart(longRnD, chartW, chartH))
+	}
+
+	// R&D inflow multi-line by SourceOrder (positive booked amounts only).
+	inflowSeries := make([][]float64, 0, len(metrics.SourceOrder))
+	for _, src := range metrics.SourceOrder {
+		src := src
+		inflowSeries = append(inflowSeries, metrics.Series(m.metricsDoc, days, func(p metrics.DayPoint) float64 {
+			if p.RnDInflow == nil {
+				return 0
+			}
+			return p.RnDInflow[src]
+		}))
+	}
+	inflowChart := longEmpty
+	if hasLong {
+		inflowChart = stylePurple.Render(multiLineChart(inflowSeries, chartW, chartH))
+	}
+
+	dayKey := m.metricsDay
+	if dayKey == "" {
+		dayKey = metrics.DayKey(time.Now())
+	}
+	todayPt := m.metricsDoc.Days[dayKey]
+	legendParts := make([]string, 0, len(metrics.SourceOrder))
+	for _, src := range metrics.SourceOrder {
+		amt := 0.0
+		if todayPt.RnDInflow != nil {
+			amt = todayPt.RnDInflow[src]
+		}
+		legendParts = append(legendParts, fmt.Sprintf("%s %s", sourceLabel(src), human(amt)))
+	}
+	todayLegend := styleMuted.Render("今日 " + strings.Join(legendParts, " · "))
+
 	userBody := VStack(
 		KV("總用戶", human(users)),
 		styleMuted.Render("近況"),
 		styleCyan.Render(lineChart(m.dashUsers.values(), chartW, chartH)),
+		styleMuted.Render("近 90 日"),
+		userLong,
 	)
 	revBody := VStack(
 		KV("月營收", "$"+human(rev)),
 		styleMuted.Render("近況"),
 		styleGain.Render(lineChart(m.dashRevenue.values(), chartW, chartH)),
+		styleMuted.Render("近 90 日"),
+		revLong,
 	)
 	rndBody := VStack(
 		KV("庫存", human(rnd)),
 		styleMuted.Render("近況"),
 		stylePurple.Render(lineChart(m.dashRnDStock.values(), chartW, chartH)),
+		styleMuted.Render("近 90 日"),
+		rndLong,
+		styleMuted.Render("流入 by 來源"),
+		styleMuted.Render("庫存含消耗；流入為正入帳"),
+		inflowChart,
+		todayLegend,
 	)
 
 	return VStack(
