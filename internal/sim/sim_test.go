@@ -929,3 +929,56 @@ func TestTickUserGrowthEightHoursNear63Percent(t *testing.T) {
 		t.Fatalf("after 8h users=%v; want ~63%% of %v (50–75%%)", u, target)
 	}
 }
+
+func TestTickOfficeTokenRnDMultScalesTokenOnly(t *testing.T) {
+	b := balance.Default()
+	events := []model.TokenEvent{{OutputTokens: 1000}} // raw = 2000 with default weights/divisor
+
+	l1 := model.GameState{Office: model.Office{Level: 1}}
+	l8 := model.GameState{Office: model.Office{Level: 8}}
+	ns1 := Tick(l1, 1, events, b)
+	ns8 := Tick(l8, 1, events, b)
+	if !approx(ns1.Resources.RnD, 2000) {
+		t.Fatalf("L1 token R&D = %v, want 2000", ns1.Resources.RnD)
+	}
+	if !approx(ns8.Resources.RnD, 2000*5.0) {
+		t.Fatalf("L8 token R&D = %v, want %v", ns8.Resources.RnD, 2000*5.0)
+	}
+
+	// Staff/employee R&D must not change with office level when no tokens.
+	emp := []model.Employee{{
+		PrimaryRole: model.RoleResearcher,
+		Stats:       [model.NumRoles]int{40, 0, 0, 0},
+	}}
+	noTok1 := Tick(model.GameState{
+		Office:    model.Office{Level: 1},
+		Employees: emp,
+		Research:  model.Research{EfficiencyMult: 1.0},
+		Market:    model.TalentMarket{NextRefreshAt: 1e12, RandState: 1},
+	}, 10, nil, b)
+	noTok8 := Tick(model.GameState{
+		Office:    model.Office{Level: 8},
+		Employees: emp,
+		Research:  model.Research{EfficiencyMult: 1.0},
+		Market:    model.TalentMarket{NextRefreshAt: 1e12, RandState: 1},
+	}, 10, nil, b)
+	if noTok1.Resources.RnD <= 0 {
+		t.Fatal("expected positive staff R&D with researcher")
+	}
+	if !approx(noTok1.Resources.RnD, noTok8.Resources.RnD) {
+		t.Fatalf("office level must not affect staff R&D: L1=%v L8=%v",
+			noTok1.Resources.RnD, noTok8.Resources.RnD)
+	}
+}
+
+func TestTickOfficeAndStreakStackOnToken(t *testing.T) {
+	b := balance.Default()
+	b.StreakMult = 2.0
+	events := []model.TokenEvent{{OutputTokens: 1000}} // raw 2000
+	s := model.GameState{Office: model.Office{Level: 4}} // mult 2.2
+	ns := Tick(s, 1, events, b)
+	want := 2000 * 2.0 * 2.2 // streak × HQ
+	if !approx(ns.Resources.RnD, want) {
+		t.Fatalf("RnD = %v, want %v (streak×HQ)", ns.Resources.RnD, want)
+	}
+}

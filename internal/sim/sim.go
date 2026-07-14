@@ -89,7 +89,8 @@ func tickWithClocks(s model.GameState, economyDT, industryDT float64, events []m
 	tokenRnD := TokenRawRnD(events, b)
 
 	pe := PrestigeEffects(ns.Prestige.UnlockedPrestige, b)
-	ns.Resources.RnD += staffRnD*pe.RnDMult + tokenRnD*b.StreakMult*pe.RnDMult*sk.TokenRnDMult
+	hq := balance.OfficeTokenRnDMultAt(effectiveOfficeLevel(ns), b)
+	ns.Resources.RnD += staffRnD*pe.RnDMult + tokenRnD*b.StreakMult*pe.RnDMult*sk.TokenRnDMult*hq
 	ns.Resources.Cash -= poolRentPerSec(ns, b) * economyDT
 	serverPower := 0.0
 	for _, sv := range ns.Servers {
