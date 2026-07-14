@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"tokensmith/internal/balance"
 	"tokensmith/internal/ledger"
 	"tokensmith/internal/model"
 	"tokensmith/internal/sim"
@@ -119,6 +120,7 @@ func TestRenderResourceBarShowsGrokEstimateAndOpenCode(t *testing.T) {
 // TestPerSourceRnDDisplayIncludesPrestigeMult proves the status-bar per-source
 // R&D includes pe.RnDMult (e.g. rnd-mult-1 → 1.1x), matching what sim.Tick
 // actually books — without this, prestiging permanently under-reports the bar.
+// Also multiplies by HQ OfficeTokenRnDMult (default Office.Level 0/1 → 1.0).
 func TestPerSourceRnDDisplayIncludesPrestigeMult(t *testing.T) {
 	dir := t.TempDir()
 	lp := filepath.Join(dir, "ledger.json")
@@ -141,17 +143,18 @@ func TestPerSourceRnDDisplayIncludesPrestigeMult(t *testing.T) {
 		Source: "claude-code", InputTokens: 1000, OutputTokens: 500,
 	}}, got.cfg)
 	pe := sim.PrestigeEffects(got.state.Prestige.UnlockedPrestige, got.cfg)
-	// First active day sets streakDays=1 → StreakMult 1.06; RnDMult 1.1 from rnd-mult-1.
-	want := raw * got.currentStreakMult() * pe.RnDMult // 200 * 1.06 * 1.1 = 233.2
+	hq := balance.OfficeTokenRnDMultAt(got.state.Office.Level, got.cfg)
+	// First active day sets streakDays=1 → StreakMult 1.06; RnDMult 1.1 from rnd-mult-1; hq L1=1.0.
+	want := raw * got.currentStreakMult() * pe.RnDMult * hq // 200 * 1.06 * 1.1 * 1.0 = 233.2
 	if math.Abs(got.lastTokenRnD["claude-code"]-want) > 1e-9 {
-		t.Fatalf("lastTokenRnD[claude-code]=%v want %v (raw*StreakMult*RnDMult)",
+		t.Fatalf("lastTokenRnD[claude-code]=%v want %v (raw*StreakMult*RnDMult*hq)",
 			got.lastTokenRnD["claude-code"], want)
 	}
 	if pe.RnDMult != 1.1 {
 		t.Fatalf("RnDMult=%v want 1.1 from rnd-mult-1", pe.RnDMult)
 	}
-	// Without prestige the same tick would show raw*streak only (~212); assert the 1.1x gap.
-	withoutPrestige := raw * got.currentStreakMult()
+	// Without prestige the same tick would show raw*streak*hq only (~212); assert the 1.1x gap.
+	withoutPrestige := raw * got.currentStreakMult() * hq
 	if math.Abs(got.lastTokenRnD["claude-code"]-withoutPrestige*1.1) > 1e-9 {
 		t.Fatalf("displayed R&D should be 1.1× the non-prestige amount: got %v vs base %v",
 			got.lastTokenRnD["claude-code"], withoutPrestige)
@@ -162,6 +165,45 @@ func TestPerSourceRnDDisplayIncludesPrestigeMult(t *testing.T) {
 	wantSeg := "Claude Code +" + human(want) + " R&D"
 	if !strings.Contains(bar, wantSeg) {
 		t.Fatalf("expected prestige-multiplied segment %q in status bar, got:\n%s", wantSeg, bar)
+	}
+}
+
+func TestPerSourceRnDDisplayIncludesOfficeMult(t *testing.T) {
+	dir := t.TempDir()
+	lp := filepath.Join(dir, "ledger.json")
+	mp := filepath.Join(dir, "meta.json")
+	ledger.Save(lp, ledger.Ledger{
+		Sources:   map[string]model.SourceTotals{"claude-code": {In: 1000, Out: 500}},
+		UpdatedAt: 9_000_000_000,
+	})
+	store.SaveMeta(mp, store.Meta{LastRealUnix: 9_000_000_000})
+
+	m := newAtPaths(filepath.Join(dir, "s.json"), lp, mp)
+	m.daemonMode = true
+	m.state.Office.Level = 6 // mult 3.5
+
+	nm, _ := m.Update(tickMsg(time.Unix(0, 0)))
+	got := nm.(Model)
+
+	raw := sim.TokenRawRnD([]model.TokenEvent{{
+		Source: "claude-code", InputTokens: 1000, OutputTokens: 500,
+	}}, got.cfg)
+	pe := sim.PrestigeEffects(got.state.Prestige.UnlockedPrestige, got.cfg)
+	hq := balance.OfficeTokenRnDMultAt(got.state.Office.Level, got.cfg)
+	want := raw * got.currentStreakMult() * pe.RnDMult * hq
+	if math.Abs(got.lastTokenRnD["claude-code"]-want) > 1e-9 {
+		t.Fatalf("lastTokenRnD=%v want %v (raw*streak*prestige*hq)",
+			got.lastTokenRnD["claude-code"], want)
+	}
+
+	got.disp.PulseToken = 5
+	bar := renderResourceBar(got)
+	if !strings.Contains(bar, "總部 ×3.50") {
+		t.Fatalf("expected HQ mult badge in bar, got:\n%s", bar)
+	}
+	wantSeg := "Claude Code +" + human(want) + " R&D"
+	if !strings.Contains(bar, wantSeg) {
+		t.Fatalf("expected HQ-scaled segment %q in bar, got:\n%s", wantSeg, bar)
 	}
 }
 

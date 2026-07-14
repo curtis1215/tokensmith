@@ -72,6 +72,23 @@ func TestRenderHQWideAndNarrow(t *testing.T) {
 	}
 }
 
+func TestRenderHQShowsTokenRnDMult(t *testing.T) {
+	m := newAt(filepath.Join(t.TempDir(), "save.json"))
+	m.state.Office.Level = 6 // 3.5
+	wide := renderHQ(m, 110)
+	if !strings.Contains(wide, "Token→R&D ×3.50") {
+		t.Fatalf("wide HQ missing token mult: %q", wide)
+	}
+	narrow := renderHQ(m, 80)
+	if !strings.Contains(narrow, "Token→R&D ×3.50") {
+		t.Fatalf("narrow HQ missing token mult: %q", narrow)
+	}
+	// Stage icons must remain on narrow
+	if !strings.Contains(narrow, "🗼") {
+		t.Fatalf("narrow HQ dropped stage icons: %q", narrow)
+	}
+}
+
 func TestHQStageNamesMatchOfficeNames(t *testing.T) {
 	// Align with balance.Default().OfficeNames[1..8]
 	want := [8]string{
